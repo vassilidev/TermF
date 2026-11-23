@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   byTheme,
+  codeSpans,
   githubIssues,
   globList,
   members,
@@ -130,4 +131,13 @@ test("team: globs and members in a few words", () => {
   assert.deepEqual(globList(" apps/web/** \n\npackages/ui/**, apps/web/**,"), ["apps/web/**", "packages/ui/**"]);
   assert.deepEqual(globList("  "), []);
   assert.deepEqual(members({ front: 2, qa: 1 }), ["front ×2", "qa"]);
+});
+
+test("a finding keeps its globs, only backticks make code", () => {
+  assert.deepEqual(codeSpans("Tests in tests/**, src/** with `npm test`."), [
+    { code: false, text: "Tests in tests/**, src/** with " },
+    { code: true, text: "npm test" },
+    { code: false, text: "." },
+  ]);
+  assert.deepEqual(codeSpans("a lone ` tick"), [{ code: false, text: "a lone ` tick" }]);
 });

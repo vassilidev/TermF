@@ -399,6 +399,10 @@ impl Api {
             tickets::conversation(app, id, agent_session);
         }
         let mut status = ipc::hook_status(event, payload);
+        // A permission TermF just granted waits for nobody.
+        if event == "PermissionRequest" && task_reply.is_some() {
+            status = None;
+        }
         let limits = (event == "Stop").then(|| self.limits(&app.state::<AppState>().config_dir));
         let mut then = None;
         let output = self.update(app, id, true, |reset| {

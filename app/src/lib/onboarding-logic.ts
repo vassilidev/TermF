@@ -202,3 +202,11 @@ export const teamWhy = {
   reverse: "greenfieldWhyReverse",
   "no-reverse": "greenfieldWhyNoReverse",
 } as const;
+
+/** A finding's text in pieces, `code` for what is between backticks: nothing else is Markdown (`src/**` stays). */
+export function codeSpans(text: string): { code: boolean; text: string }[] {
+  return text
+    .split(/`([^`\n]+)`/)
+    .map((piece, i) => ({ code: i % 2 === 1, text: piece }))
+    .filter((p) => p.text);
+}

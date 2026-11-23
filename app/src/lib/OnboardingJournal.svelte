@@ -14,6 +14,8 @@
     skills: "stackSkillsTitle",
     mcp: "stackMcpTitle",
   } as const;
+  // The CI decision's detail is the notification choice's code.
+  const notifyLabel = { mine: "ciNotifyMine", all: "ciNotifyAll", off: "ciNotifyOff" } as const;
 </script>
 
 <ul class="journal">
@@ -25,7 +27,8 @@
       {:else}
         <b>{t(logLabel[entry.what as keyof typeof logLabel] ?? "obConfigure")}</b>
         {#if entry.decision}<StatusPill status={entry.decision} />{/if}
-        {#if entry.detail}<span class="mono detail">{entry.detail}</span>{/if}
+        {#if entry.what === "ci" && entry.detail in notifyLabel}<span class="detail">{t(notifyLabel[entry.detail as keyof typeof notifyLabel])}</span>
+        {:else if entry.detail}<span class="mono detail">{entry.detail}</span>{/if}
       {/if}
     </li>
   {/each}

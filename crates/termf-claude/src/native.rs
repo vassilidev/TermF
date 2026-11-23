@@ -216,6 +216,7 @@ pub fn preview(
         diff: line_diff(before.as_deref().unwrap_or_default(), &text),
         hash: settings::fingerprint(before.as_deref().unwrap_or_default()),
         text,
+        tracked: false,
     })
 }
 

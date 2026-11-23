@@ -1133,6 +1133,7 @@ const fr = {
   claudeViewPreview: "Aperçu",
   claudeViewPreviewOf: "Changement dans {path}",
   claudeViewNoChange: "Rien ne change dans ce fichier.",
+  recetteClaudeLocalTracked: "Git suit déjà ce fichier : tes réglages locaux seront commités avec lui. Retire-le de git (git rm --cached) pour les garder pour toi.",
   claudeViewEditHint: "Écrit en JSON strict, d'un seul coup. Le modèle et l'effort s'appliquent aux prochaines sessions.",
   claudeViewSaved: "{key} enregistré dans {path}.",
   claudeViewName: "Nom",
@@ -4248,6 +4249,8 @@ const fr = {
   proportionateTaskRole: "Rôle",
   proportionateTaskGoal: "Objectif",
   proportionateTaskMissing: "Donne le rôle et l'objectif de la tâche.",
+  recetteChecks: "Vérification avant livraison",
+  recetteChecksHint: "La commande que l'équipe lance avant de livrer, par exemple npm test. Vide : rien n'est vérifié.",
 };
 
 type Key = keyof typeof fr;
@@ -5375,6 +5378,7 @@ const en: Record<Key, string> = {
   claudeViewPreview: "Preview",
   claudeViewPreviewOf: "Change in {path}",
   claudeViewNoChange: "Nothing changes in this file.",
+  recetteClaudeLocalTracked: "Git already tracks this file: your local settings will be committed with it. Take it out of git (git rm --cached) to keep them to yourself.",
   claudeViewEditHint: "Written as strict JSON, in one go. Model and effort apply to the next sessions.",
   claudeViewSaved: "{key} saved in {path}.",
   claudeViewName: "Name",
@@ -8468,6 +8472,8 @@ const en: Record<Key, string> = {
   proportionateTaskRole: "Role",
   proportionateTaskGoal: "Goal",
   proportionateTaskMissing: "Give the task's role and goal.",
+  recetteChecks: "Check before delivery",
+  recetteChecksHint: "The command the team runs before delivering, for example npm test. Empty: nothing is checked.",
 };
 
 const messages = { fr, en };

@@ -427,6 +427,18 @@ pub fn analyze(
     lang: &str,
     claude: &[String],
 ) -> Result<State> {
+    analyze_showing(config_dir, data_dir, project, lang, claude, &mut |_| {})
+}
+
+/// [`analyze`], each file Claude Code reads or searches reaching `progress` as it goes.
+pub fn analyze_showing(
+    config_dir: &Path,
+    data_dir: &Path,
+    project: &str,
+    lang: &str,
+    claude: &[String],
+    progress: &mut dyn FnMut(conventions::Progress),
+) -> Result<State> {
     let running = Running::start(file(config_dir, data_dir, project)?)?;
     let mut analysis = survey(config_dir, data_dir, project)?;
     analysis.lang = if lang == "fr" { "fr" } else { "en" }.into();
@@ -449,13 +461,14 @@ pub fn analyze(
     // Options before `-p` reach Claude Code like any other: the cap needs no change to the shared runner.
     let mut command = claude.to_vec();
     command.extend(["--max-budget-usd".into(), BUDGET.into()]);
-    let (answer, cost) = conventions::ask(
+    let (answer, cost) = conventions::ask_showing(
         &command,
         &repos,
         &model,
         &effort,
         &prompt(&analysis),
         &schema(),
+        progress,
     )?;
     let names: Vec<String> = analysis.repos.iter().map(|r| r.name.clone()).collect();
     let (findings, questions, dropped) = validate(&answer, &names);

@@ -101,6 +101,8 @@ export const scenarios = [
       await s.waitFor(t.shown("home"));
       const toml = read(join(box.configDir, "projects", "acme.toml"));
       check(/name = "acme"/.test(toml) && toml.includes("acme"), `unexpected project file:\n${toml}`);
+      // The test command found in package.json is what the team's checks run before delivering.
+      check(toml.includes('checks = "npm test"'), `no checks in the project file:\n${toml}`);
       await t.settled("home");
       await t.clean();
     },
@@ -780,6 +782,51 @@ export const scenarios = [
       await s.wait(() => s.exec((css, was) => document.querySelector(`${css} input.switch`)?.checked === !was, row, on), { what: "the switch flipped" });
       await s.wait(() => read(file) !== before && read(file).includes(name), { what: `${name} in acme.toml` });
       await t.settled("library");
+      await t.clean();
+    },
+  },
+  {
+    name: "Claude: two artifacts deleted after one confirmation, then one without any, no tile (fake 2.1.330)",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("claude");
+      const now = Math.floor(Date.now() / 1000);
+      const artifacts = ["Acme launch page", "Acme pricing", "Acme roadmap"].map((title, i) => ({
+        id: `acme${i}`,
+        url: `https://claude.ai/artifact/acme${i}`,
+        title,
+        owner: "me",
+        seen: now,
+      }));
+      // Listed just now: no automatic listing during the run.
+      writeFileSync(join(box.dataDir, "artifacts.json"), JSON.stringify({ artifacts, listed: now }));
+      const titles = () => s.exec((css) => [...document.querySelectorAll(`${css} td.title .name`)].map((e) => e.textContent), pane);
+      const gone = (n) => s.wait(async () => (await titles()).length === n, { what: `${n} artifact(s) left`, timeout: 30_000 });
+      const noTile = async () => check(!(await s.exec(() => document.querySelector(".tile[data-session]"))), "a tile of the hidden session showed");
+      await t.ready();
+      await t.command("claude-artifacts");
+      await s.wait(async () => (await titles()).length === 3, { what: "the three artifacts" });
+      for (const i of [0, 1]) await s.click(`${pane} td.check input`, i);
+      await s.click(`${pane} .bulk .btn.danger-quiet`);
+      await s.waitFor("dialog.confirm[open]");
+      await s.click("dialog.confirm .btn.danger");
+      await gone(1);
+      await noTile();
+      // Asked in the settings not to be asked: no dialog either.
+      await t.view("settings");
+      await s.click(t.sel("data-testid", "section-claude"));
+      const skip = `${t.shown("settings")} input.switch`;
+      await s.waitFor(`${skip}:not([disabled])`);
+      const label = text("en", "claudeRedesignSkipConfirm");
+      await s.click(skip, await s.exec((css, l) => [...document.querySelectorAll(css)].findIndex((e) => e.closest("label")?.textContent.trim() === l), skip, label));
+      await s.wait(() => /delete_without_confirmation = true/.test(read(join(box.configDir, "termf.toml"))), { what: "the choice in termf.toml" });
+      await t.command("claude-artifacts");
+      await s.wait(async () => (await titles()).length === 1, { what: "the last artifact" });
+      await s.click(`${pane} td.actions .icon-btn.delete`);
+      await gone(0);
+      check(!(await s.exec(() => document.querySelector("dialog.confirm[open]"))), "asked to confirm although told not to");
+      await noTile();
       await t.clean();
     },
   },
