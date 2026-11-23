@@ -27,10 +27,25 @@
   import { loadHistory, loadOps, ops, said, stopFollow, type OpsTab } from "$lib/ops.svelte";
   import { app, onScreen } from "$lib/state.svelte";
   import type { VaultStatus } from "$lib/vault.svelte";
+  import { askAI, provide } from "$lib/ask.svelte";
 
   type Key = Parameters<typeof t>[0];
 
   const project = $derived(app.workspace?.projects.find((p) => p.id === app.project));
+
+  // The ⌘I panel: the DBA on the SQL console, devops elsewhere; a connection goes by its name, never its secrets.
+  $effect(() => {
+    const sql = ops.tab === "sql";
+    const name = sql ? ops.sql.connection : ops.connection;
+    const query = sql ? ops.sql.query.trim() : "";
+    return provide("ops", {
+      role: sql ? "dba" : "devops",
+      chips: [
+        ...(name ? [{ id: "ops-connection", kind: "object" as const, label: name, secret: true }] : []),
+        ...(query ? [{ id: "ops-query", kind: "selection" as const, label: t("opssqlTab"), text: query }] : []),
+      ],
+    });
+  });
   const visible = $derived(onScreen("ops"));
 
   $effect(() => {
@@ -320,7 +335,13 @@
       {:else if ops.tab === "connections"}
         {#if !ops.connections.length && ops.editing === null}
           <div class="pane">
-            <EmptyState icon={Server} title={t("opsEmpty")} text={t("opsEmptyHelp")}>
+            <EmptyState
+              icon={Server}
+              title={t("opsEmpty")}
+              text={t("opsEmptyHelp")}
+              onask={() => askAI({ role: "devops", draft: t("aigOpsDraft") })}
+              askLabel={t("aigAskRole", { role: "devops" })}
+            >
               <button class="btn primary" onclick={() => (ops.editing = "")}><Plus size={14} aria-hidden="true" />{t("opsAdd")}</button>
             </EmptyState>
           </div>

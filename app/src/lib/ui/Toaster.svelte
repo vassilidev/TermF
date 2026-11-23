@@ -6,9 +6,12 @@
   import { isMac } from "$lib/files.svelte";
   import { t } from "$lib/i18n";
   import { fixed } from "$lib/keymap.svelte";
-  import { dismiss, hold, release, toasts, undo } from "$lib/ui/toast.svelte";
+  import { dismiss, hold, release, toasts, undo, undoLast } from "$lib/ui/toast.svelte";
 
-  /** Mounted once: the toasts at the bottom of the window. ⌘Z (Ctrl+Z) undoes the newest one, outside a field or a terminal. */
+  /**
+   * Mounted once: the toasts at the bottom of the window. ⌘Z (Ctrl+Z) undoes the newest one, outside a field or a
+   * terminal; with none left, the newest reversible action done before.
+   */
   const icons = { ok: Check, error: CircleAlert, info: Info };
   const undoKey = fixed("Mod+Z");
 
@@ -17,9 +20,10 @@
     const target = e.target as HTMLElement | null;
     if (target?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable='false']), .xterm")) return;
     const last = toasts.findLast((item) => item.undo);
-    if (!last) return;
-    e.preventDefault();
-    undo(last.id);
+    if (last) {
+      e.preventDefault();
+      undo(last.id);
+    } else if (undoLast()) e.preventDefault();
   }
 </script>
 

@@ -43,7 +43,8 @@
   import Lightbulb from "@lucide/svelte/icons/lightbulb";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import { cleanName, nameFromIdea, parentOf, uniqueSlug } from "$lib/greenfield-logic";
-  import { ensure, home as column } from "$lib/home.svelte";
+  import { ensure } from "$lib/home.svelte";
+  import { askAI } from "$lib/ask.svelte";
 
   type Mode = "repos" | "scratch";
   type Scratch = "idea" | "review";
@@ -332,12 +333,13 @@
     setProject(project);
     creating.open = false;
     creating.round++;
-    column.with = "cto";
     ui.view = "home";
     const cto = await ensure(project, "cto");
     if (cto) {
       const text = t("greenfieldSeed", { name: asked.name, path: made.path, idea: asked.idea });
       await invoke("agent_send", { id: cto.id, text }).catch((e) => failed.push(String(e)));
+      // Its answer comes in the ⌘I panel.
+      void askAI({ role: "cto" });
     }
     if (failed.length) app.error = t("setupPartial", { error: failed.join(" · ") });
   }

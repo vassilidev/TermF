@@ -13,13 +13,12 @@ import { openRun, team } from "$lib/team.svelte";
 import { tickets } from "$lib/tickets.svelte";
 // Each module reads the other only inside functions, so the import cycle is safe.
 import { focusSession } from "$lib/commands";
+import { askAI } from "$lib/ask.svelte";
 
 /** A headless session's permission request, as the rail tells it. */
 export type Asked = { tool: string; description: string | null; input: unknown };
 
 export const home = $state({
-  /** Who the column talks to. */
-  with: "cto" as "cto" | "expert",
   /** The wait a click or ⌘J went to last: the next ⌘J goes on from it. */
   shown: null as string | null,
   /** What each waiting headless session asks, by id. */
@@ -125,39 +124,26 @@ async function reach(selector: string): Promise<HTMLElement | null> {
   return null;
 }
 
-/** ⌘⇧H: the Home, the cursor in the message to the CTO; `draft` is written there for the user to read and send. */
+/** ⌘⇧H: the CTO in the ⌘I panel, the cursor in its field; `draft` is written there for the user to read and send. */
 export async function talkCto(draft?: string) {
-  const project = app.project;
-  if (project === null) return;
-  home.with = "cto";
-  showHome();
-  // A page with unsaved changes may keep the screen: it asks first.
-  if (!onScreen("home")) return;
-  await ensure(project, "cto");
-  const box = await reach('[data-panel="home"] .composer textarea');
-  if (draft && box instanceof HTMLTextAreaElement) {
-    // What the user was writing stays, above.
-    box.value = box.value.trim() ? `${box.value.trimEnd()}\n\n${draft}` : draft;
-    // The conversation's binding takes it from the event, as if typed.
-    box.dispatchEvent(new Event("input", { bubbles: true }));
-  }
-  box?.focus();
+  if (app.project === null) return;
+  await askAI({ role: "cto", draft });
 }
 
-/** Goes where a wait is decided: its card in the CTO's thread, its tile, or its conversation. */
+/** Goes where a wait is decided: its card on the Home, the CTO's request in the panel, its tile, or its conversation. */
 export async function goToWait(w: Wait) {
   home.shown = w.key;
   if (w.kind === "tile") return focusSession(w.id);
   if (w.kind === "agent") return showConversation(w.id);
   const project = waitProject(w);
   if (project !== null && project !== app.project) setProject(project);
-  home.with = "cto";
-  showHome();
-  if (!onScreen("home")) return;
+  if (w.kind === "cto") await askAI({ role: "cto" });
+  else {
+    showHome();
+    if (!onScreen("home")) return;
+  }
   // The CTO's own request is its permission card, the last thing it said.
-  const card = await reach(
-    w.kind === "cto" ? '[data-panel="home"] [role="log"] .ask[role="group"]' : `[data-panel="home"] [data-wait="${w.key}"]`,
-  );
+  const card = await reach(w.kind === "cto" ? '[data-ask] [role="log"] .ask[role="group"]' : `[data-panel="home"] [data-wait="${w.key}"]`);
   card?.scrollIntoView({ block: "center" });
   if (card) {
     if (!card.hasAttribute("tabindex")) card.tabIndex = -1;

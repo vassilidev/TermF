@@ -36,6 +36,10 @@
     type Workflow as Flow,
     type WorkflowRun,
   } from "$lib/ci.svelte";
+  import NextStep from "$lib/ui/NextStep.svelte";
+  import { askAI, provide } from "$lib/ask.svelte";
+  import { ciFailed } from "$lib/guide-logic";
+  import { ciRunChip } from "$lib/ask-logic";
 
   const statuses = [
     ["", "ciStatusAll"],
@@ -76,6 +80,14 @@
 
   const repos = $derived(scopeRepos());
   const current = $derived(runs?.find((r) => r.id === selected) ?? runs?.[0]);
+
+  // The ⌘I panel: devops answers, with the run shown; a failure on the branch offers "Why?" first.
+  $effect(() => provide("ci", { repo: ci.repo, chips: current ? [ciRunChip(current)] : [] }));
+  const failed = $derived(runs ? ciFailed(runs, ci.branch.trim() || null) : null);
+  function why(run: WorkflowRun) {
+    selected = run.id;
+    void askAI({ role: "devops", chips: [ciRunChip(run)], draft: t("aigNextCiWhy", { name: run.workflow, branch: run.branch ?? "" }) });
+  }
 
   // A repository out of the current project falls back to the project's first one.
   $effect(() => {
@@ -290,6 +302,13 @@
     {#if runs}<span class="total muted">{t("ciTotal", { count: total })}</span>{/if}
   </form>
 
+  {#if failed}
+    {@const f = failed}
+    <div class="next">
+      <NextStep text={t("aigNextCiFailed", { name: f.workflow, branch: f.branch ?? "" })} action={{ label: t("aigAskWhy"), run: () => why(f) }} />
+    </div>
+  {/if}
+
   {#if error || done || form}
     <div class="banners">
       {#if error}
@@ -492,6 +511,10 @@
     flex-direction: column;
     min-height: 0;
     background: var(--panel);
+  }
+
+  .next {
+    padding: 10px 12px 0;
   }
 
   .filters {

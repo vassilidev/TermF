@@ -71,6 +71,10 @@
     type Worktree,
   } from "$lib/git.svelte";
   import { lanes, localFor, onRemote, path, prFor, samePath, sorted, splitMessage, tally } from "$lib/git-logic";
+  import { provide } from "$lib/ask.svelte";
+
+  // The ⌘I panel: the project's expert reads the repository shown (read only).
+  $effect(() => provide("git", { repo: git.repo || undefined, chips: [] }));
 
   /** Commits read at first, then each time more are asked for. */
   const STEP = 200;
