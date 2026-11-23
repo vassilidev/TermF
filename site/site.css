@@ -318,7 +318,8 @@ p{margin:0 0 1em;text-wrap:pretty}
 .roster-foot p{margin:0}
 
 /* The last call */
-.last{margin-top:clamp(64px,8vw,128px);padding:clamp(72px,10vw,152px) 0;text-align:center;background:radial-gradient(420px 240px at 50% 0%,var(--glow-i),transparent)}
+.last{margin-top:clamp(64px,8vw,128px);padding:clamp(72px,10vw,152px) 0;text-align:center;isolation:isolate}
+.last::before{content:"";position:absolute;z-index:-1;top:0;bottom:0;left:50%;width:100vw;margin-left:-50vw;pointer-events:none;background:radial-gradient(560px 300px at 50% 42%,var(--glow-i),transparent 70%)}
 .last h2{font-size:clamp(2.2rem,5vw,3.6rem);line-height:1.04;font-weight:700;letter-spacing:-.035em}
 .last .cmd{width:min(100%,600px);margin:30px auto 0}
 .last p{margin:22px auto 0;color:var(--mute);font-size:.88rem;max-width:36em}
@@ -335,7 +336,7 @@ p{margin:0 0 1em;text-wrap:pretty}
 
 .dl{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:clamp(40px,6vw,112px)}
 .dl-card{position:relative;isolation:isolate}
-.dl-card::before{content:"";position:absolute;inset:0;z-index:-1;background:radial-gradient(420px 260px at 0% 0%,var(--glow-i),transparent)}
+.dl-card::before{content:"";position:absolute;inset:-160px;z-index:-1;pointer-events:none;background:radial-gradient(420px 260px at 160px 160px,var(--glow-i),transparent 70%)}
 .dl-card h2{font-size:clamp(1.8rem,3vw,2.4rem);line-height:1.05;font-weight:700;letter-spacing:-.03em}
 .dl-card .meta{margin:10px 0 22px;color:var(--mute)}
 .dl-card .cmd{margin-top:8px}
