@@ -40,7 +40,7 @@
   import { openRuns, place, primary, type Wait } from "$lib/home-logic";
   import { decisions as decisionsOf, ensure, goToWait, home, learn, projectWaits, waitProject, type Decision } from "$lib/home.svelte";
   import { ago, t } from "$lib/i18n";
-  import { analyzing, openSetup, reads, setup } from "$lib/onboarding.svelte";
+  import { analyzing, openSetup, reads, readText, setup } from "$lib/onboarding.svelte";
   import { ops } from "$lib/ops.svelte";
   import { agentEnv } from "$lib/agentenv.svelte";
   import type { Step } from "$lib/onboarding-logic";
@@ -134,8 +134,7 @@
     if (step === "analysis") {
       if (project && analyzing[project.id]) {
         const last = reads[project.id]?.last.at(-1);
-        if (!last) return t("obAnalyzing");
-        return last.tool === "Read" ? t("liveRead", { target: shortPath(last.target) }) : t(last.tool === "Grep" ? "liveGrep" : "liveGlob", { target: last.target });
+        return last ? readText(last) : t("obAnalyzing");
       }
       if (!a) return "";
       const repos = a.repos.map((r) => [r.name, r.stack.join(", ")].filter(Boolean).join(" · "));

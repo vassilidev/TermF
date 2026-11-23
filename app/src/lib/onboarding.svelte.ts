@@ -2,7 +2,8 @@ import { untrack } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Step } from "$lib/onboarding-logic";
-import { app, onScreen, panes, ui, type ViewId } from "$lib/state.svelte";
+import { t } from "$lib/i18n";
+import { app, onScreen, panes, shortPath, ui, type ViewId } from "$lib/state.svelte";
 // Each module reads the other only inside functions, so the import cycle is safe.
 import { closePanel } from "$lib/panes.svelte";
 import { creating } from "$lib/newproject.svelte";
@@ -43,6 +44,8 @@ export function closeSetup() {
 
 /** A file Claude Code reads, or a search it makes, during an analysis. */
 export type Read = { tool: string; target: string };
+export const readText = (r: Read) =>
+  r.tool === "Read" ? t("liveRead", { target: shortPath(r.target) }) : t(r.tool === "Grep" ? "liveGrep" : "liveGlob", { target: r.target });
 /** Each project's analysis as it goes: how many reads so far, and the last ones. */
 export const reads = $state<Record<string, { count: number; last: Read[] }>>({});
 let listening: Promise<unknown> | null = null;

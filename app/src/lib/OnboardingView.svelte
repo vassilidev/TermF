@@ -26,7 +26,7 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { lang, t } from "$lib/i18n";
   import { library, showLibrary, type RepoStack } from "$lib/library.svelte";
-  import { analyze as runAnalysis, analyzing, closeSetup, reads, running, setup } from "$lib/onboarding.svelte";
+  import { analyze as runAnalysis, analyzing, closeSetup, reads, readText, running, setup } from "$lib/onboarding.svelte";
   import FileText from "@lucide/svelte/icons/file-text";
   import Search from "@lucide/svelte/icons/search";
   import { spans } from "$lib/markdown-logic";
@@ -427,11 +427,8 @@
                 <ol class="feed">
                   {#each live.last as r, i (live.count - live.last.length + i)}
                     <li>
-                      {#if r.tool === "Read"}
-                        <FileText size={12} aria-hidden="true" /><span class="mono">{t("liveRead", { target: shortPath(r.target) })}</span>
-                      {:else}
-                        <Search size={12} aria-hidden="true" /><span class="mono">{t(r.tool === "Grep" ? "liveGrep" : "liveGlob", { target: r.target })}</span>
-                      {/if}
+                      {#if r.tool === "Read"}<FileText size={12} aria-hidden="true" />{:else}<Search size={12} aria-hidden="true" />{/if}
+                      <span class="mono">{readText(r)}</span>
                     </li>
                   {/each}
                 </ol>
