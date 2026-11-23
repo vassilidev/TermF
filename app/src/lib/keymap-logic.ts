@@ -32,6 +32,7 @@ export const actions: KeyAction[] = [
     defaults: { mac: "Cmd+O", other: "Ctrl+O" },
   },
   { id: "talk_cto", label: "ctoTalk", group: "general", scope: "app", defaults: { mac: "Cmd+Shift+H", other: "Ctrl+Shift+H" } },
+  { id: "ask_ai", label: "aigShortcut", group: "general", scope: "app", defaults: { mac: "Cmd+I", other: "Ctrl+I" } },
   {
     id: "project",
     label: "settingsKeysProject",
