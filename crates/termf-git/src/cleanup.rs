@@ -146,7 +146,7 @@ impl Git {
             if b.merged == Some(true) {
                 reasons.push(Reason::Merged);
             }
-            if merged.iter().any(|m| *m == b.name) {
+            if merged.contains(&b.name) {
                 reasons.push(Reason::PrMerged);
             }
             if b.gone {
