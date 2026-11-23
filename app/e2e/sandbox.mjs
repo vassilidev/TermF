@@ -65,8 +65,11 @@ function git(cwd, env, ...args) {
   execFileSync("git", args, { cwd, env, stdio: "ignore" });
 }
 
-/** `lang`: the system language the app sees ("en" or "fr"). `project`: an "acme" project with the repository. */
-export function createSandbox({ lang = "en", project = true, dark = false } = {}) {
+/**
+ * `lang`: the system language the app sees ("en" or "fr"). `project`: an "acme" project with the repository.
+ * `size`: the window's `[width, height]`, for the narrow layout (under 1100 px).
+ */
+export function createSandbox({ lang = "en", project = true, dark = false, size } = {}) {
   // The long form: Windows gives the temporary folder as RUNNER~1, which the app would not show the same. On macOS
   // /tmp: under /var/folders the app's socket path would pass the 104 bytes a socket allows.
   const root = mkdtempSync(join(realpathSync.native(mac ? "/tmp" : tmpdir()), "termf-e2e-"));
@@ -119,6 +122,7 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
     DISABLE_AUTOUPDATER: "1",
     ...scratch,
   });
+  if (size) env.TERMF_E2E_SIZE = size.join("x");
   if (!windows) {
     Object.assign(env, {
       XDG_CONFIG_HOME: join(home, ".config"),

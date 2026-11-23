@@ -4,9 +4,10 @@
   import { t } from "$lib/i18n";
 
   /**
-   * A panel docked on the right that pushes the content (above it under 1100 px, the parent being `position: relative`).
-   * Its edge drags (or the arrows on it, double-click for the default) between `min` and `max`; the width is kept per
-   * `id` across launches. `open` false folds it away.
+   * A panel docked on the right that pushes the content, the parent being `position: relative`. Where pushing would
+   * leave the content less than `ROOM` (a narrow window, two panels side by side), it goes over the content instead,
+   * and Escape, its button or a click beside it folds it away. Its edge drags (or the arrows on it, double-click for
+   * the default) between `min` and `max`; the width is kept per `id` across launches. `open` false folds it away.
    */
   let {
     id,
@@ -48,6 +49,20 @@
   // svelte-ignore state_referenced_locally (the stored width wins over the default once)
   let size = $state(clamp(stored() ?? width));
 
+  const ROOM = 440;
+  let aside = $state<HTMLElement>();
+  let room = $state(0);
+  const over = $derived(room > 0 && room - size < ROOM);
+
+  // The positioned parent's width: a parent shown as `contents` (the ⌘I panel's) has none.
+  $effect(() => {
+    const parent = aside?.offsetParent;
+    if (!parent) return;
+    const observer = new ResizeObserver(() => (room = parent.clientWidth));
+    observer.observe(parent);
+    return () => observer.disconnect();
+  });
+
   function store() {
     try {
       localStorage.setItem(storeKey(), String(size));
@@ -80,6 +95,10 @@
     for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) grip.addEventListener(type, end);
   }
 
+  function close(e: KeyboardEvent) {
+    if (over && e.key === "Escape" && !e.defaultPrevented) open = false;
+  }
+
   function onkeydown(e: KeyboardEvent) {
     const to = { ArrowLeft: size + 16, ArrowRight: size - 16, Home: max, End: min }[e.key];
     if (to === undefined) return;
@@ -89,7 +108,13 @@
 </script>
 
 {#if open}
-  <aside class="side" style:width="{size}px" aria-label={title}>
+  {#if over}
+    <!-- The pointer's way out; the keyboard's is Escape or the fold button. -->
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="scrim" onclick={() => (open = false)}></div>
+  {/if}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape in the panel folds it while it covers the content) -->
+  <aside class="side" class:over style:width="{size}px" aria-label={title} bind:this={aside} onkeydown={close}>
     <!-- A focusable separator is a widget (WAI-ARIA window splitter): the arrows move it. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
     <div
@@ -138,14 +163,25 @@
     }
   }
 
-  /* Narrow window: over the content rather than squeezing it. */
-  @media (max-width: 1100px) {
-    .side {
-      position: absolute;
-      z-index: 20;
-      inset: 0 0 0 auto;
-      max-width: calc(100% - 48px);
-      box-shadow: var(--shadow-3);
+  .side.over {
+    position: absolute;
+    z-index: 20;
+    inset: 0 0 0 auto;
+    max-width: calc(100% - 48px);
+    box-shadow: var(--shadow-3);
+  }
+
+  .scrim {
+    position: absolute;
+    z-index: 19;
+    inset: 0;
+    background: var(--scrim);
+    animation: fade var(--dur) ease-out;
+  }
+
+  @keyframes fade {
+    from {
+      opacity: 0;
     }
   }
 

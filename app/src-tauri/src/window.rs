@@ -141,10 +141,19 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, data_dir: &Path) {
     }
     let _ = window.show();
     // AppKit fits the window into a smaller screen (GitHub's Macs: 1024×768), under the narrow layout no other run
-    // sees; sized again once shown, it keeps its width (its height stays fitted, no layout depends on it).
-    #[cfg(all(feature = "e2e", target_os = "macos"))]
-    if let Some(c) = app.config().app.windows.iter().find(|w| w.label == "main") {
-        let _ = window.set_size(LogicalSize::new(c.width, c.height));
+    // sees; sized again once shown, it keeps its width (its height stays fitted, no layout depends on it). A scenario
+    // of the narrow layout asks for its own size on every system (`TERMF_E2E_SIZE=1024x700`).
+    #[cfg(feature = "e2e")]
+    {
+        let asked = std::env::var("TERMF_E2E_SIZE").ok().and_then(|s| {
+            let (w, h) = s.split_once('x')?;
+            Some((w.parse::<f64>().ok()?, h.parse::<f64>().ok()?))
+        });
+        let config = app.config().app.windows.iter().find(|w| w.label == "main");
+        let fitted = config.filter(|_| cfg!(target_os = "macos")).map(|c| (c.width, c.height));
+        if let Some((width, height)) = asked.or(fitted) {
+            let _ = window.set_size(LogicalSize::new(width, height));
+        }
     }
     #[cfg(not(all(feature = "e2e", target_os = "macos")))]
     let _ = window.set_focus();
