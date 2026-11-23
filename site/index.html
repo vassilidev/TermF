@@ -90,8 +90,7 @@
 </header>
 
 <main id="main">
-<div class="rail">
-  <!-- On a computer the words sit beside the film, so both fit the first screen; on a phone the film follows the buttons -->
+<div class="wrap">
   <section class="hero" aria-labelledby="hero-h">
     <h1 id="hero-h">Stop using Claude&nbsp;Code <span class="alone"><span>(alone).</span></span></h1>
     <p class="sub"><strong>Tickets in. <span>Reviewed pull requests out.</span></strong> A CTO and a team of Claude Code agents, working live on your machine. You approve.</p>
@@ -108,10 +107,24 @@
       })();
       document.getElementById('get').textContent = os ? 'Download for ' + os : 'Download TermF';
     </script>
-    <figure class="win" id="film" data-video>
-      <div class="win-bar"><i></i><i></i><i></i><span aria-hidden="true">TermF</span></div>
-      <div class="screen"><video playsinline preload="none" poster="media/termf-film-poster.webp" width="1600" height="900" aria-label="The TermF film, 68 seconds, with sound"><source src="media/termf-launch.mp4" type="video/mp4"></video><button class="play" type="button" aria-label="Play the film, 68 seconds, with sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/></svg></button></div>
-    </figure>
+    <div class="film">
+      <figure class="win" id="film" data-video>
+        <div class="win-bar"><i></i><i></i><i></i><span aria-hidden="true">TermF</span></div>
+        <div class="screen"><video playsinline preload="none" width="1600" height="900" aria-label="The TermF film, 68 seconds, with sound"></video><button class="play" type="button" aria-label="Play the film, 68 seconds, with sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/></svg></button></div>
+      </figure>
+    </div>
+    <script>
+      // The film follows the theme, set before the first paint; once started it keeps its source and a theme switch pauses it
+      const dark = () => { const t = document.documentElement.dataset.theme; return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; };
+      const reel = document.getElementById('film'), video = reel.querySelector('video');
+      const syncFilm = () => {
+        if (reel.classList.contains('playing')) return video.pause();
+        const d = dark() ? '-dark' : '';
+        video.poster = `media/termf-film-poster${d}.webp`;
+        if (!video.src.endsWith(`termf-launch${d}.mp4`)) video.src = `media/termf-launch${d}.mp4`;
+      };
+      syncFilm();
+    </script>
     <p class="meta">Free and open source, for macOS, Windows and Linux.</p>
   </section>
 
@@ -324,14 +337,15 @@
 <script>
 const root = document.documentElement, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// The theme switch; the screenshots follow it
+// The theme switch; the screenshots and the film follow it
 const themeBtn = document.querySelector('.theme');
-const dark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 const syncTheme = () => {
   themeBtn.setAttribute('aria-label', dark() ? 'Switch to light theme' : 'Switch to dark theme');
   for (const s of document.querySelectorAll('picture source')) s.media = root.dataset.theme ? (dark() ? 'all' : 'not all') : '(prefers-color-scheme: dark)';
+  syncFilm();
 };
 themeBtn.addEventListener('click', () => { root.dataset.theme = dark() ? 'light' : 'dark'; try { localStorage.setItem('theme', root.dataset.theme); } catch {} syncTheme(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
 syncTheme();
 
 for (const b of document.querySelectorAll('.cmd .copy')) b.addEventListener('click', async () => {
@@ -356,12 +370,10 @@ const menu = document.getElementById('menu');
 menu.addEventListener('click', e => { try { if (e.target.closest('a') && menu.matches(':popover-open')) menu.hidePopover(); } catch {} });
 
 // The film waits for a click, so it plays with sound; then the browser's own controls take over
-const reel = document.getElementById('film');
 if ('video' in reel.dataset) {
-  const video = reel.querySelector('video');
   reel.querySelector('.play').addEventListener('click', () => { video.controls = true; video.play().catch(() => {}); });
   video.addEventListener('play', () => reel.classList.add('playing'));
-  video.addEventListener('ended', () => { reel.classList.remove('playing'); video.controls = false; video.load(); });
+  video.addEventListener('ended', () => { reel.classList.remove('playing'); video.controls = false; video.load(); syncFilm(); });
 }
 
 // The deck: a card the next one covers steps back a little, so the cards read as a stack. Only where they stack

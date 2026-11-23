@@ -26,6 +26,7 @@ pub mod stack;
 
 pub use claude::{
     Imported, Outcome, export_claude, export_target, export_text, import_claude, materialize,
+    session_skills,
 };
 pub use roles::{Setting, applies_to, plannable, role, role_settings};
 

@@ -148,7 +148,15 @@ pub fn deliver(app: &AppHandle, id: i64, confirm: &str) -> Result<Delivery> {
     let team = crate::team::team(app);
     let unmet = team.check_delivery(id)?;
     let tickets = tickets(app);
-    let delivered = tickets.deliver(id, confirm);
+    let change = tickets.run(id).ok().and_then(|r| r.parent).unwrap_or(id);
+    // What the pull request tells is a courtesy: never a reason not to deliver.
+    let story = team
+        .story(id, visual_line(app, change).as_deref())
+        .unwrap_or_else(|e| {
+            eprintln!("termf: run {id}: the pull request tells nothing of the team's work: {e:#}");
+            None
+        });
+    let delivered = tickets.deliver_with_story(id, confirm, story.as_deref());
     if let (Ok(_), Some(done)) = (&delivered, &unmet)
         && let Err(e) = team.delivered_without(id, done)
     {
@@ -161,6 +169,28 @@ pub fn deliver(app: &AppHandle, id: i64, confirm: &str) -> Result<Delivery> {
     let mut delivered = delivered?;
     delivered.run = with_session(app, delivered.run);
     Ok(delivered)
+}
+
+/// A line on the latest version of the visual review of run `id`, for its pull request.
+fn visual_line(app: &AppHandle, id: i64) -> Option<String> {
+    let reviews = crate::visual::visual(app).reviews().ok()?;
+    let version = reviews
+        .into_iter()
+        .find(|r| r.run == Some(id))?
+        .versions
+        .pop()?;
+    let outcome = match version.outcome {
+        Some(termf_visual::Decision::Approved) => "approved",
+        Some(termf_visual::Decision::Rejected) => "rejected",
+        Some(termf_visual::Decision::Changes) => "changes requested",
+        Some(termf_visual::Decision::Pending) | None => "not decided",
+    };
+    let changed = version.screens.iter().filter(|s| s.changed).count();
+    Some(format!(
+        "Version {}: {outcome}; {} screen(s) captured, {changed} changed.",
+        version.n,
+        version.screens.len()
+    ))
 }
 
 /// Opens a new session in the run's worktree that resumes its Claude Code conversation, with what its first
