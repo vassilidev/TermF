@@ -305,6 +305,21 @@ export function helpers(box, port, signal) {
       await t.s.waitFor(`.nav ${t.sel("data-project", id)}[aria-current="true"]`);
     },
 
+    /**
+     * The next save dialogs answer `path`, as a pick in them would. Tauri's `invoke` cannot be replaced, but the
+     * page's IPC goes through `fetch`.
+     */
+    async saveAs(path) {
+      await t.s.exec((p) => {
+        const real = window.fetch;
+        const save = encodeURIComponent("plugin:dialog|save");
+        window.fetch = (url, init) =>
+          String(url).includes(save)
+            ? Promise.resolve(new Response(JSON.stringify(p), { headers: { "Tauri-Response": "ok", "Content-Type": "application/json" } }))
+            : real(url, init);
+      }, path);
+    },
+
     /** A `<select>`'s option, as a pick in its list would. */
     async choose(css, value) {
       const found = await t.s.exec(

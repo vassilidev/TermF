@@ -354,10 +354,7 @@ export const scenarios = [
       }, { what: "the write, the reference and the deletion in the log" });
       await s.waitFor(`${pane} .audit .chain.ok`);
       const file = join(box.root, "vault-audit.jsonl");
-      await s.exec((path) => {
-        const real = window.__TAURI_INTERNALS__.invoke;
-        window.__TAURI_INTERNALS__.invoke = (cmd, args, options) => (cmd === "plugin:dialog|save" ? Promise.resolve(path) : real(cmd, args, options));
-      }, file);
+      await t.saveAs(file);
       await s.click('[data-testid="vault-audit-export"]:not([disabled])');
       await s.wait(() => existsSync(file) && read(file).includes('"delete"'), { what: "the exported audit log" });
       const lines = read(file).trim().split("\n").map((l) => JSON.parse(l));
@@ -435,10 +432,7 @@ export const scenarios = [
       await t.ready();
       await t.view("settings");
       await s.click(`${pane} [data-testid="section-config"]`);
-      await s.exec((path) => {
-        const real = window.__TAURI_INTERNALS__.invoke;
-        window.__TAURI_INTERNALS__.invoke = (cmd, args, options) => (cmd === "plugin:dialog|save" ? Promise.resolve(path) : real(cmd, args, options));
-      }, file);
+      await t.saveAs(file);
       await s.click(`${pane} [data-testid="config-export"]:not([disabled])`);
       await s.wait(() => existsSync(file), { what: "the archive written" });
       await s.waitFor(`${pane} .archive code`);
@@ -1141,15 +1135,17 @@ export const scenarios = [
       await t.typeIn(id, "echo e2e-picked-$((6*7))" + Key.enter);
       await showsLine(t, id, "e2e-picked-42");
       // A drag over the whole screen, as a mouse would: the selection is xterm's, out of the page's.
-      await s.exec((sid) => {
-        const screen = document.querySelector(`.tile[data-session="${sid}"] .xterm-screen`);
-        const r = screen.getBoundingClientRect();
-        const at = (x, y) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, detail: 1 });
-        screen.dispatchEvent(new MouseEvent("mousedown", at(r.left + 2, r.top + 2)));
-        document.dispatchEvent(new MouseEvent("mousemove", at(r.right - 2, r.bottom - 2)));
-        document.dispatchEvent(new MouseEvent("mouseup", at(r.right - 2, r.bottom - 2)));
-        document.querySelector(`.tile[data-session="${sid}"] .xterm-helper-textarea`).focus();
-      }, id);
+      const select = () =>
+        s.exec((sid) => {
+          const screen = document.querySelector(`.tile[data-session="${sid}"] .xterm-screen`);
+          const r = screen.getBoundingClientRect();
+          const at = (x, y) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, detail: 1 });
+          screen.dispatchEvent(new MouseEvent("mousedown", at(r.left + 2, r.top + 2)));
+          document.dispatchEvent(new MouseEvent("mousemove", at(r.right - 2, r.bottom - 2)));
+          document.dispatchEvent(new MouseEvent("mouseup", at(r.right - 2, r.bottom - 2)));
+          document.querySelector(`.tile[data-session="${sid}"] .xterm-helper-textarea`).focus();
+        }, id);
+      await select();
       await s.press(Key.mod, "i");
       // A chip's tooltip is the text it sends.
       const chip = (label) =>
@@ -1158,9 +1154,11 @@ export const scenarios = [
       const picked = await s.wait(() => chip("Selection"), { what: "the terminal's selection as a chip" });
       check(picked.includes("e2e-picked-42"), `the chip does not carry the selection: ${picked}`);
       check(await session(), "the session is not in the context");
-      // Escape closes the panel; the tile's own menu asks again, with a question to read before sending.
+      // Escape closes the panel; the tile's own menu asks again, with a question to read before sending. The panel
+      // resized the terminal, which drops xterm's selection: the user selects again.
       await s.press(Key.escape);
       await s.waitGone("[data-ask] aside");
+      await select();
       await s.exec((sid) => {
         const screen = document.querySelector(`.tile[data-session="${sid}"] .xterm-screen`);
         const r = screen.getBoundingClientRect();
@@ -1169,6 +1167,8 @@ export const scenarios = [
       await s.waitFor('.popover [role="menu"]');
       const i = await s.exec(() => [...document.querySelectorAll('.popover [role="menuitem"]')].findIndex((b) => b.textContent.trim().startsWith("Ask the AI")));
       check(i >= 0, 'no "Ask the AI" in the tile\'s menu');
+      const items = await s.exec(() => [...document.querySelectorAll('.popover [role="menuitem"]')].map((b) => b.textContent.trim()));
+      check(items.some((x) => x.startsWith("Copy")), `no selection to copy in the tile's menu: ${items.join(" / ")}`);
       await s.click('.popover [role="menuitem"]', i);
       await s.wait(async () => (await s.exec(() => document.querySelector("[data-ask] textarea")?.value)) === "Explain what this output shows, and what I should do next.", {
         what: "the question to read before sending",
