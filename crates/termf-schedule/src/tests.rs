@@ -837,6 +837,60 @@ fn real_launchd() {
     assert!(!loaded && !env.scheduler.installed(&id));
 }
 
+/// A scheduled watch reviews the library of the project its folder belongs to, and leaves unreviewed results be.
+#[cfg(unix)]
+#[test]
+fn a_scout_task_watches_its_projects_library() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new("scout");
+    let config = env.root.join("config");
+    let put = |path: PathBuf, text: &str| {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    put(
+        config.join("projects/acme.toml"),
+        &format!("name = \"Acme\"\n[[repos]]\npath = {:?}\n", env.dir),
+    );
+    put(
+        config.join("projects/acme/library/preferences/style.md"),
+        "---\ndescription: Style\n---\nWrite good code.\n",
+    );
+    let answer = serde_json::json!({"type": "result", "is_error": false, "total_cost_usd": 0.4, "structured_output":
+        {"entries": [{"kind": "preference", "name": "style", "new": false, "critique": [{"flaw": "vague",
+         "text": "Too vague.", "practice": "Be specific.", "source": "https://code.claude.com/docs/en/memory"}],
+         "summary": "", "sources": [], "content": "", "script": ""}]}});
+    let claude = env.root.join("bin/claude");
+    put(
+        claude.clone(),
+        &format!(
+            "#!/bin/sh\n[ \"$1\" = --version ] && {{ echo '2.1.999 (Claude Code)'; exit 0; }}\ncat > /dev/null\necho '{answer}'\n"
+        ),
+    );
+    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
+    put(
+        config.join("termf.toml"),
+        &format!("[agents]\nclaude = {:?}\n", claude),
+    );
+    let mut task = env.task("Library watch", "0 9 * * 1");
+    task.mode = Mode::Scout;
+    task.prompt = String::new();
+    let s = &env.scheduler;
+    let id = s.save(None, task.clone(), None).unwrap();
+    let run = |s: &Scheduler| {
+        let claimed = s.claim(&id, &task, Trigger::Manual, None, Host::Cli).unwrap().unwrap();
+        s.run_headless(&claimed, &task, "claude").unwrap()
+    };
+    let done = run(s);
+    assert_eq!(done.status, Status::Succeeded, "{done:?}");
+    assert_eq!(done.cost, Some(0.4));
+    let state = termf_library::scout::state(&config, Some("acme")).unwrap();
+    assert_eq!(state.draft.unwrap().entries.len(), 1);
+    assert_eq!(state.claude.as_deref(), Some("2.1.999"));
+    let again = run(s);
+    assert!(again.output.unwrap().starts_with("Skipped"), "nothing replaced");
+}
+
 /// `cargo test -p termf-schedule -- --ignored real_headless`: the installed Claude Code answers a headless task
 /// (Haiku, 5 cents at most), its answer and cost saved with the run.
 #[test]

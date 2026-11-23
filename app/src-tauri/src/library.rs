@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, State};
 use termf_library::archive::{self, Exported, Preview};
@@ -294,6 +296,15 @@ pub async fn conventions_discard(
 }
 
 #[tauri::command]
+pub async fn conventions_restore(
+    state: State<'_, AppState>,
+    project: String,
+    slug: String,
+) -> CmdResult<Convention> {
+    conventions::restore(&state.config_dir, &project, &slug).map_err(err)
+}
+
+#[tauri::command]
 pub async fn conventions_apply(
     state: State<'_, AppState>,
     project: String,
@@ -336,7 +347,30 @@ pub async fn scout_state(state: State<'_, AppState>, project: Option<String>) ->
     scout::state(&state.config_dir, project.as_deref()).map_err(err)
 }
 
-/// `items` empty: the whole library. What Claude Code searches and reads comes as `scout-progress` events.
+/// What stops the scout's launch in progress (one at a time: the view waits for it).
+static SCOUT_CANCEL: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
+
+/// A launch of the scout, which `scout_cancel` stops; what Claude Code searches and reads comes as
+/// `scout-progress` events.
+pub(crate) fn launch_scout(
+    app: &AppHandle,
+    dir: &Path,
+    project: Option<&str>,
+    items: &[ItemRef],
+) -> anyhow::Result<scout::Draft> {
+    let cancel = Arc::new(AtomicBool::new(false));
+    *SCOUT_CANCEL.lock().unwrap_or_else(|e| e.into_inner()) = Some(cancel.clone());
+    let options = scout::Options {
+        cancel: Some(cancel),
+        ..scout::Options::default()
+    };
+    let progress = &mut |p: scout::Progress| {
+        let _ = app.emit("scout-progress", p);
+    };
+    scout::run(dir, project, items, &options, &claude(dir), progress)
+}
+
+/// `items` empty: the whole library.
 #[tauri::command]
 pub async fn scout_run(
     app: AppHandle,
@@ -345,21 +379,25 @@ pub async fn scout_run(
     items: Vec<ItemRef>,
 ) -> CmdResult<Scout> {
     blocking(&state, move |dir| {
-        let options = scout::Options::default();
-        let progress = &mut |p: scout::Progress| {
-            let _ = app.emit("scout-progress", p);
-        };
-        scout::run(
-            dir,
-            project.as_deref(),
-            &items,
-            &options,
-            &claude(dir),
-            progress,
-        )?;
+        launch_scout(&app, dir, project.as_deref(), &items)?;
         scout::state(dir, project.as_deref())
     })
     .await
+}
+
+#[tauri::command]
+pub fn scout_cancel() {
+    if let Some(cancel) = SCOUT_CANCEL.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        cancel.store(true, Ordering::SeqCst);
+    }
+}
+
+#[tauri::command]
+pub async fn scout_restore(
+    state: State<'_, AppState>,
+    project: Option<String>,
+) -> CmdResult<Scout> {
+    scout::restore(&state.config_dir, project.as_deref()).map_err(err)
 }
 
 #[tauri::command]
