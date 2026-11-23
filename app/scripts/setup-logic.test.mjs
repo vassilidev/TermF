@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { byActivity, derive, forge, githubSlugs, gitlabRepos, groups, projectId, shown, unique } from "../src/lib/setup-logic.ts";
+import { byActivity, derive, forge, githubSlugs, gitlabRepos, groups, projectId, sharedPrefix, shown, tagText, unique } from "../src/lib/setup-logic.ts";
 
 const H = "/Users/alex";
 const gh = (slug) => ({ host: "github.com", slug });
@@ -19,6 +19,23 @@ test("the name comes from the repository, then the GitHub owner, the folder, the
   assert.deepEqual(derive([api, blog], H), { name: "api", from: "first" });
   // The home folder names nothing.
   assert.deepEqual(derive([scratch, card("notes", `${H}/notes`)], H), { name: "scratch", from: "first" });
+});
+
+test("several repositories named alike give their shared start, not the folder that holds them", () => {
+  const front = card("acme-front", `${H}/code/acme-front`);
+  const back = card("acme-back", `${H}/code/acme-back`);
+  assert.deepEqual(derive([front, back], H), { name: "acme", from: "prefix" });
+  assert.equal(sharedPrefix(["shop_api", "shop_web", "Shop.admin"]), "shop");
+  assert.equal(sharedPrefix(["acme-cloud-api", "acme-cloud-web"]), "acme-cloud");
+  assert.equal(sharedPrefix(["api", "web-dashboard"]), "");
+  assert.equal(sharedPrefix(["a-api", "a-web"]), "", "one letter names nothing");
+});
+
+test("stack tags read as people write them", () => {
+  assert.equal(tagText({ name: "nextjs", version: "16.0.3" }), "Next.js 16");
+  assert.equal(tagText({ name: "typescript", version: "^5.9" }), "TypeScript 5");
+  assert.equal(tagText({ name: "github-actions", version: null }), "GitHub Actions");
+  assert.equal(tagText({ name: "css-tailwind" }), "css-tailwind");
 });
 
 test("a name already taken gets the next free number", () => {

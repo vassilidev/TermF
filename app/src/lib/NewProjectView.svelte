@@ -1,60 +1,47 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
-  import ArrowRight from "@lucide/svelte/icons/arrow-right";
+  import { open } from "@tauri-apps/plugin-dialog";
   import Check from "@lucide/svelte/icons/check";
   import FileCode from "@lucide/svelte/icons/file-code";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
-  import Layers from "@lucide/svelte/icons/layers";
-  import LibraryBig from "@lucide/svelte/icons/library-big";
-  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
-  import Pencil from "@lucide/svelte/icons/pencil";
-  import ShieldCheck from "@lucide/svelte/icons/shield-check";
-  import Sparkles from "@lucide/svelte/icons/sparkles";
-  import Ticket from "@lucide/svelte/icons/ticket";
-  import Users from "@lucide/svelte/icons/users";
-  import Workflow from "@lucide/svelte/icons/workflow";
-  import X from "@lucide/svelte/icons/x";
-  import { untrack, type Component } from "svelte";
-  import { initial } from "$lib/ProjectSwitcher.svelte";
-  import RepoDetection, { type Detected } from "$lib/RepoDetection.svelte";
-  import RepoPicker from "$lib/RepoPicker.svelte";
-  import ForgeIcon from "$lib/ui/ForgeIcon.svelte";
-  import { lang, t } from "$lib/i18n";
-  import { cards, closeNewProject, creating } from "$lib/newproject.svelte";
-  import { analyze, openSetup } from "$lib/onboarding.svelte";
-  import {
-    githubIssues,
-    members,
-    recipeLines,
-    teamWhy,
-    trustState,
-    type RepoTrust,
-    type TeamEdit,
-    type Trackers,
-  } from "$lib/onboarding-logic";
-  import Skeleton from "$lib/ui/Skeleton.svelte";
-  import ViewHeader from "$lib/ui/ViewHeader.svelte";
-  import { derive, githubSlugs, gitlabRepos, projectId, unique, type Card } from "$lib/setup-logic";
-  import { app, load, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
-  import { added } from "$lib/team-logic";
-  import { open } from "@tauri-apps/plugin-dialog";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import Lightbulb from "@lucide/svelte/icons/lightbulb";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
+  import { initial } from "$lib/ProjectSwitcher.svelte";
+  import RepoCard from "$lib/RepoCard.svelte";
+  import RepoPicker from "$lib/RepoPicker.svelte";
+  import SetupQuestions from "$lib/SetupQuestions.svelte";
+  import SetupReady from "$lib/SetupReady.svelte";
+  import SetupUnderstood from "$lib/SetupUnderstood.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
+  import StreamSteps from "$lib/ui/StreamSteps.svelte";
+  import Wizard, { type WizardStep } from "$lib/ui/Wizard.svelte";
+  import { toast } from "$lib/ui/toast.svelte";
+  import { t } from "$lib/i18n";
   import { cleanName, nameFromIdea, parentOf, uniqueSlug } from "$lib/greenfield-logic";
   import { ensure, home as column } from "$lib/home.svelte";
+  import { cards, closeNewProject, creating, detect, draft, endNewProject, found, keep, readCards, started, forget } from "$lib/newproject.svelte";
+  import { analyzing, readText, reads } from "$lib/onboarding.svelte";
+  import { ownTeam, type Analysis } from "$lib/onboarding-logic";
+  import { editProject } from "$lib/project.svelte";
+  import { derive, tagText, unique, type Card } from "$lib/setup-logic";
+  import { app, load, setProject, shortPath, ui } from "$lib/state.svelte";
 
-  type Mode = "repos" | "scratch";
-  type Scratch = "idea" | "review";
-  type Visibility = "private" | "public";
+  type StepId = "start" | "repos" | "understood" | "questions" | "ready" | "idea" | "review";
+  type Key = Parameters<typeof t>[0];
   type Plan = { path: string; exists: boolean; files: { name: string; text: string }[]; commands: string[]; gh: boolean };
   type Created = { project: string; path: string; remote: string | null; pushed: boolean; githubError: string | null };
 
-  const scratchSteps: { id: Scratch; label: Key }[] = [
-    { id: "idea", label: "greenfieldStepIdea" },
-    { id: "review", label: "greenfieldStepReview" },
-  ];
+  const labels: Record<StepId, Key> = {
+    start: "cpStepStart",
+    repos: "cpStepRepos",
+    understood: "cpStepUnderstood",
+    questions: "obQuestionsTitle",
+    ready: "cpStepReady",
+    idea: "greenfieldStepIdea",
+    review: "cpStepReview",
+  };
   const examples: [Key, Key][] = [
     ["greenfieldExample1Label", "greenfieldExample1"],
     ["greenfieldExample2Label", "greenfieldExample2"],
@@ -62,211 +49,79 @@
   ];
   const kickoff: Key[] = ["greenfieldKickoffFrame", "greenfieldKickoffResearch", "greenfieldKickoffDecide", "greenfieldKickoffBuild"];
 
-  let mode = $state<Mode>("repos");
-  let scratch = $state<Scratch>("idea");
-  let idea = $state("");
-  /** The folder chosen by the owner; null follows the one beside the known repositories. */
-  let picked = $state<string | null>(null);
-  let onGithub = $state(false);
-  let visibility = $state<Visibility>("private");
+  let busy = $state(false);
+  let ready = $state(false);
+  let error = $state("");
+  let readyStep = $state<SetupReady>();
   let plan = $state<Plan | null>(null);
   let planError = $state("");
   /** The spec the plan or its error is for: creating waits until it is the one shown. */
   let plannedFor = $state("");
 
-  type Step = "repos" | "detect" | "setup" | "trust" | "create";
-  type Block = "team" | "tickets" | "worktree" | "ci" | "skills";
-  type RoleChoice = { role: string; keep: boolean; why: string; detail: string[] };
-  type Draft = {
-    roles: RoleChoice[];
-    steps: string[];
-    team: TeamEdit;
-    skills: { name: string; by: string[]; package: string | null }[];
-    trust: RepoTrust[];
-  };
-  type Notify = "mine" | "all" | "off";
-  type Key = Parameters<typeof t>[0];
-
-  const steps: { id: Step; label: Key }[] = [
-    { id: "repos", label: "setupStepRepos" },
-    { id: "detect", label: "setupStepDetect" },
-    { id: "setup", label: "setupStepSetup" },
-    { id: "trust", label: "setupStepTrust" },
-    { id: "create", label: "setupStepCreate" },
-  ];
-
-  let step = $state<Step>("repos");
-  /** The furthest step reached: the stepper goes back to any step up to it. */
-  let reached = $state(0);
-  let chosen = $state<string[]>([]);
-  /** The name typed by the owner; null follows the one derived from the repositories. */
-  let typed = $state<string | null>(null);
-  let editing = $state(false);
-  let found = $state<Record<string, Detected | string>>({});
-  let draft = $state<Draft | null>(null);
-  /** The selection the draft, or the request for it, is for. */
-  let draftFor = "";
-  let draftError = $state("");
-  let aside = $state<Block[]>([]);
-  /** The selection trusted on the Trust step: another one is trusted only once seen there. */
-  let trustedFor = $state<string | null>(null);
-  let notify = $state<Notify>("mine");
-  let preview = $state("");
-  let busy = $state(false);
-  let error = $state("");
-  let main = $state<HTMLElement>();
-
-  const index = $derived(steps.findIndex((s) => s.id === step));
+  const existing = $derived(creating.project ? (app.workspace?.projects.find((p) => p.id === creating.project) ?? null) : null);
+  const ids = $derived<StepId[]>(
+    existing ? ["repos", "understood", "questions", "ready"] : draft.mode === "scratch" ? ["start", "idea", "review"] : ["start", "repos", "understood", "questions", "ready"],
+  );
+  const at = $derived(Math.min(draft.step, ids.length - 1));
+  const here = $derived(ids[at]);
   const home = $derived(app.workspace?.home ?? "");
   const projects = $derived(app.workspace?.projects ?? []);
-  const taken = $derived(projects.map((p) => p.name));
+  const taken = $derived(projects.filter((p) => p.id !== existing?.id).map((p) => p.name));
   const chosenCards = $derived(
-    chosen.map((path): Card => {
+    draft.chosen.map((path): Card => {
       const known = [...(app.workspace?.repos ?? []), ...projects.flatMap((p) => p.repos)].find((r) => r.path === path);
       return { ...(known ?? { name: path.split(/[\\/]/).pop() ?? path, path, modified: null }), ...cards[path] };
     }),
   );
+  const selection = $derived(draft.chosen.join("\n"));
   const guess = $derived(derive(chosenCards, home));
+  const scratch = $derived(draft.mode === "scratch" && !existing);
   // From scratch the name is also a folder's: `name-2` rather than `name 2`.
-  const dedupe = (n: string) => (mode === "scratch" ? uniqueSlug(n, taken) : unique(n, taken));
-  const suggested = $derived(mode === "scratch" ? dedupe(nameFromIdea(idea)) : guess ? unique(guess.name, taken) : "");
-  const name = $derived((typed ?? "").trim() || suggested);
-  const clash = $derived(typed !== null && !!typed.trim() && dedupe(typed.trim()) !== typed.trim());
-  const where = $derived(picked ?? parentOf(app.workspace?.repos ?? [], home));
-  const spec = $derived({ name, parent: where, idea: idea.trim(), github: onGithub ? visibility : null });
-  const scratchIndex = $derived(scratchSteps.findIndex((s) => s.id === scratch));
-  const ready = $derived(
-    !!name && !!idea.trim() && !!plan && !planError && plannedFor === JSON.stringify(spec) && (!onGithub || plan.gh),
-  );
-  const github = $derived(githubSlugs(chosenCards));
-  const gitlab = $derived(gitlabRepos(chosenCards));
-  const trackers = $derived.by<Trackers | null>(() => {
-    if (!github.length && !gitlab) return null;
-    const none: Trackers = { github: null, jira: null, mcp: {}, implicit: false };
-    const proposed = github.length ? githubIssues({ ...none, implicit: true }) : none;
-    return gitlab ? { ...proposed, gitlab: { host: gitlab.host, repo: null, mine: true, comment: false } } : proposed;
-  });
-  const detected = $derived(chosen.map((p) => found[p]).filter((d): d is Detected => !!d && typeof d !== "string"));
-  const recipe = $derived(
-    recipeLines(Object.fromEntries(chosenCards.flatMap((c) => (typeof found[c.path] === "object" ? [[c.name, (found[c.path] as Detected).recipe]] : [])))),
-  );
-  const workflows = $derived(
-    chosenCards.flatMap((c) => {
-      const d = found[c.path];
-      return typeof d === "object" && d.facts.workflows.length ? [`${c.name} (${d.facts.workflows.join(", ")})`] : [];
-    }),
-  );
-  const keys = $derived([...new Set(detected.flatMap((d) => d.keys))]);
-  const kept = $derived(draft?.roles.filter((r) => r.keep) ?? []);
-  const left = $derived(draft?.roles.filter((r) => !r.keep) ?? []);
-  const id = $derived(projectId(name, projects.map((p) => p.id)));
-  const trust = $derived(trustedFor !== null && trustedFor === chosen.join("\n"));
-  /** Creating waits for the proposal of the current selection, unless its team is set aside. */
-  const waiting = $derived(!draft && !aside.includes("team"));
-  const toTrust = $derived(draft?.trust.filter((r) => !r.trusted).length ?? 0);
-  const blocks: Block[] = ["team", "tickets", "worktree", "ci", "skills"];
-  const blockLabel: Record<Block, Key> = {
-    team: "obTeamTitle",
-    tickets: "obTicketsTitle",
-    worktree: "obRecipeTitle",
-    ci: "obCiTitle",
-    skills: "stackSkillsTitle",
-  };
-  const notifyLabel = { mine: "ciNotifyMine", all: "ciNotifyAll", off: "ciNotifyOff" } as const;
-  const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-  const configDir = $derived(app.workspace?.configDir ?? "");
+  const dedupe = (n: string) => (scratch ? uniqueSlug(n, taken) : unique(n, taken));
+  const suggested = $derived(scratch ? dedupe(nameFromIdea(draft.idea)) : guess ? unique(guess.name, taken) : "");
+  const name = $derived(existing?.name ?? ((draft.name ?? "").trim() || suggested));
+  const clash = $derived(!existing && draft.name !== null && !!draft.name.trim() && dedupe(draft.name.trim()) !== draft.name.trim());
+  const where = $derived(draft.parent ?? parentOf(app.workspace?.repos ?? [], home));
+  const spec = $derived({ name, parent: where, idea: draft.idea.trim(), github: draft.github });
+  const scratchReady = $derived(!!name && !!draft.idea.trim() && !!plan && !planError && plannedFor === JSON.stringify(spec) && (!draft.github || plan.gh));
+  const analysisKey = $derived(existing?.id ?? "");
+  const understood = $derived(draft.analysis !== null && draft.analyzed === selection);
+  const questions = $derived(understood ? draft.analysis!.questions.filter((q) => !ownTeam(q)) : []);
+  const waiting = $derived(!!analyzing[analysisKey] && !understood);
+  const detectedAll = $derived(draft.chosen.every((p) => found[p] !== undefined));
 
-  invoke<Notify>("ci_notify").then((n) => (notify = n), () => {});
-
-  // Each repository is read as soon as it is chosen: its findings are there when the owner looks.
-  const started = new Set<string>();
+  // Each repository is read as soon as it is chosen: what it holds is there when the owner looks.
+  $effect(() => detect(draft.chosen));
   $effect(() => {
-    for (const path of chosen) {
-      if (started.has(path)) continue;
-      started.add(path);
-      invoke<Detected>("setup_detect", { path }).then(
-        (d) => (found[path] = d),
-        (e) => (found[path] = String(e)),
-      );
-    }
+    if (existing) readCards(draft.chosen).catch(() => {});
   });
-
-  // The proposal follows the repositories once the owner gets past the detection.
+  // Kept at every change: closing the window, or the app, loses nothing.
   $effect(() => {
-    const key = chosen.join("\n");
-    if (key === draftFor) return;
-    draft = null;
-    draftError = "";
-    draftFor = "";
-    if (index < 1 || !chosen.length) return;
-    draftFor = key;
-    invoke<Draft>("setup_draft", { repos: [...chosen] }).then(
-      (d) => {
-        if (draftFor === key) draft = d;
-      },
-      (e) => {
-        if (draftFor === key) ((draftError = String(e)), (draftFor = ""));
-      },
-    );
+    void JSON.stringify(draft);
+    keep();
   });
-
-  // Another selection than the one trusted: back to the Trust step before creating.
-  $effect(() => {
-    if (trustedFor === null || trustedFor === chosen.join("\n")) return;
-    trustedFor = null;
-    const at = steps.findIndex((s) => s.id === "trust");
-    untrack(() => {
-      reached = Math.min(reached, at);
-      if (index > at) step = "trust";
-    });
-  });
-
-  const writes = $derived({
-    team: !aside.includes("team") && draft?.team.team ? draft.team : null,
-    trackers: !aside.includes("tickets") ? trackers : null,
-  });
-  /** Each chosen repository's test command: the team runs it before delivering. */
-  const checks = $derived(
-    Object.fromEntries(
-      chosen.flatMap((p) => {
-        const d = found[p];
-        const run = typeof d === "object" ? d.scripts.find((s) => s.kind === "test")?.run : undefined;
-        return run ? [[p, run]] : [];
-      }),
-    ),
-  );
-  $effect(() => {
-    if (step !== "create" || !name) return;
-    const args = { name, repos: [...chosen], team: writes.team, trackers: writes.trackers, checks };
-    invoke<string>("setup_preview", args).then(
-      (text) => (preview = text),
-      (e) => (preview = String(e)),
-    );
-  });
-
   // Every repository removed: back to picking them.
   $effect(() => {
-    if (!chosen.length && index > 0) step = "repos";
+    if (!draft.chosen.length && !scratch && ids.indexOf(here) > ids.indexOf("repos")) draft.step = ids.indexOf("repos");
   });
-
-  function go(to: Step) {
-    const i = steps.findIndex((s) => s.id === to);
-    if (i > 0 && !chosen.length) return;
-    step = to;
-    reached = Math.max(reached, i);
-    main?.scrollTo({ top: 0 });
-  }
-
-  const next = () => (index < steps.length - 1 ? go(steps[index + 1].id) : create());
+  // An existing project's analysis is reused, with its answers: running it again is a choice.
+  $effect(() => {
+    const id = existing?.id;
+    if (!id || draft.analysis) return;
+    invoke<{ analysis: Analysis | null; answers: Record<string, string[]> }>("onboarding_state", { project: id }).then((s) => {
+      if (!s.analysis || draft.analysis || creating.project !== id) return;
+      const same = s.analysis.repos.map((r) => r.path).join("\n") === draft.chosen.join("\n");
+      if (same) Object.assign(draft, { analysis: s.analysis, analyzed: selection, answers: { ...s.answers }, failed: "" });
+    }, () => {});
+  });
 
   // What creating from the idea would do, read again a moment after the owner stops typing.
   $effect(() => {
     const asked = JSON.stringify(spec);
-    // What was shown is for another spec now: nothing to create from until the new plan comes.
     plan = null;
     planError = "";
     plannedFor = "";
-    if (mode !== "scratch" || !spec.name || !spec.idea) return;
+    if (!scratch || !spec.name || !spec.idea) return;
     const timer = setTimeout(() => {
       invoke<Plan>("greenfield_plan", { spec: JSON.parse(asked) }).then(
         (p) => {
@@ -280,30 +135,62 @@
     return () => clearTimeout(timer);
   });
 
-  function switchMode(to: Mode) {
-    if (mode === to || busy) return;
-    mode = to;
-    typed = null;
-    editing = false;
+  function go(i: number) {
+    draft.step = Math.max(0, Math.min(ids.length - 1, i));
+    draft.reached = Math.max(draft.reached, draft.step);
     error = "";
   }
 
-  function goScratch(to: Scratch) {
-    if (to === "review" && (!idea.trim() || !name)) return;
-    scratch = to;
-    main?.scrollTo({ top: 0 });
+  const canContinue = $derived.by(() => {
+    switch (here) {
+      case "repos":
+        return !!draft.chosen.length && !!name;
+      case "understood":
+        return detectedAll;
+      case "ready":
+        return ready;
+      case "idea":
+        return !!draft.idea.trim() && !!name;
+      case "review":
+        return scratchReady;
+      default:
+        return true;
+    }
+  });
+
+  function next() {
+    if (!canContinue || busy) return;
+    if (here === "questions" && draft.question < questions.length - 1) draft.question++;
+    else if (here === "ready") readyStep?.create();
+    else if (here === "review") createScratch();
+    else go(at + 1);
   }
 
-  const nextScratch = () => (scratch === "idea" ? goScratch("review") : createScratch());
+  function back() {
+    if (here === "questions" && draft.question > 0) draft.question--;
+    else go(at - 1);
+  }
+
+  function skip() {
+    const q = questions[draft.question];
+    if (q) draft.answers[q.id] = [...q.default];
+    next();
+  }
+
+  function restart() {
+    const before = $state.snapshot(draft);
+    forget();
+    toast(t("cpRestarted"), { undo: () => Object.assign(draft, before) });
+  }
 
   async function pickParent() {
     const path = await open({ directory: true, multiple: false, defaultPath: where, title: t("greenfieldPickFolder") });
-    if (typeof path === "string") picked = path;
+    if (typeof path === "string") draft.parent = path;
   }
 
   /** Creates the repository and the project, then opens the Home on the CTO, who gets the idea. */
   async function createScratch() {
-    if (busy || !ready) return;
+    if (busy || !scratchReady) return;
     busy = true;
     error = "";
     const asked = { ...spec };
@@ -324,16 +211,18 @@
         : [t("greenfieldNoGithub", { error: made.githubError })];
     await load();
     try {
-      // There is nothing to read in an empty repository yet: the assistant waits for the skeleton.
+      // There is nothing to read in an empty repository yet: the setup waits for the skeleton.
       await invoke("onboarding_seen", { project });
+      await invoke("onboarding_step", { project, step: "done" });
     } catch (e) {
       failed.push(String(e));
     }
     setProject(project);
-    creating.open = false;
-    creating.round++;
+    endNewProject();
     column.with = "cto";
     ui.view = "home";
+    busy = false;
+    toast(t("cpCreated", { name: asked.name }), { kind: "ok" });
     const cto = await ensure(project, "cto");
     if (cto) {
       const text = t("greenfieldSeed", { name: asked.name, path: made.path, idea: asked.idea });
@@ -342,85 +231,26 @@
     if (failed.length) app.error = t("setupPartial", { error: failed.join(" · ") });
   }
 
-  function toggle(block: Block) {
-    aside = aside.includes(block) ? aside.filter((b) => b !== block) : [...aside, block];
-  }
-
-  /** Creates the project, applies what was kept of the proposal, then hands over to the Home or the assistant. */
-  async function create() {
-    if (busy || !name || !chosen.length || waiting) return;
-    busy = true;
-    error = "";
-    let project: string | null = null;
-    try {
-      const before = app.workspace!.projects;
-      const after = await invoke<Project[]>("project_save", { id: null, name, repos: chosen, checks });
-      app.workspace!.projects = after;
-      project = added(before, after);
-    } catch (e) {
-      error = String(e);
-    }
-    if (!project) {
-      error ||= t("setupNotCreated");
-      busy = false;
-      return;
-    }
-    // From here the project exists: a step that fails is reported, never a reason to create it again.
-    const failed: string[] = [];
-    const attempt = async (what: () => Promise<unknown>) => {
-      try {
-        await what();
-      } catch (e) {
-        failed.push(String(e));
-      }
-    };
-    // The setup replaces the assistant's first opening.
-    await attempt(() => invoke("onboarding_seen", { project }));
-    const decide = (proposal: string, detail = "") =>
-      invoke("onboarding_decide", { project, proposal, decision: "accepted", detail });
-    if (writes.team) await attempt(() => invoke("onboarding_team_save", { project, edit: writes.team }));
-    if (writes.trackers)
-      await attempt(async () => {
-        await invoke("tickets_sources_save", { project, trackers: writes.trackers });
-        await decide("tickets", [...github, ...(gitlab?.slugs ?? [])].join(", "));
-      });
-    if (!aside.includes("worktree"))
-      await attempt(async () => {
-        const view = await invoke<{ detected: unknown }>("worktree_recipe", { project });
-        await invoke("worktree_recipe_save", { project, recipe: view.detected });
-        await decide("worktree", chosenCards.map((c) => c.name).join(", "));
-      });
-    if (!aside.includes("ci")) await attempt(() => decide("ci", notify));
-    if (trust) await attempt(() => invoke("claude_trust_set", { project, on: true }));
-    // Runs in the background: the Home and the assistant follow it, and say why if it fails.
-    analyze(project, lang).catch(() => {});
-    if (failed.length) app.error = t("setupPartial", { error: failed.join(" · ") });
-    setProject(project);
-    creating.open = false;
-    creating.round++;
-    ui.view = "home";
-    if (aside.length) openSetup(project, "proposals");
-  }
-
   function onkeydown(e: KeyboardEvent) {
     if (ui.view !== "newProject" || ui.palette || ui.help || e.isComposing) return;
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (mode === "scratch") nextScratch();
-      else if (!busy && chosen.length && name) next();
-    } else if (e.key === "Escape" && !e.defaultPrevented && !editing) {
-      if ((e.target as Element | null)?.closest?.(".xterm")) return;
+      next();
+    } else if (e.key === "Escape" && !e.defaultPrevented && !busy) {
+      const target = e.target as HTMLInputElement | null;
+      if (target?.closest?.(".xterm") || (target?.matches?.("input, textarea") && target.value)) return;
       e.preventDefault();
       closeNewProject();
     }
   }
 
-  const sourceText = $derived.by(() => {
-    if (typed !== null && typed.trim()) return clash ? t("setupNameTaken", { name: typed.trim() }) : t("setupNameTyped");
-    if (mode === "scratch") return suggested ? t("greenfieldNameFromIdea") : t("greenfieldNameEmpty");
+  const nameSource = $derived.by(() => {
+    if (draft.name !== null && draft.name.trim()) return clash ? t("setupNameTaken", { name: draft.name.trim() }) : t("setupNameTyped");
+    if (scratch) return suggested ? t("greenfieldNameFromIdea") : t("greenfieldNameEmpty");
     if (!guess) return t("setupNameEmpty");
     const why = {
       repo: t("setupNameFromRepo"),
+      prefix: t("cpNameFromPrefix"),
       owner: t("setupNameFromOwner", { owner: guess.name }),
       folder: t("setupNameFromFolder", { folder: guess.name }),
       first: t("setupNameFromFirst"),
@@ -428,513 +258,273 @@
     return suggested !== guess.name ? `${why} ${t("setupNameNumbered", { name: guess.name })}` : why;
   });
 
-  const blockIcon: Record<Block, Component> = {
-    team: Users,
-    tickets: Ticket,
-    worktree: FolderGit2,
-    ci: Workflow,
-    skills: Layers,
-  };
-  const why = (r: RoleChoice) =>
-    t(teamWhy[r.why as keyof typeof teamWhy] ?? "obTeamWhyOwn", { detail: r.detail.join(", ") });
+  const list = (names: string[]) => (names.length > 4 ? `${names.slice(0, 4).join(", ")} +${names.length - 4}` : names.join(", "));
+  const understoodAnswer = $derived.by(() => {
+    const done = draft.chosen.map((p) => found[p]).filter((d) => !!d && typeof d !== "string");
+    const tags = [...new Set(done.flatMap((d) => (typeof d === "string" ? [] : d.tags.slice(0, 3).map((x) => tagText({ name: x.name })))))];
+    const tested = done.filter((d) => typeof d !== "string" && d.scripts.some((s) => s.kind === "test")).length;
+    return [tags.slice(0, 4).join(", "), t("cpTestsIn", { n: tested, total: draft.chosen.length })].filter(Boolean).join(". ");
+  });
+  const lastRead = $derived(analyzing[analysisKey] ? reads[analysisKey]?.last.at(-1) : undefined);
+  const folder = $derived.by(() => {
+    const parents = new Set(draft.chosen.map((p) => p.replace(/[\\/][^\\/]*$/, "")));
+    return parents.size === 1 ? shortPath([...parents][0]) : "";
+  });
+
+  const steps = $derived<WizardStep[]>(
+    ids.map((id) => {
+      const step: WizardStep = { id, label: t(labels[id]) };
+      if (id === "start") step.answer = t(draft.mode === "scratch" ? "greenfieldFromScratch" : "greenfieldFromRepos");
+      if (id === "repos") step.answer = list(chosenCards.map((c) => c.name));
+      if (id === "understood") {
+        step.answer = understoodAnswer;
+        if (lastRead) step.live = readText(lastRead);
+      }
+      if (id === "questions") {
+        step.answer = t("cpAnswered", { count: questions.length });
+        step.hint = here === "questions" && questions.length ? t("cpQuestionOf", { n: draft.question + 1, total: questions.length }) : undefined;
+        if (!lastRead && waiting) step.live = t("cpPreparing");
+      }
+      if (id === "ready" || id === "review") step.hint = t("cpNothingBefore");
+      if (id === "idea") step.answer = draft.idea.trim().length > 70 ? `${draft.idea.trim().slice(0, 70)}…` : draft.idea.trim();
+      return step;
+    }),
+  );
+  const left = $derived(Math.max(1, ids.length - 1 - at));
 </script>
 
 <svelte:window {onkeydown} />
 
-{#snippet blockState(block: Block)}
-  {@const off = aside.includes(block)}
-  <span class="state" class:off>{off ? t("setupAside") : t("setupRecommended")}</span>
-  <button type="button" class="btn sm" aria-pressed={off} onclick={() => toggle(block)}>
-    {off ? t("setupKeep") : t("setupCustomize")}
-  </button>
-{/snippet}
-
-{#snippet chooser()}
-  <div class="modes" role="group" aria-label={t("greenfieldModes")}>
-    {#each [["repos", FolderGit2, "greenfieldFromRepos", "greenfieldFromReposText"], ["scratch", Lightbulb, "greenfieldFromScratch", "greenfieldFromScratchText"]] as const as [id, Icon, label, text] (id)}
-      <button type="button" aria-pressed={mode === id} disabled={busy} onclick={() => switchMode(id)}>
-        <span class="icon"><Icon size={16} aria-hidden="true" /></span>
-        <span class="mode-text"><b>{t(label)}</b><span>{t(text)}</span></span>
-      </button>
-    {/each}
+{#snippet head()}
+  <div class="identity">
+    <span class="mark" class:empty={!name} aria-hidden="true">{name ? initial(name) : ""}</span>
+    <div>
+      <b>{name || t("newProject")}</b>
+      <span>
+        {#if scratch}{shortPath(where)}/{name || "…"}
+        {:else if draft.chosen.length}{folder ? t("cpReposIn", { count: draft.chosen.length, folder }) : t("cpRepos", { count: draft.chosen.length })}
+        {:else}{t("setupNoneChosen")}{/if}
+      </span>
+    </div>
   </div>
 {/snippet}
 
+{#snippet foot()}
+  {t("cpLeft", { minutes: left })}
+{/snippet}
+
+{#snippet secondary()}
+  {#if here === "questions" && questions.length}
+    <button class="btn quiet" onclick={skip}>{t("cpSkipQuestion")}</button>
+  {/if}
+{/snippet}
+
+{#snippet title(text: string, lead: string)}
+  <p class="kicker">{t("uiF1StepOf", { n: at + 1, total: ids.length })}</p>
+  <h2>{text}</h2>
+  <p class="lead">{lead}</p>
+{/snippet}
+
 <div class="new-project">
-  <ViewHeader title={t("newProject")}>
-    {#if mode === "scratch"}
-      <ol class="stepper" aria-label={t("setupSteps")}>
-        {#each scratchSteps as s, i (s.id)}
-          {@const done = i < scratchIndex}
-          <li>
-            <button
-              type="button"
-              class:done
-              aria-current={s.id === scratch ? "step" : undefined}
-              disabled={busy || (i > 0 && (!idea.trim() || !name))}
-              onclick={() => goScratch(s.id)}
-            >
-              <span class="dot">{#if done}<Check size={11} strokeWidth={3} aria-hidden="true" />{:else}{i + 1}{/if}</span>
-              <span class="label">{t(s.label)}</span>
-            </button>
-          </li>
-        {/each}
-      </ol>
-    {:else}
-    <ol class="stepper" aria-label={t("setupSteps")}>
-      {#each steps as s, i (s.id)}
-        {@const done = i < index}
-        <li>
-          <button
-            type="button"
-            class:done
-            aria-current={s.id === step ? "step" : undefined}
-            disabled={i > reached || (i > 0 && !chosen.length) || busy}
-            onclick={() => go(s.id)}
-          >
-            <span class="dot">{#if done}<Check size={11} strokeWidth={3} aria-hidden="true" />{:else}{i + 1}{/if}</span>
-            <span class="label">{t(s.label)}</span>
-          </button>
-        </li>
-      {/each}
-    </ol>
+  <header class="bar">
+    <img src="/favicon.png" alt="" width="22" height="22" />
+    <h1>{existing ? t("obPalette", { project: existing.name }) : t("newProject")}</h1>
+    <span class="grow"></span>
+    <span class="saved"><Check size={14} aria-hidden="true" />{t("cpSaved")}</span>
+    {#if started() && !existing}
+      <button class="btn quiet" onclick={restart} disabled={busy}>{t("cpRestart")}</button>
     {/if}
-    {#snippet actions()}
-      <button type="button" class="btn sm quiet cancel" onclick={closeNewProject} disabled={busy}>
-        {t("cancel")}<kbd>Esc</kbd>
-      </button>
-    {/snippet}
-  </ViewHeader>
+    <button class="btn" onclick={closeNewProject} disabled={busy}>{t("obLater")}<kbd>Esc</kbd></button>
+  </header>
 
   <div class="body">
-    <main class="main" bind:this={main}>
-      {#if mode === "scratch"}
-        {#key scratch}
-          <div class="step">
-            {#if scratch === "idea"}
-              {@render chooser()}
-              <h2>{t("greenfieldIdeaTitle")}</h2>
-              <p class="lead">{t("greenfieldIdeaHelp")}</p>
-              <textarea
-                class="field idea"
-                rows="6"
-                aria-label={t("greenfieldIdeaTitle")}
-                placeholder={t("greenfieldIdeaPlaceholder")}
-                bind:value={idea}
-                {@attach (el) => el.focus()}
-              ></textarea>
-              <div class="examples">
-                <span class="note">{t("greenfieldExamples")}</span>
-                {#each examples as [label, text] (label)}
-                  <button type="button" class="btn sm" title={t(text)} onclick={() => (idea = t(text))}>{t(label)}</button>
-                {/each}
-              </div>
-              <aside class="claude">
-                <Sparkles size={16} aria-hidden="true" />
-                <div>
-                  <b>{t("greenfieldTeamTitle")}</b>
-                  <ol class="then kickoff">
-                    {#each kickoff as line (line)}<li>{t(line)}</li>{/each}
-                  </ol>
-                </div>
-              </aside>
-            {:else}
-              <h2>{t("setupCreateTitle", { name })}</h2>
-              <p class="lead">{t("greenfieldReviewHelp")}</p>
-              <div class="recap">
-                {#if planError}
-                  <p class="notice error" role="alert">{planError}</p>
-                {:else if plan}
-                  <section>
-                    <h3>{t("greenfieldFolder")}</h3>
-                    <p class="row">
-                      <FolderOpen size={15} aria-hidden="true" />
-                      <span class="mono" title={plan.path}>{shortPath(plan.path)}</span>
-                      {#if plan.exists}<span class="badge">{t("greenfieldFolderEmpty")}</span>{/if}
-                    </p>
-                  </section>
-                  <section class="scratch-files">
-                    <h3>{t("greenfieldFiles")}</h3>
-                    {#each plan.files as f (f.name)}
-                      <figure class="file">
-                        <figcaption><FileCode size={14} aria-hidden="true" /><span class="mono">{f.name}</span></figcaption>
-                        <pre><code>{f.text}</code></pre>
-                      </figure>
-                    {/each}
-                  </section>
-                  <section class="scratch-files">
-                    <h3>{t("greenfieldCommands")}</h3>
-                    <figure class="file">
-                      <figcaption><SquareTerminal size={14} aria-hidden="true" /><span class="mono">{shortPath(plan.path)}</span></figcaption>
-                      <pre><code>{plan.commands.map((c) => `$ ${c}`).join("\n")}</code></pre>
-                    </figure>
-                    {#if onGithub && !plan.gh}
-                      <p class="notice error" role="alert">{t("greenfieldNoGh")}</p>
-                    {:else if !onGithub}
-                      <p class="note">{t("greenfieldLocalOnly")}</p>
-                    {/if}
-                  </section>
-                  <section>
-                    <h3>{t("setupThen")}</h3>
-                    <ol class="then">
-                      <li>{t("greenfieldThenProject")}</li>
-                      <li>{t("greenfieldThenCto")}</li>
-                      <li>{t("greenfieldThenYou")}</li>
-                    </ol>
-                  </section>
-                {:else}
-                  <Skeleton rows={4} label={t("greenfieldReading")} />
-                {/if}
-              </div>
-            {/if}
-          </div>
-        {/key}
-      {:else}
-      {#key step}
+    <Wizard
+      title={t("setupSteps")}
+      {steps}
+      current={at}
+      onstep={go}
+      onback={back}
+      oncontinue={next}
+      canBack={at > 0 || (here === "questions" && draft.question > 0)}
+      {canContinue}
+      {busy}
+      continueLabel={here === "ready" ? t(existing ? "cpApply" : "setupCreate") : here === "review" ? t("setupCreate") : undefined}
+      {head}
+      {foot}
+      {secondary}
+    >
+      {#if error}<p class="notice error" role="alert">{error}</p>{/if}
+      {#key here}
         <div class="step">
-          {#if step === "repos"}
-            {@render chooser()}
-            <h2>{t("setupReposTitle")}</h2>
-            <p class="lead">{t("setupReposHelp")}</p>
-            <RepoPicker bind:chosen autofocus />
-          {:else if step === "detect"}
-            <h2>{t("setupDetectTitle")}</h2>
-            <p class="lead">{t("setupDetectHelp")}</p>
-            <div class="stack">
-              {#each chosenCards as card (card.path)}
-                <RepoDetection {card} found={found[card.path]} />
+          {#if here === "start"}
+            {@render title(t("cpStartTitle"), t("cpStartLead"))}
+            <div class="modes" role="radiogroup" aria-label={t("greenfieldModes")}>
+              {#each [["repos", FolderGit2, "greenfieldFromRepos", "greenfieldFromReposText"], ["scratch", Lightbulb, "greenfieldFromScratch", "greenfieldFromScratchText"]] as const as [id, Icon, label, text] (id)}
+                <label class="mode" class:on={draft.mode === id}>
+                  <input type="radio" name="mode" value={id} checked={draft.mode === id} onchange={() => (draft.mode = id)} {@attach (el) => { if (draft.mode === id) el.focus(); }} />
+                  <span class="icon"><Icon size={20} aria-hidden="true" /></span>
+                  <span class="mode-text">
+                    <b>{t(label)}</b>
+                    <span>{t(text)}</span>
+                    {#if id === "repos" && app.workspace?.repos.length}<span class="proof">{t("cpReposFound", { count: app.workspace.repos.length })}</span>{/if}
+                  </span>
+                </label>
               {/each}
-              <aside class="claude">
-                <Sparkles size={16} aria-hidden="true" />
-                <div>
-                  <b>{t("setupClaudeTitle")}</b>
-                  <p>{t("setupClaudeLater", { budget: money.format(2) })}</p>
-                </div>
-              </aside>
             </div>
-          {:else if step === "setup"}
-            <h2>{t("setupProposeTitle")}</h2>
-            <p class="lead">{t("setupProposeHelp")}</p>
-            {#if draftError}<p class="notice error" role="alert">{draftError}</p>{/if}
-            <ul class="blocks">
-              {#each blocks as block (block)}
-                {@const Icon = blockIcon[block]}
-                {@const off = aside.includes(block)}
-                <li class:off>
-                  <span class="icon"><Icon size={16} aria-hidden="true" /></span>
-                  <div class="what">
-                    <h3>{t(blockLabel[block])}</h3>
-                    {#if block === "team"}
-                      {#if draft}
-                        <div class="lines">
-                          {#each draft.team.team?.squads ?? [] as sq (sq.id)}
-                            <p class="row">
-                              <span class="key">{t("obTeamSquad", { id: sq.id })}</span>
-                              {#each members(sq.roles) as m (m)}<span class="badge">{m}</span>{/each}
-                            </p>
-                          {/each}
-                          {#if draft.team.team?.staff.length}
-                            <p class="row">
-                              <span class="key">{t("obTeamStaff")}</span>
-                              {#each draft.team.team.staff as r (r)}
-                                <span class="badge" title={kept.find((k) => k.role === r) ? why(kept.find((k) => k.role === r)!) : ""}>{r}</span>
-                              {/each}
-                            </p>
-                          {/if}
-                          {#if left.length}
-                            <p class="note">{t("obTeamLeftOut", { roles: left.map((r) => `${r.role} (${why(r)})`).join(", ") })}</p>
-                          {/if}
-                        </div>
-                      {:else}
-                        <p class="note wait"><LoaderCircle size={13} aria-hidden="true" class="spin" />{t("setupProposing")}</p>
-                      {/if}
-                    {:else if block === "tickets"}
-                      {#if github.length}<p>{t("setupTicketsGithub", { repos: github.join(", ") })}</p>{/if}
-                      {#if gitlab}<p>{t("tickets2SetupGitlab", { repos: gitlab.slugs.join(", ") })}</p>{/if}
-                      {#if !github.length && !gitlab}<p>{t("obTicketsNone")}</p>{/if}
-                      {#if keys.length}<p class="note">
-                          {t("setupTicketsKeys", { keys: keys.map((k) => `${k}-…`).join(", ") })}
-                          {t("tickets2SetupKeysLinear")}
-                        </p>{/if}
-                    {:else if block === "worktree"}
-                      <ul class="recipe">
-                        {#each recipe as line (line.repo)}
-                          <li>
-                            <span class="key">{line.repo}</span>
-                            {#each [...new Set(line.parts)] as part (part)}<code>{part}</code>{:else}<span class="muted">{t("obRecipeNothing")}</span>{/each}
-                          </li>
-                        {/each}
-                      </ul>
-                    {:else if block === "ci"}
-                      <p>{workflows.length ? t("obCiWorkflows", { list: workflows.join(" · ") }) : t("obCiNone")}</p>
-                      <p class="note">{t("setupCiNotify", { mode: t(notifyLabel[notify]) })}</p>
-                    {:else if block === "skills"}
-                      {#if draft}
-                        {#if draft.skills.length}
-                          <p class="row">
-                            {#each draft.skills as s (s.name)}
-                              <span class="badge" title={s.package ?? s.by.join(", ")}>{s.name}</span>
-                            {/each}
-                          </p>
-                        {:else}
-                          <p class="muted">{t("setupSkillsNone")}</p>
-                        {/if}
-                      {:else}
-                        <p class="note wait"><LoaderCircle size={13} aria-hidden="true" class="spin" />{t("setupProposing")}</p>
-                      {/if}
-                    {/if}
-                    {#if off}<p class="note aside-note">{t("setupAsideHint")}</p>{/if}
-                  </div>
-                  <div class="act">{@render blockState(block)}</div>
-                </li>
-              {/each}
-              <li class="later">
-                <span class="icon"><LibraryBig size={16} aria-hidden="true" /></span>
-                <div class="what">
-                  <h3>{t("setupConvTitle")}</h3>
-                  <p>{t("setupConvText")}</p>
-                </div>
-                <div class="act"><span class="state">{t("setupLater")}</span></div>
-              </li>
+          {:else if here === "repos" && existing}
+            {@render title(t("cpStepRepos"), t("cpReposExisting"))}
+            <ul class="fixed">
+              {#each chosenCards as card (card.path)}<li><RepoCard {card} /></li>{/each}
             </ul>
-          {:else if step === "trust"}
-            <h2>{t("setupTrustTitle")}</h2>
-            <p class="lead">{t("setupTrustHelp")}</p>
-            <div class="trust">
-              <ul class="loads">
-                <li><FileCode size={15} aria-hidden="true" /><span>{t("setupTrustRules")}</span></li>
-                <li><FileCode size={15} aria-hidden="true" /><span>{t("setupTrustMcp")}</span></li>
-                <li><Layers size={15} aria-hidden="true" /><span>{t("setupTrustSkills")}</span></li>
-              </ul>
-              {#if draft}
-                <ul class="repos">
-                  {#each draft.trust as r (r.path)}
-                    <li>
-                      <span class="forge"><ForgeIcon host={cards[r.path]?.remote?.host} size={14} /></span>
-                      <b>{r.name}</b>
-                      <span class="mono path" title={r.root}>{shortPath(r.root)}</span>
-                      <span class="loaded">
-                        {#if r.allow || r.mcp}
-                          {[r.allow ? t("obTrustRules", { count: r.allow }) : "", r.mcp ? t("obTrustMcp", { count: r.mcp }) : ""].filter(Boolean).join(" · ")}
-                        {:else}{t("setupTrustNothing")}{/if}
-                      </span>
-                      <span class="badge" class:ok={r.trusted}>{t(r.trusted ? "obTrusted" : "obUntrusted")}</span>
-                    </li>
-                  {/each}
-                </ul>
-                {#if trustState(draft.trust) === "on"}
-                  <p class="notice ok">{t("setupTrustAll")}</p>
-                {:else}
-                  <label class="agree" class:on={trust}>
-                    <input
-                      type="checkbox"
-                      checked={trust}
-                      onchange={(e) => (trustedFor = e.currentTarget.checked ? chosen.join("\n") : null)}
-                    />
-                    <span>
-                      <b>{t("obTrustConfirm")}</b>
-                      <span class="muted">{t("obTrustNote")}</span>
-                    </span>
-                  </label>
-                  <p class="note">{t("setupTrustLater")}</p>
+            <button class="btn" onclick={() => editProject(existing.id)}>{t("cpReposChange")}</button>
+          {:else if here === "repos"}
+            {@render title(t("cpStepRepos"), t("setupReposHelp"))}
+            <div class="name">
+              <label for="project-name">{t("projectName")}</label>
+              <input
+                id="project-name"
+                class="field"
+                value={draft.name ?? ""}
+                placeholder={suggested || t("projectName")}
+                aria-describedby="project-name-help"
+                aria-invalid={clash || undefined}
+                spellcheck="false"
+                autocomplete="off"
+                oninput={(e) => (draft.name = e.currentTarget.value || null)}
+              />
+              <p id="project-name-help" class="help" class:warn={clash}>
+                {nameSource}
+                {#if clash}
+                  <button class="btn link" onclick={() => (draft.name = dedupe(draft.name!.trim()))}>{t("setupNameUse", { name: dedupe(draft.name!.trim()) })}</button>
+                {:else if draft.name !== null && draft.name.trim() && suggested}
+                  <button class="btn link" onclick={() => (draft.name = null)}>{t("setupNameReset", { name: suggested })}</button>
                 {/if}
-              {:else}
-                <p class="note wait"><LoaderCircle size={13} aria-hidden="true" class="spin" />{t("setupProposing")}</p>
+              </p>
+            </div>
+            <RepoPicker bind:chosen={draft.chosen} autofocus />
+          {:else if here === "understood"}
+            {@render title(t("cpStepUnderstood"), t("cpUnderstoodLead"))}
+            <SetupUnderstood project={existing?.id ?? null} chosen={chosenCards} />
+          {:else if here === "questions"}
+            {@render title(t("obQuestionsTitle"), understood ? (questions.length ? t("cpQuestionsLead", { count: questions.length }) : t("obNoQuestions")) : t("cpQuestionsWaiting"))}
+            {#if understood && questions.length}
+              <SetupQuestions {questions} analysis={draft.analysis!} />
+            {:else if waiting}
+              {@const live = reads[analysisKey]}
+              <div class="waiting">
+                <p><Sparkles size={15} aria-hidden="true" />{t("cpPreparing")}</p>
+                {#if live?.last.length}
+                  <StreamSteps live steps={live.last.map((r, i) => ({ verb: readText(r), state: i === live.last.length - 1 ? "now" : "ok" }))} />
+                {:else}
+                  <Skeleton rows={2} />
+                {/if}
+              </div>
+            {:else if !understood && draft.failed}
+              <p class="notice warn" role="status">{t("cpClaudeFailed", { error: draft.failed })}</p>
+            {/if}
+          {:else if here === "ready"}
+            {@render title(t("cpStepReady"), t(existing ? "cpReadyLeadExisting" : "cpReadyLead"))}
+            <SetupReady bind:this={readyStep} project={existing} chosen={chosenCards} {name} bind:busy bind:ready />
+          {:else if here === "idea"}
+            {@render title(t("greenfieldIdeaTitle"), t("greenfieldIdeaHelp"))}
+            <textarea
+              class="field idea"
+              rows="5"
+              aria-label={t("greenfieldIdeaTitle")}
+              placeholder={t("greenfieldIdeaPlaceholder")}
+              bind:value={draft.idea}
+              {@attach (el) => el.focus()}
+            ></textarea>
+            <div class="examples">
+              <span class="muted">{t("greenfieldExamples")}</span>
+              {#each examples as [label, text] (label)}
+                <button class="btn sm" title={t(text)} onclick={() => (draft.idea = t(text))}>{t(label)}</button>
+              {/each}
+            </div>
+            <div class="settings">
+              <div class="name">
+                <label for="project-name">{t("projectName")}</label>
+                <input
+                  id="project-name"
+                  class="field"
+                  value={draft.name ?? ""}
+                  placeholder={suggested || t("projectName")}
+                  aria-describedby="project-name-help"
+                  aria-invalid={clash || undefined}
+                  spellcheck="false"
+                  autocomplete="off"
+                  oninput={(e) => {
+                    const field = e.currentTarget;
+                    // What cannot be in a folder name leaves the field too, so what is shown is what is used.
+                    if (cleanName(field.value) !== field.value) field.value = cleanName(field.value);
+                    draft.name = field.value || null;
+                  }}
+                />
+                <p id="project-name-help" class="help" class:warn={clash}>{nameSource}</p>
+              </div>
+              <div class="line">
+                <span class="key">{t("greenfieldWhere")}</span>
+                <span class="mono" title={`${where}/${name}`}>{shortPath(where)}/<b>{name || "…"}</b></span>
+                <button class="btn link" disabled={busy} onclick={pickParent}>{t("greenfieldChange")}</button>
+              </div>
+              <label class="line check">
+                <input type="checkbox" checked={!!draft.github} onchange={(e) => (draft.github = e.currentTarget.checked ? "private" : null)} />
+                <span>{t("greenfieldGithub")}</span>
+              </label>
+              {#if draft.github}
+                <div class="line">
+                  <div class="segmented" role="radiogroup" aria-label={t("greenfieldVisibility")}>
+                    {#each [["private", "greenfieldPrivate"], ["public", "greenfieldPublic"]] as const as [v, label] (v)}
+                      <button role="radio" aria-checked={draft.github === v} onclick={() => (draft.github = v)}>{t(label)}</button>
+                    {/each}
+                  </div>
+                  <span class="muted">{t(draft.github === "private" ? "greenfieldPrivateHint" : "greenfieldPublicHint")}</span>
+                </div>
               {/if}
             </div>
-          {:else}
-            <h2>{t("setupCreateTitle", { name })}</h2>
-            <p class="lead">{t("setupCreateHelp")}</p>
-            <div class="recap">
-              <section>
-                <h3>{t("setupWrites")}</h3>
-                <figure class="file">
-                  <figcaption>
-                    <FileCode size={14} aria-hidden="true" />
-                    <span class="mono">{shortPath(`${configDir}/projects/${id}.toml`)}</span>
-                  </figcaption>
-                  <pre><code>{preview}</code></pre>
-                </figure>
-                <ul class="also">
-                  {#if !aside.includes("worktree")}<li><Check size={14} aria-hidden="true" />{t("setupWritesRecipe")}</li>{/if}
-                  {#if trust && toTrust}<li><ShieldCheck size={14} aria-hidden="true" />{t("setupWritesTrust", { count: toTrust })}</li>{/if}
-                  <li class="none"><X size={14} aria-hidden="true" />{t("setupNothingInRepos")}</li>
-                </ul>
-              </section>
-              <section>
+            <aside class="kickoff">
+              <Sparkles size={16} aria-hidden="true" />
+              <div>
+                <b>{t("greenfieldTeamTitle")}</b>
+                <ol>{#each kickoff as line (line)}<li>{t(line)}</li>{/each}</ol>
+              </div>
+            </aside>
+          {:else if here === "review"}
+            {@render title(t("setupCreateTitle", { name }), t("greenfieldReviewHelp"))}
+            {#if planError}
+              <p class="notice error" role="alert">{planError}</p>
+            {:else if plan}
+              <div class="recap">
+                <p class="line"><FolderOpen size={15} aria-hidden="true" /><span class="mono" title={plan.path}>{shortPath(plan.path)}</span>{#if plan.exists}<span class="badge">{t("greenfieldFolderEmpty")}</span>{/if}</p>
+                <details>
+                  <summary><FileCode size={14} aria-hidden="true" />{t("greenfieldFiles")}</summary>
+                  {#each plan.files as f (f.name)}
+                    <figure><figcaption class="mono">{f.name}</figcaption><pre><code>{f.text}</code></pre></figure>
+                  {/each}
+                </details>
+                <details>
+                  <summary><SquareTerminal size={14} aria-hidden="true" />{t("greenfieldCommands")}</summary>
+                  <pre><code>{plan.commands.map((c) => `$ ${c}`).join("\n")}</code></pre>
+                </details>
+                {#if draft.github && !plan.gh}
+                  <p class="notice error" role="alert">{t("greenfieldNoGh")}</p>
+                {:else if !draft.github}
+                  <p class="muted">{t("greenfieldLocalOnly")}</p>
+                {/if}
                 <h3>{t("setupThen")}</h3>
                 <ol class="then">
-                  <li>{t("setupThenHome")}</li>
-                  <li>{t("setupThenAnalysis")}</li>
-                  {#if aside.length}
-                    <li>{t("setupThenAssistant", { list: aside.map((b) => t(blockLabel[b])).join(", ") })}</li>
-                  {/if}
+                  <li>{t("greenfieldThenProject")}</li>
+                  <li>{t("greenfieldThenCto")}</li>
+                  <li>{t("greenfieldThenYou")}</li>
                 </ol>
-              </section>
-            </div>
+              </div>
+            {:else}
+              <Skeleton rows={4} label={t("greenfieldReading")} />
+            {/if}
           {/if}
         </div>
       {/key}
-      {/if}
-    </main>
-
-    <aside class="project" aria-label={t("setupYourProject")}>
-      <div class="identity">
-        <span class="mark" class:empty={!name} aria-hidden="true">{name ? initial(name) : ""}</span>
-        {#if editing}
-          <input
-            class="name-field"
-            aria-label={t("projectName")}
-            placeholder={suggested || t("projectName")}
-            value={typed ?? name}
-            spellcheck="false"
-            autocomplete="off"
-            oninput={(e) => {
-              const field = e.currentTarget;
-              // What cannot be in a folder name leaves the field too, so what is shown is what is used.
-              if (mode === "scratch" && cleanName(field.value) !== field.value) field.value = cleanName(field.value);
-              typed = field.value;
-            }}
-            onblur={() => (editing = false)}
-            onkeydown={(e) => {
-              if (e.key === "Enter" || e.key === "Escape") {
-                e.preventDefault();
-                e.stopPropagation();
-                if (e.key === "Escape") typed = null;
-                editing = false;
-              }
-            }}
-            {@attach (el) => {
-              el.focus();
-              el.select();
-            }}
-          />
-        {:else}
-          <button type="button" class="name" class:placeholder={!name} title={t("setupEditName")} onclick={() => (editing = true)}>
-            <span>{name || t("newProject")}</span>
-            <Pencil size={14} aria-hidden="true" />
-          </button>
-        {/if}
-      </div>
-      <p class="source" class:warn={clash}>
-        {sourceText}
-        {#if clash}
-          <button type="button" class="link" onclick={() => (typed = dedupe(typed!.trim()))}>
-            {t("setupNameUse", { name: dedupe(typed!.trim()) })}
-          </button>
-        {:else if typed !== null && typed.trim() && suggested}
-          <button type="button" class="link" onclick={() => (typed = null)}>{t("setupNameReset", { name: suggested })}</button>
-        {/if}
-      </p>
-
-      {#if mode === "scratch"}
-        <h3 class="count">{t("greenfieldWhere")}</h3>
-        <div class="where">
-          <span class="mono" title={`${where}/${name}`}>{shortPath(where)}/<b>{name || "…"}</b></span>
-          <button type="button" class="btn link" disabled={busy} onclick={pickParent}>{t("greenfieldChange")}</button>
-        </div>
-        <h3 class="count">{t("greenfieldGithubTitle")}</h3>
-        <label class="option">
-          <input type="checkbox" bind:checked={onGithub} disabled={busy} />
-          <span>{t("greenfieldGithub")}</span>
-        </label>
-        {#if onGithub}
-          <div class="segmented visibility" role="radiogroup" aria-label={t("greenfieldVisibility")}>
-            {#each [["private", "greenfieldPrivate"], ["public", "greenfieldPublic"]] as const as [v, label] (v)}
-              <button type="button" role="radio" aria-checked={visibility === v} disabled={busy} onclick={() => (visibility = v)}>{t(label)}</button>
-            {/each}
-          </div>
-          <p class="empty">{t(visibility === "private" ? "greenfieldPrivateHint" : "greenfieldPublicHint")}</p>
-        {/if}
-      {:else}
-      <h3 class="count">{t("repos")} <span>{chosen.length}</span></h3>
-      {#if chosenCards.length}
-        <ul class="chosen">
-          {#each chosenCards as card (card.path)}
-            {@const d = found[card.path]}
-            <li>
-              <span class="forge"><ForgeIcon host={card.remote?.host} size={13} /></span>
-              <span class="n" title={shortPath(card.path)}>{card.name}</span>
-              {#if index >= 1}
-                <span class="st" title={d === undefined ? t("setupDetecting", { name: card.name }) : ""}>
-                  {#if d === undefined}<LoaderCircle size={12} aria-hidden="true" class="spin" />{:else if typeof d !== "string"}<Check size={12} aria-hidden="true" />{/if}
-                </span>
-              {/if}
-              <button
-                type="button"
-                class="icon-btn sm"
-                aria-label={t("t5RemoveRepo", { name: card.name })}
-                title={t("t5RemoveRepo", { name: card.name })}
-                disabled={busy}
-                onclick={() => (chosen = chosen.filter((p) => p !== card.path))}
-              >
-                <X size={13} aria-hidden="true" />
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {:else}
-        <p class="empty">{t("setupNoneChosen")}</p>
-      {/if}
-      {/if}
-
-      <div class="grow"></div>
-      {#if error}<p class="notice error" role="alert">{error}</p>{/if}
-      {#if mode === "scratch"}
-        <div class="actions">
-          {#if scratch === "review"}
-            <button type="button" class="btn back" disabled={busy} onclick={() => goScratch("idea")}>
-              <ArrowLeft size={14} aria-hidden="true" />{t("obBack")}
-            </button>
-          {/if}
-          <button
-            type="button"
-            class="btn primary go"
-            disabled={busy || !idea.trim() || !name || (scratch === "review" && !ready)}
-            onclick={nextScratch}
-          >
-            {#if busy}
-              <LoaderCircle size={14} aria-hidden="true" class="spin" />{t("setupCreating")}
-            {:else if scratch === "review"}
-              {t("setupCreate")}
-            {:else}
-              {t("obContinue")}<ArrowRight size={14} aria-hidden="true" />
-            {/if}
-          </button>
-        </div>
-      {:else}
-      {#if step === "create" && waiting}
-        {#if draftError}
-          <p class="notice error" role="alert">{draftError}</p>
-        {:else}
-          <p class="note wait"><LoaderCircle size={13} aria-hidden="true" class="spin" />{t("setupProposing")}</p>
-        {/if}
-      {/if}
-      <div class="actions">
-        {#if index > 0}
-          <button type="button" class="btn back" disabled={busy} onclick={() => go(steps[index - 1].id)}>
-            <ArrowLeft size={14} aria-hidden="true" />{t("obBack")}
-          </button>
-        {/if}
-        <button
-          type="button"
-          class="btn primary go"
-          disabled={!chosen.length || !name || busy || (step === "create" && waiting)}
-          onclick={next}
-        >
-          {#if busy}
-            <LoaderCircle size={14} aria-hidden="true" class="spin" />{t("setupCreating")}
-          {:else if step === "create"}
-            {t("setupCreate")}
-          {:else if step === "setup"}
-            {aside.length ? t("obContinue") : t("setupKeepAll")}<ArrowRight size={14} aria-hidden="true" />
-          {:else}
-            {t("obContinue")}<ArrowRight size={14} aria-hidden="true" />
-          {/if}
-        </button>
-      </div>
-      {/if}
-    </aside>
+    </Wizard>
   </div>
 </div>
 
@@ -946,788 +536,188 @@
     background: var(--bg);
   }
 
-  .stepper {
+  .bar {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
-    gap: 2px;
+    gap: 12px;
+    height: 52px;
+    padding: 0 16px 0 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+
+  .bar img {
+    border-radius: 6px;
+  }
+
+  .bar h1 {
     margin: 0;
-    padding: 0;
-    list-style: none;
+    font-size: var(--text-md);
+    font-weight: 600;
   }
 
-  .stepper li {
-    display: flex;
+  .grow {
+    flex: 1;
+  }
+
+  .saved {
+    display: inline-flex;
     align-items: center;
-  }
-
-  .stepper li + li::before {
-    content: "";
-    width: 16px;
-    height: 1px;
-    margin: 0 2px;
-    background: var(--border-strong);
-  }
-
-  .stepper button {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    height: 28px;
-    padding: 0 10px 0 4px;
-    border: 0;
-    border-radius: var(--radius-pill);
-    background: none;
+    gap: 6px;
+    margin-right: 4px;
     color: var(--muted);
     font-size: var(--text-sm);
-    font-weight: 500;
-    transition:
-      background-color var(--dur-fast) ease-out,
-      color var(--dur-fast) ease-out;
   }
 
-  .stepper button:hover:not(:disabled) {
-    background: var(--hover);
-    color: var(--text);
-  }
-
-  .stepper button:disabled {
-    opacity: 1;
-    color: color-mix(in srgb, var(--muted) 70%, transparent);
-  }
-
-  .dot {
-    display: inline-grid;
-    place-items: center;
-    width: 20px;
-    height: 20px;
-    border: 1px solid var(--border-strong);
-    border-radius: 50%;
-    font-size: var(--text-xs);
-    font-variant-numeric: tabular-nums;
-    transition:
-      background-color var(--dur) ease-out,
-      border-color var(--dur) ease-out;
-  }
-
-  .stepper .done .dot {
-    border-color: var(--done);
-    background: var(--done-soft);
+  .saved :global(svg) {
     color: var(--done);
-  }
-
-  .stepper [aria-current="step"] {
-    color: var(--text);
-  }
-
-  .stepper [aria-current="step"] .dot {
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--accent-text);
-  }
-
-  .cancel {
-    gap: 8px;
-    color: var(--muted);
   }
 
   .body {
-    display: grid;
     flex: 1;
-    grid-template: minmax(0, 1fr) / minmax(0, 1fr) 300px;
     min-height: 0;
-  }
-
-  .main {
-    min-width: 0;
-    min-height: 0;
-    overflow-y: auto;
-  }
-
-  .step {
-    display: flex;
-    flex-direction: column;
-    max-width: 860px;
-    margin: 0 auto;
-    padding: 32px 36px 48px;
-    animation: enter var(--dur-slow) var(--ease-out);
-  }
-
-  @keyframes enter {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-  }
-
-  h2 {
-    margin: 0;
-    font-size: var(--text-xl);
-    font-weight: 650;
-    letter-spacing: -0.02em;
-    line-height: 1.25;
-    text-wrap: balance;
-  }
-
-  .lead {
-    max-width: 64ch;
-    margin: 6px 0 24px;
-    color: var(--muted);
-    font-size: var(--text-md);
-    line-height: 1.5;
-  }
-
-  h3 {
-    margin: 0;
-    font-size: var(--text-md);
-    font-weight: 600;
-  }
-
-  .stack {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .claude {
-    display: flex;
-    gap: 12px;
-    padding: 14px 16px;
-    border-radius: var(--radius-lg);
-    background: var(--accent-soft);
-    color: var(--accent-ink);
-  }
-
-  .claude :global(svg) {
-    flex-shrink: 0;
-    margin-top: 2px;
-  }
-
-  .claude b {
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  .claude p {
-    margin: 2px 0 0;
-    color: var(--text);
-    line-height: 1.5;
-  }
-
-  .blocks {
-    margin: 0;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--panel);
-    list-style: none;
-  }
-
-  .blocks > li {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 14px;
-    padding: 16px 16px 16px 18px;
-    transition: opacity var(--dur) ease-out;
-  }
-
-  .blocks > li + li {
-    border-top: 1px solid var(--border);
-  }
-
-  .blocks .icon {
-    display: inline-grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius);
-    background: var(--accent-soft);
-    color: var(--accent-ink);
-  }
-
-  .blocks li.off .icon,
-  .blocks li.later .icon {
-    background: var(--hover);
-    color: var(--muted);
-  }
-
-  .blocks li.off .what > :not(h3, .aside-note) {
-    color: var(--muted);
-  }
-
-  .what {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
-    padding-top: 5px;
-  }
-
-  .what p {
-    margin: 0;
-    line-height: 1.5;
-  }
-
-  .lines {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 6px;
-  }
-
-  .key {
-    min-width: 92px;
-    color: var(--muted);
-    font-size: var(--text-sm);
-  }
-
-  .note {
-    color: var(--muted);
-    font-size: var(--text-sm);
-  }
-
-  .wait {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .aside-note {
-    color: var(--accent-ink);
-  }
-
-  .recipe {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .recipe li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 6px;
-  }
-
-  code {
-    padding: 1px 6px;
-    border-radius: var(--radius-sm);
-    background: var(--hover);
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-  }
-
-  .act {
-    display: flex;
-    align-items: center;
-    align-self: start;
-    gap: 10px;
-    padding-top: 4px;
-  }
-
-  .state {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    color: var(--done);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    white-space: nowrap;
-  }
-
-  .state::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-  }
-
-  .state.off,
-  .later .state {
-    color: var(--muted);
-  }
-
-  .trust {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .loads {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin: 0;
-    padding: 14px 16px;
-    border-radius: var(--radius-lg);
-    background: var(--hover);
-    list-style: none;
-  }
-
-  .loads li {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    line-height: 1.5;
-  }
-
-  .loads :global(svg) {
-    flex-shrink: 0;
-    margin-top: 2px;
-    color: var(--muted);
-  }
-
-  .loads :global(code) {
-    padding: 0 4px;
-  }
-
-  .repos {
-    margin: 0;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--panel);
-    list-style: none;
-  }
-
-  .repos li {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 44px;
-    padding: 0 14px;
-  }
-
-  .repos li + li {
-    border-top: 1px solid var(--border);
-  }
-
-  .repos .forge {
-    display: inline-flex;
-  }
-
-  .repos b {
-    font-weight: 600;
-  }
-
-  .repos .path {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--muted);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .loaded {
-    color: var(--muted);
-    font-size: var(--text-sm);
-    white-space: nowrap;
-  }
-
-  .agree {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 14px 16px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-lg);
-    background: var(--panel);
-    cursor: pointer;
-    transition:
-      border-color var(--dur-fast) ease-out,
-      background-color var(--dur-fast) ease-out;
-  }
-
-  .agree.on {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-  }
-
-  .agree input {
-    width: 16px;
-    height: 16px;
-    margin: 2px 0 0;
-  }
-
-  .agree > span {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .agree b {
-    font-weight: 600;
-  }
-
-  .agree .muted {
-    font-size: var(--text-sm);
-  }
-
-  .trust > .note {
-    margin: -6px 0 0;
-  }
-
-  .recap {
-    display: flex;
-    flex-direction: column;
-    gap: 28px;
-  }
-
-  .recap section {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .file {
-    margin: 0;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--panel);
-  }
-
-  .file figcaption {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 14px;
-    border-bottom: 1px solid var(--border);
-    background: var(--chrome);
-    color: var(--muted);
-  }
-
-  pre {
-    max-height: 340px;
-    margin: 0;
-    padding: 14px 16px;
-    overflow: auto;
-    font-size: var(--text-sm);
-    line-height: 1.6;
-  }
-
-  pre code {
-    padding: 0;
-    background: none;
-    font-size: inherit;
-  }
-
-  .also,
-  .then {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .also li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .also :global(svg) {
-    color: var(--done);
-  }
-
-  .also .none :global(svg) {
-    color: var(--muted);
-  }
-
-  .then {
-    counter-reset: then;
-  }
-
-  .then li {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    line-height: 1.5;
-    counter-increment: then;
-  }
-
-  .then li::before {
-    content: counter(then);
-    display: inline-grid;
-    flex-shrink: 0;
-    place-items: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: var(--hover);
-    color: var(--muted);
-    font-size: var(--text-xs);
-    font-weight: 600;
-    transform: translateY(-1px);
-  }
-
-  /* The project as it takes shape, beside every step. */
-  .project {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    padding: 28px 20px 20px;
-    overflow-y: auto;
-    border-left: 1px solid var(--border);
-    background: var(--chrome);
   }
 
   .identity {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
+    padding: 0 10px;
+  }
+
+  .identity div {
+    display: flex;
+    flex-direction: column;
     min-width: 0;
+  }
+
+  .identity b {
+    overflow: hidden;
+    font-size: var(--text-md);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .identity span {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .mark {
     display: grid;
     flex-shrink: 0;
     place-items: center;
-    width: 40px;
-    height: 40px;
-    border-radius: var(--radius-lg);
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-md);
     background: var(--accent);
     color: var(--accent-text);
-    font-size: var(--text-lg);
     font-weight: 700;
-    transition: background-color var(--dur) ease-out;
   }
 
   .mark.empty {
     border: 1.5px dashed var(--border-strong);
     background: none;
-    color: var(--muted);
   }
 
-  .name,
-  .name-field {
-    flex: 1;
-    min-width: 0;
-    height: 36px;
+  .step {
+    animation: arrive var(--dur) var(--ease-out);
+  }
+
+  @keyframes arrive {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .step {
+      animation: none;
+    }
+  }
+
+  .kicker {
     margin: 0;
-    padding: 0 8px;
-    border: 1px solid transparent;
-    border-radius: var(--radius);
-    font-size: var(--text-xl);
-    font-weight: 650;
-    letter-spacing: -0.015em;
-  }
-
-  .name {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: none;
-    color: var(--text);
-    text-align: left;
-  }
-
-  .name span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .name :global(svg) {
-    flex-shrink: 0;
-    color: var(--muted);
-    opacity: 0;
-    transition: opacity var(--dur-fast) ease-out;
-  }
-
-  .name:hover,
-  .name:focus-visible {
-    border-color: var(--border);
-    background: var(--panel);
-  }
-
-  .name:hover :global(svg),
-  .name:focus-visible :global(svg) {
-    opacity: 1;
-  }
-
-  .name.placeholder {
-    color: var(--muted);
-  }
-
-  .name-field {
-    border-color: var(--focus);
-    outline: 1px solid var(--focus);
-    background: var(--panel);
-    color: var(--text);
-  }
-
-  .source {
-    margin: 8px 0 0 52px;
-    color: var(--muted);
-    font-size: var(--text-sm);
-    line-height: 1.45;
-  }
-
-  .source.warn {
-    color: var(--warning);
-  }
-
-  .link {
-    display: inline;
-    padding: 0;
-    border: 0;
-    background: none;
     color: var(--accent-ink);
-    font-size: inherit;
-    font-weight: 500;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-
-  .count {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    margin: 28px 0 8px;
     font-size: var(--text-sm);
     font-weight: 600;
   }
 
-  .count span {
-    color: var(--muted);
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
+  h2 {
+    margin: 6px 0 0;
+    font-size: var(--text-2xl);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
   }
 
-  .chosen {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin: 0 -8px;
-    padding: 0;
-    list-style: none;
-  }
-
-  .chosen li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    height: 30px;
-    padding: 0 4px 0 8px;
-    border-radius: var(--radius);
-    animation: enter var(--dur) var(--ease-out);
-  }
-
-  .chosen li:hover {
-    background: var(--hover);
-  }
-
-  .chosen .forge {
-    display: inline-flex;
-    color: var(--muted);
-  }
-
-  .chosen .n {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    font-weight: 500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .chosen .st {
-    display: inline-flex;
-    color: var(--done);
-  }
-
-  .chosen .st :global(.spin) {
-    color: var(--muted);
-  }
-
-  .empty {
-    margin: 0;
-    color: var(--muted);
-    font-size: var(--text-sm);
-  }
-
-  .grow {
-    flex: 1;
-    min-height: 20px;
-  }
-
-  .project .notice {
-    margin-bottom: 10px;
-  }
-
-  .actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .actions .go {
-    flex: 1;
-    height: 36px;
-    border-radius: var(--radius-lg);
+  .lead {
+    max-width: 62ch;
+    margin: 8px 0 24px;
+    color: var(--soft);
     font-size: var(--text-md);
+    line-height: 1.5;
   }
 
-  .actions .back {
-    height: 36px;
-    border-radius: var(--radius-lg);
-  }
-
-  /* From my repositories, or from scratch: the first choice of the setup. */
   .modes {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    margin-bottom: 28px;
+    gap: 12px;
   }
 
-  .modes button {
+  .mode {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
-    padding: 12px 14px;
+    gap: 14px;
+    min-height: 132px;
+    padding: 20px;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--panel);
-    text-align: left;
+    cursor: pointer;
     transition:
-      border-color var(--dur-fast) ease-out,
-      background-color var(--dur-fast) ease-out;
+      border-color var(--dur-fast) ease,
+      background-color var(--dur-fast) ease;
   }
 
-  .modes button:hover:not(:disabled) {
+  .mode:hover {
     border-color: var(--border-strong);
   }
 
-  .modes button[aria-pressed="true"] {
+  .mode.on {
     border-color: var(--accent);
     background: var(--accent-soft);
   }
 
-  .modes .icon {
-    display: inline-grid;
-    flex-shrink: 0;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius);
-    background: var(--hover);
-    color: var(--muted);
+  .mode:has(input:focus-visible) {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
   }
 
-  .modes [aria-pressed="true"] .icon {
+  .mode input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .mode .icon {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    background: var(--well);
+    color: var(--soft);
+  }
+
+  .mode.on .icon {
     background: var(--accent);
     color: var(--accent-text);
   }
@@ -1735,27 +725,91 @@
   .mode-text {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    min-width: 0;
+    gap: 4px;
   }
 
   .mode-text b {
+    font-size: var(--text-lg);
     font-weight: 600;
   }
 
   .mode-text span {
-    color: var(--muted);
-    font-size: var(--text-sm);
+    color: var(--soft);
     line-height: 1.45;
   }
 
-  .field.idea {
-    height: auto;
-    min-height: 140px;
-    padding: 10px 12px;
-    border-radius: var(--radius-lg);
+  .mode-text .proof {
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .name {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 20px;
+  }
+
+  .name label {
+    font-weight: 500;
+  }
+
+  .name .field {
+    max-width: 360px;
+    height: var(--h-lg);
     font-size: var(--text-md);
-    line-height: 1.55;
+  }
+
+  .help {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .help.warn {
+    color: var(--warning);
+  }
+
+  .fixed {
+    margin: 0 0 16px;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+    list-style: none;
+  }
+
+  .fixed li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  .waiting {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+  }
+
+  .waiting p {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+  }
+
+  .waiting p :global(svg) {
+    color: var(--accent-ink);
+  }
+
+  .idea {
+    width: 100%;
+    font-size: var(--text-md);
+    line-height: 1.5;
     resize: vertical;
   }
 
@@ -1763,78 +817,119 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    margin: 12px 0 24px;
+    gap: 8px;
+    margin-top: 10px;
   }
 
-  .examples .note {
-    margin-right: 4px;
-  }
-
-  .kickoff {
-    margin-top: 8px;
-    color: var(--text);
-  }
-
-  .where {
+  .settings {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-    font-size: var(--text-sm);
+    gap: 12px;
+    margin-top: 24px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
   }
 
-  .where .mono {
-    max-width: 100%;
-    overflow-wrap: anywhere;
-    color: var(--muted);
+  .settings .name {
+    margin: 0;
   }
 
-  .where b {
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  .option {
+  .line {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
-    font-size: var(--text-sm);
+    gap: 8px 12px;
+    margin: 0;
+  }
+
+  .line .key {
+    font-weight: 500;
+  }
+
+  .line.check {
     cursor: pointer;
   }
 
-  .visibility {
-    align-self: flex-start;
-    margin: 10px 0 6px;
+  .line.check input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--accent);
   }
 
-  .scratch-files pre {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
+  .kickoff {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 16px 18px;
+    border-radius: var(--radius-lg);
+    background: var(--well);
+    color: var(--soft);
   }
 
-  .recap .row :global(svg) {
+  .kickoff :global(svg) {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--accent-ink);
+  }
+
+  .kickoff b {
+    color: var(--text);
+  }
+
+  .kickoff ol,
+  .then {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 8px 0 0;
+    padding-left: 18px;
+    line-height: 1.45;
+  }
+
+  .recap {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+  }
+
+  .recap h3 {
+    margin: 8px 0 0;
+    font-size: var(--text-md);
+  }
+
+  summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--accent-ink);
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  figure {
+    margin: 10px 0 0;
+  }
+
+  figcaption {
     color: var(--muted);
+    font-size: var(--text-sm);
   }
 
-  @media (max-width: 1080px) {
-    .body {
-      grid-template-columns: minmax(0, 1fr) 260px;
-    }
-
-    .stepper .label {
-      display: none;
-    }
-
-    .stepper [aria-current="step"] .label {
-      display: inline;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .step,
-    .chosen li {
-      animation: none;
-    }
+  pre {
+    margin: 6px 0 0;
+    padding: 12px 14px;
+    overflow: auto;
+    border-radius: var(--radius-md);
+    background: var(--well);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.5;
   }
 </style>

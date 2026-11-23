@@ -24,7 +24,7 @@
   import { sync, watchSync } from "$lib/sync.svelte";
   import { watchTeam } from "$lib/team.svelte";
   import { tickets, watchTickets } from "$lib/tickets.svelte";
-  import { setup, watchSetup } from "$lib/onboarding.svelte";
+  import { watchSetup } from "$lib/onboarding.svelte";
   import { creating } from "$lib/newproject.svelte";
   import { views } from "$lib/views";
   import { visual, watchVisual } from "$lib/visual.svelte";
@@ -85,7 +85,8 @@
 
 <svelte:window onkeydowncapture={onShortcut} />
 
-<div class="app">
+<!-- A setup takes the whole window: the navigation steps aside until it is left. -->
+<div class="app" class:focus={ui.view === "newProject" && panes.other === null}>
   <AppNav />
   <div class="main">
     <ApiConfirm />
@@ -160,15 +161,6 @@
           {/await}
         {/key}
       {/if}
-      {#if onScreen("onboarding") && setup.project !== null}
-        {#key setup.project}
-          {#await import("$lib/OnboardingView.svelte") then { default: OnboardingView }}
-            <Panel view="onboarding"><OnboardingView /></Panel>
-          {:catch error}
-            <Panel view="onboarding"><Banner kind="error">{String(error)}</Banner></Panel>
-          {/await}
-        {/key}
-      {/if}
       <!-- Kept while open: leaving the setup for another view and coming back loses nothing. -->
       {#if creating.open}
         {#key creating.round}
@@ -240,6 +232,14 @@
     display: grid;
     grid-template: minmax(0, 1fr) / var(--nav-width) minmax(0, 1fr);
     height: 100vh;
+  }
+
+  .app.focus {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app.focus > :global(.nav) {
+    display: none;
   }
 
   .main {
