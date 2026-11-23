@@ -140,6 +140,12 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, data_dir: &Path) {
         });
     }
     let _ = window.show();
+    // AppKit fits the window into a smaller screen (GitHub's Macs: 1024×768), under the narrow layout no other run
+    // sees; sized again once shown, it keeps its width (its height stays fitted, no layout depends on it).
+    #[cfg(all(feature = "e2e", target_os = "macos"))]
+    if let Some(c) = app.config().app.windows.iter().find(|w| w.label == "main") {
+        let _ = window.set_size(LogicalSize::new(c.width, c.height));
+    }
     #[cfg(not(all(feature = "e2e", target_os = "macos")))]
     let _ = window.set_focus();
 }
