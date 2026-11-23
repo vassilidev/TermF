@@ -55,26 +55,29 @@ export class Session {
   /**
    * Pointer actions first, so the page gets trusted events as from a mouse. Under xvfb WebKitGTK drops some of them:
    * a click the page did not see on the element is then made by script, and counted in `window.__e2e.synthetic`.
+   * The element is the one aimed at, not the selector's match afterwards: a click that worked can leave the selector
+   * on another element (the other radio, the button next to one that went), which must not be clicked as well.
    */
   async click(css, index = 0) {
     const { x, y } = await this.point(css, index);
-    const before = await this.exec(() => window.__e2e?.clicks.length ?? 0);
+    await this.exec(
+      (c, i) => {
+        if (window.__e2e) Object.assign(window.__e2e, { aim: document.querySelectorAll(c)[i], hit: false });
+      },
+      css,
+      index,
+    );
     const actions = [
       { type: "pointerMove", origin: "viewport", x, y, duration: 0 },
       { type: "pointerDown", button: 0 },
       { type: "pointerUp", button: 0 },
     ];
     await this.cmd("POST", "/actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions }] });
-    const seen = (c, i, n) => {
-      const el = document.querySelectorAll(c)[i];
-      const clicks = window.__e2e?.clicks ?? [];
-      return clicks.length > n && (!el || clicks.slice(n).some((target) => el.contains(target)));
-    };
-    const landed = await this.wait(() => this.exec(seen, css, index, before), { timeout: 1000, every: 25 }).catch(() => false);
+    const landed = await this.wait(() => this.exec(() => window.__e2e?.hit), { timeout: 1000, every: 25 }).catch(() => false);
     if (!landed) {
       await this.exec(
         (c, i) => {
-          const el = document.querySelectorAll(c)[i];
+          const el = window.__e2e?.aim ?? document.querySelectorAll(c)[i];
           el.focus?.();
           el.click();
           if (window.__e2e) window.__e2e.synthetic++;
