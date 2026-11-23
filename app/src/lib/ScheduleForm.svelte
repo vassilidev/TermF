@@ -103,7 +103,7 @@
     saving = true;
     error = "";
     try {
-      const budget = task.mode === "headless" && task.budget ? Number(task.budget) : null;
+      const budget = task.mode !== "tile" && task.budget ? Number(task.budget) : null;
       const id = await invoke<string>("schedule_save", { id: start?.id ?? null, task: { ...task, budget } });
       onclose(id);
     } catch (e) {
@@ -136,11 +136,15 @@
     </select>
   </label>
 
-  <label class="labelled">
-    <span>{t("schedulerPrompt")}</span>
-    <textarea class="field prompt" required rows="5" placeholder={t("schedulerPromptPlaceholder")} bind:value={task.prompt}
-    ></textarea>
-  </label>
+  {#if task.mode === "scout"}
+    <p class="help">{t("watchModeScout")} · {t("watchModeScoutHelp")}</p>
+  {:else}
+    <label class="labelled">
+      <span>{t("schedulerPrompt")}</span>
+      <textarea class="field prompt" required rows="5" placeholder={t("schedulerPromptPlaceholder")} bind:value={task.prompt}
+      ></textarea>
+    </label>
+  {/if}
 
   <fieldset>
     <legend>{t("schedulerCron")}</legend>
@@ -180,7 +184,7 @@
     </div>
   </fieldset>
 
-  <fieldset>
+  <fieldset hidden={task.mode === "scout"}>
     <legend>{t("schedulerMode")}</legend>
     <div class="modes" role="radiogroup" aria-label={t("schedulerMode")}>
       {#each [["headless", "schedulerModeHeadless", "schedulerModeHeadlessHelp"], ["tile", "schedulerModeTile", "schedulerModeTileHelp"]] as const as [mode, label, help] (mode)}
@@ -238,7 +242,7 @@
         {#each permissions as [value, label] (value)}<option {value}>{t(label)}</option>{/each}
       </select>
     </label>
-    {#if task.mode === "headless"}
+    {#if task.mode !== "tile"}
       <label class="labelled">
         <span>{t("schedulerBudget")}</span>
         <input

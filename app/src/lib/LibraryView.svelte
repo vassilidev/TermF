@@ -19,6 +19,10 @@
   import ConfigTransfer from "$lib/ConfigTransfer.svelte";
   import Conventions from "$lib/Conventions.svelte";
   import LibraryScout from "$lib/LibraryScout.svelte";
+  import LibraryTodo from "$lib/LibraryTodo.svelte";
+  import { listen } from "@tauri-apps/api/event";
+  import { scout } from "$lib/scout.svelte";
+  import { loadTodo, todo } from "$lib/todo.svelte";
   import WorktreeSetup from "$lib/WorktreeSetup.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Button from "$lib/ui/Button.svelte";
@@ -51,7 +55,19 @@
   const scoped = $derived(app.workspace?.projects.find((p) => p.id === library.scope));
 
   $effect(() => {
-    if (!app.project && library.tab !== "items") library.tab = "items";
+    if (!app.project && (library.tab === "conventions" || library.tab === "worktrees")) library.tab = "items";
+  });
+  // What waits, counted on its tab: read again when the library, the watch's results or the project change.
+  $effect(() => {
+    if (ui.view !== "library") return;
+    void app.project;
+    void library.version;
+    void scout.data;
+    loadTodo();
+  });
+  $effect(() => {
+    const off = listen("library-changed", () => library.version++);
+    return () => void off.then((f) => f());
   });
   // The global scope is the veille's and the import's: closing them goes back to the project.
   $effect(() => {
@@ -404,7 +420,8 @@
   }
 
   const tabs = $derived([
-    { id: "items", label: t("lib2Items") },
+    { id: "todo", label: t("watchTodo"), count: todo.list?.length || null },
+    { id: "items", label: t("lib2Items"), divider: true },
     ...(app.project
       ? [
           { id: "conventions", label: t("conventions"), divider: true },
@@ -462,6 +479,8 @@
       <LibraryScout />
     {:else if library.panel}
       <ConfigTransfer panel={library.panel} />
+    {:else if library.tab === "todo"}
+      <LibraryTodo />
     {:else if library.tab === "conventions" && scoped}
       {#key scoped.id}
         <Conventions project={scoped} />

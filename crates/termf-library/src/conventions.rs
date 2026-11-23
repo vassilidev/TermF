@@ -25,6 +25,14 @@ use crate::{
 
 const DEFAULT_MODEL: &str = "opus";
 const DEFAULT_EFFORT: &str = "high";
+/// The text of a convention drawn from the code, when no one wrote one.
+pub const FROM_CODE: &str = "Follow the conventions this code already follows: formatting and lint configs, \
+     naming, folder structure, tests, error handling and commit messages. Keep only what the code shows.";
+/// Dollars a proposal may spend, unless `[conventions] budget` says otherwise.
+const DEFAULT_BUDGET: f64 = 2.0;
+/// The commits whose files a check about changes is measured on.
+#[cfg(target_os = "macos")]
+const RECENT_COMMITS: usize = 20;
 const MAX_ITEMS: usize = 40;
 const MAX_TEXT: usize = 64 << 10;
 const MAX_REPO_FILE: usize = 256 << 10;
@@ -122,6 +130,9 @@ pub struct Proposal {
     /// The repository file when it was proposed, `None` for a new file. Set by TermF, never by the model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before: Option<String>,
+    /// A rule's check is about what a change touches (a file not to edit…): the whole tree says nothing of it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub changes: bool,
     #[serde(default)]
     pub review: Review,
 }
@@ -139,6 +150,14 @@ impl Proposal {
             ..p.clone()
         };
         strip(self) == strip(other)
+    }
+
+    /// The same item but for its level, which the owner may have changed since.
+    fn same_but_level(&self, other: &Proposal) -> bool {
+        self.same_content(&Proposal {
+            level: self.level,
+            ..other.clone()
+        })
     }
 }
 
@@ -203,6 +222,8 @@ pub struct Convention {
 pub struct Conventions {
     pub model: String,
     pub effort: String,
+    /// The most a proposal may spend, in US dollars.
+    pub budget: f64,
     pub list: Vec<Convention>,
 }
 
@@ -224,6 +245,8 @@ pub enum Measure {
 pub struct Impact {
     pub name: String,
     pub repo: String,
+    /// Measured on the files of the latest commits, not the whole tree: the check is about changes.
+    pub changes: bool,
     #[serde(flatten)]
     pub measure: Measure,
 }
@@ -242,6 +265,24 @@ pub fn settings(config_dir: &Path) -> (String, String) {
             .to_owned()
     };
     (get("model", DEFAULT_MODEL), get("effort", DEFAULT_EFFORT))
+}
+
+/// `[conventions] budget` in `termf.toml`: dollars a proposal or a revision may spend.
+pub fn budget(config_dir: &Path) -> f64 {
+    let text = fs::read_to_string(config_dir.join("termf.toml")).unwrap_or_default();
+    toml::from_str::<toml::Table>(&text)
+        .ok()
+        .and_then(|t| t.get("conventions")?.get("budget").cloned())
+        .and_then(|b| b.as_float().or(b.as_integer().map(|i| i as f64)))
+        .filter(|b| b.is_finite() && *b > 0.0)
+        .unwrap_or(DEFAULT_BUDGET)
+}
+
+/// Options before `-p` reach Claude Code like any other: the cap needs no change to the shared runner.
+fn capped(claude: &[String], config_dir: &Path) -> Vec<String> {
+    let mut command = claude.to_vec();
+    command.extend(["--max-budget-usd".into(), budget(config_dir).to_string()]);
+    command
 }
 
 pub(crate) fn valid_name(name: &str) -> bool {
@@ -301,6 +342,7 @@ pub fn list(config_dir: &Path, project: &str) -> Result<Conventions> {
     Ok(Conventions {
         model,
         effort,
+        budget: budget(config_dir),
         list: slugs
             .iter()
             .map(|slug| load(config_dir, project, slug))
@@ -481,7 +523,7 @@ pub fn propose_with(
     let (model, effort) = settings(config_dir);
     let prompt = context.prompt(&source, &given, None);
     let (answer, cost) = ask_showing(
-        claude,
+        &capped(claude, config_dir),
         &context.repos,
         &model,
         &effort,
@@ -522,6 +564,20 @@ pub fn propose_with(
                 Err(why) => next.dropped.push(why),
             }
         }
+        // An item proposed again as it was keeps the owner's decision and level: the draft's, else the
+        // applied one's.
+        let decided: Vec<&Proposal> = draft
+            .iter()
+            .chain(&pack)
+            .flat_map(|p| &p.items)
+            .filter(|p| p.review != Review::Pending)
+            .collect();
+        for item in &mut next.items {
+            if let Some(was) = decided.iter().find(|p| p.same_but_level(item)) {
+                item.review = was.review;
+                item.level = was.level;
+            }
+        }
         ensure!(
             !next.items.is_empty() || !next.dropped.is_empty(),
             "Claude Code proposed nothing"
@@ -530,6 +586,7 @@ pub fn propose_with(
         next.questions = questions;
     }
     write_pack(&dir.join("draft.toml"), &next)?;
+    let _ = fs::remove_file(dir.join("discarded.toml"));
     load(config_dir, project, slug)
 }
 
@@ -558,7 +615,7 @@ pub fn revise(
         Some((&draft.items[index], comment.trim())),
     );
     let (answer, cost) = ask(
-        claude,
+        &capped(claude, config_dir),
         &context.repos,
         &draft.model,
         &draft.effort,
@@ -622,12 +679,26 @@ pub fn review(
     load(config_dir, project, slug)
 }
 
+/// Sets the draft aside, answers and decisions included, until the next proposal: [`restore`] brings it back.
 pub fn discard(config_dir: &Path, project: &str, slug: &str) -> Result<Convention> {
     let dir = dir(config_dir, project, slug)?;
-    match fs::remove_file(dir.join("draft.toml")) {
+    match fs::rename(dir.join("draft.toml"), dir.join("discarded.toml")) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
         _ => {}
     }
+    load(config_dir, project, slug)
+}
+
+/// The draft [`discard`] set aside, back under review.
+pub fn restore(config_dir: &Path, project: &str, slug: &str) -> Result<Convention> {
+    let dir = dir(config_dir, project, slug)?;
+    let aside = dir.join("discarded.toml");
+    ensure!(aside.exists(), "no proposal to bring back");
+    ensure!(
+        !dir.join("draft.toml").exists(),
+        "a newer proposal is under review"
+    );
+    fs::rename(aside, dir.join("draft.toml"))?;
     load(config_dir, project, slug)
 }
 
@@ -636,6 +707,12 @@ pub fn discard(config_dir: &Path, project: &str, slug: &str) -> Result<Conventio
 /// anything is written: a repository file changed since the proposal stops the whole apply. The items about to
 /// be written are recorded in `journal.toml` first, so an apply that fails half-way can simply be run again.
 pub fn apply(config_dir: &Path, project: &str, slug: &str) -> Result<Convention> {
+    apply_with(config_dir, project, slug, true)
+}
+
+/// [`apply`]; without `repos`, the accepted repository changes are left to the team (a pull request), neither
+/// written nor kept in the pack.
+pub fn apply_with(config_dir: &Path, project: &str, slug: &str, repos: bool) -> Result<Convention> {
     let dir = dir(config_dir, project, slug)?;
     let draft = read_pack(&dir.join("draft.toml"))?.context("no proposal to apply")?;
     ensure!(draft.questions.is_empty(), "answer the questions first");
@@ -669,7 +746,10 @@ pub fn apply(config_dir: &Path, project: &str, slug: &str) -> Result<Convention>
                 "{} changed since the proposal: propose again",
                 item.path
             );
-            repo_writes.push((path, item));
+            // Left to the team, it is still checked: a file changed since the proposal stops the apply.
+            if repos {
+                repo_writes.push((path, item));
+            }
             continue;
         }
         context.check_owner(item)?;
@@ -708,7 +788,10 @@ pub fn apply(config_dir: &Path, project: &str, slug: &str) -> Result<Convention>
         write_file(&path, item.content.as_bytes())?;
     }
     let applied = Pack {
-        items: accepted,
+        items: accepted
+            .into_iter()
+            .filter(|i| repos || i.kind != ItemKind::Repo)
+            .collect(),
         dropped: Vec::new(),
         questions: Vec::new(),
         ..draft
@@ -716,6 +799,7 @@ pub fn apply(config_dir: &Path, project: &str, slug: &str) -> Result<Convention>
     write_pack(&dir.join("pack.toml"), &applied)?;
     fs::remove_file(dir.join("journal.toml"))?;
     fs::remove_file(dir.join("draft.toml"))?;
+    let _ = fs::remove_file(dir.join("discarded.toml"));
     load(config_dir, project, slug)
 }
 
@@ -760,7 +844,8 @@ pub fn switch(
 }
 
 /// Runs the check scripts of the draft's accepted rules (else of the applied ones) on each repository, in a
-/// read-only sandbox, and counts what they report.
+/// read-only sandbox, and counts what they report: on every tracked file, or for a check about changes, on the
+/// files the latest commits changed.
 pub fn impact(config_dir: &Path, project: &str, slug: &str) -> Result<Vec<Impact>> {
     let dir = dir(config_dir, project, slug)?;
     let items = match read_pack(&dir.join("draft.toml"))? {
@@ -780,7 +865,8 @@ pub fn impact(config_dir: &Path, project: &str, slug: &str) -> Result<Vec<Impact
             results.push(Impact {
                 name: item.name.clone(),
                 repo: name.clone(),
-                measure: check(&item.script, path),
+                changes: item.changes,
+                measure: check(&item.script, path, item.changes),
             });
         }
     }
@@ -894,7 +980,9 @@ impl Grounding {
               go in a single `repo` item.\n\
               4. A check script is POSIX sh, run at the repository root, reading the paths to check on stdin, one per line \
               (every tracked file when measuring the current state). It must not modify anything nor use the network. It \
-              prints one finding per line as `path:line: message` and exits 0 when clean, 1 when it found violations.\n\
+              prints one finding per line as `path:line: message` and exits 0 when clean, 1 when it found violations. Set \
+              `changes` to true when the check is about what a change touches (a file not to edit by hand, a file \
+              that must change along with another): it then means nothing on the whole tree; false otherwise.\n\
               5. Every item gives the `sentence` of the text it implements (verbatim), a one-line `description`, and `how` it \
               is verified.\n\
               6. `name`: lowercase letters, digits and dashes, unique in your answer.\n\
@@ -1020,6 +1108,7 @@ impl Grounding {
         if !item.checked() && item.kind != ItemKind::Hook {
             item.level = Level::Advise;
         }
+        item.changes &= item.checked();
         match item.kind {
             ItemKind::Hook => {
                 if item.script.trim().is_empty() {
@@ -1256,7 +1345,7 @@ fn schema() -> Value {
         "type": "object",
         "additionalProperties": false,
         "required": ["kind", "name", "sentence", "description", "how", "level", "roles", "body", "script",
-                     "event", "matcher", "repo", "path", "content"],
+                     "event", "matcher", "repo", "path", "content", "changes"],
         "properties": {
             "kind": { "enum": ["rule", "hook", "preference", "skill", "command", "role", "repo"] },
             "name": text, "sentence": text, "description": text, "how": text,
@@ -1264,6 +1353,7 @@ fn schema() -> Value {
             "roles": { "type": "array", "items": text },
             "body": text, "script": text, "event": text, "matcher": text,
             "repo": text, "path": text, "content": text,
+            "changes": { "type": "boolean" },
         },
     });
     json!({
@@ -1380,14 +1470,15 @@ const SANDBOX: &str = r#"(version 1)
 (allow file-ioctl)
 (allow file-write* (literal "/dev/null") (regex #"^/dev/(fd/|tty)") (subpath (param "TMP")))"#;
 
-/// Runs a check script on a repository's tracked files without letting it change anything.
-fn check(script: &str, repo: &Path) -> Measure {
+/// Runs a check script on a repository's tracked files (`changes`: those of its latest commits) without letting it
+/// change anything.
+fn check(script: &str, repo: &Path, changes: bool) -> Measure {
     // shortcut: only macOS has a read-only sandbox built in (sandbox-exec); elsewhere the impact is not measured
     // until TermF sandboxes scripts there too (bubblewrap, a job object…).
     if !cfg!(target_os = "macos") {
         return Measure::Unsupported;
     }
-    match measure(script, repo) {
+    match measure(script, repo, changes) {
         Ok(measure) => measure,
         Err(e) => Measure::Failed {
             message: format!("{e:#}"),
@@ -1396,28 +1487,51 @@ fn check(script: &str, repo: &Path) -> Measure {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn measure(_: &str, _: &Path) -> Result<Measure> {
+fn measure(_: &str, _: &Path, _: bool) -> Result<Measure> {
     Ok(Measure::Unsupported)
 }
 
-#[cfg(target_os = "macos")]
-fn measure(script: &str, repo: &Path) -> Result<Measure> {
-    let tracked = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["ls-files", "-z"])
-        .output()
-        .context("cannot list the repository's files")?;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+/// The paths a check reads on stdin, one per line: every tracked file, or each file the latest `commits` changed,
+/// once.
+fn paths(repo: &Path, commits: Option<usize>) -> Result<Vec<u8>> {
+    let mut git = Command::new("git");
+    git.arg("-C").arg(repo);
+    match commits {
+        Some(n) => git.args([
+            "log",
+            "-z",
+            "--name-only",
+            "--format=",
+            "-n",
+            &n.to_string(),
+        ]),
+        None => git.args(["ls-files", "-z"]),
+    };
+    let out = git.output().context("cannot list the repository's files")?;
     ensure!(
-        tracked.status.success(),
+        out.status.success(),
         "{} is not a git repository",
         repo.display()
     );
-    let files: Vec<u8> = tracked
-        .stdout
-        .into_iter()
-        .map(|b| if b == 0 { b'\n' } else { b })
-        .collect();
+    let mut seen = BTreeSet::new();
+    let mut files = Vec::new();
+    // A file the latest commits deleted, or added then deleted, is no longer there to check.
+    let here = |path: &[u8]| {
+        commits.is_none() || repo.join(String::from_utf8_lossy(path).as_ref()).exists()
+    };
+    for path in out.stdout.split(|b| *b == 0 || *b == b'\n') {
+        if !path.is_empty() && here(path) && seen.insert(path) {
+            files.extend_from_slice(path);
+            files.push(b'\n');
+        }
+    }
+    Ok(files)
+}
+
+#[cfg(target_os = "macos")]
+fn measure(script: &str, repo: &Path, changes: bool) -> Result<Measure> {
+    let files = paths(repo, changes.then_some(RECENT_COMMITS))?;
     let scratch = scratch_dir()?;
     let result = (|| {
         let tmp = scratch.join("tmp");
@@ -2040,6 +2154,24 @@ mod tests {
             draft.items[3].before.as_deref(),
             Some("{ \"name\": \"api\" }\n")
         );
+        assert_eq!(draft.items[0].review, Review::Accepted, "unchanged: kept");
+        assert_eq!(
+            draft.items[1].review,
+            Review::Pending,
+            "changed: decided again"
+        );
+        let args = fs::read_to_string(dir.join("args.txt")).unwrap();
+        assert!(args.contains("--max-budget-usd\n2\n"), "{args}");
+        assert!(discard(&config, "acme", "front").unwrap().draft.is_none());
+        let back = restore(&config, "acme", "front").unwrap().draft.unwrap();
+        assert_eq!(
+            (back.items.len(), back.items[0].review),
+            (4, Review::Accepted)
+        );
+        assert!(
+            restore(&config, "acme", "front").is_err(),
+            "nothing left aside"
+        );
 
         accept_all(&config);
         put(&repo.join("package.json"), "{ \"name\": \"renamed\" }\n");
@@ -2078,6 +2210,104 @@ mod tests {
         assert_eq!(
             fs::read_to_string(repo.join("package.json")).unwrap(),
             "{ \"name\": \"renamed\" }\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_check_about_changes_reads_the_latest_commits_files() {
+        let (config, repo) = setup("conventions-changes");
+        let dir = config.parent().unwrap().to_path_buf();
+        let git = |args: &[&str]| {
+            let ok = Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["-c", "user.name=alex", "-c", "user.email=alex@acme.dev"])
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(ok.success());
+        };
+        git(&["commit", "-qm", "one"]);
+        put(&repo.join("CHANGELOG.md"), "# 1.0\n");
+        git(&["add", "."]);
+        git(&["commit", "-qm", "two"]);
+        assert_eq!(paths(&repo, Some(1)).unwrap(), b"CHANGELOG.md\n");
+        let all = String::from_utf8(paths(&repo, None).unwrap()).unwrap();
+        assert_eq!(all.lines().count(), 3, "{all}");
+        git(&["rm", "-q", "package.json"]);
+        git(&["commit", "-qm", "three"]);
+        assert_eq!(
+            paths(&repo, Some(3)).unwrap(),
+            b"CHANGELOG.md\nsrc/App.tsx\n",
+            "a deleted file is not checked"
+        );
+
+        save_source(&config, "acme", "front", TEXT).unwrap();
+        let mut rule = item("rule", "changelog", "Pas de CSS inline.");
+        rule["script"] = "grep -x CHANGELOG.md && exit 1; exit 0".into();
+        rule["changes"] = true.into();
+        let mut advice = item("preference", "style", "Pas de CSS inline.");
+        advice["changes"] = true.into();
+        let answer = json!({ "questions": [], "items": [rule, advice] });
+        let draft = propose(
+            &config,
+            "acme",
+            "front",
+            Vec::new(),
+            &fake_claude(&dir, &answer),
+        )
+        .unwrap()
+        .draft
+        .unwrap();
+        assert!(draft.items[0].changes);
+        assert!(!draft.items[1].changes, "only a check is about changes");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn repository_changes_left_to_the_team_are_neither_written_nor_kept() {
+        let (config, repo) = setup("conventions-team");
+        let dir = config.parent().unwrap().to_path_buf();
+        save_source(&config, "acme", "front", TEXT).unwrap();
+        let mut change = item("repo", "private", "Pas de CSS inline.");
+        change["repo"] = "api".into();
+        change["path"] = "package.json".into();
+        change["content"] = "{ \"private\": true }\n".into();
+        let answer = json!({ "questions": [], "items": [item("preference", "style", "Pas de CSS inline."), change] });
+        propose(
+            &config,
+            "acme",
+            "front",
+            Vec::new(),
+            &fake_claude(&dir, &answer),
+        )
+        .unwrap();
+        accept_all(&config);
+        put(&repo.join("package.json"), "{ \"name\": \"renamed\" }\n");
+        let err = apply_with(&config, "acme", "front", false).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("changed since the proposal"),
+            "{err:#}"
+        );
+        assert!(
+            load(&config, "acme", "front").unwrap().pack.is_none(),
+            "nothing applied"
+        );
+        put(&repo.join("package.json"), "{ \"name\": \"api\" }\n");
+        let applied = apply_with(&config, "acme", "front", false).unwrap();
+        let names: Vec<&str> = applied
+            .pack
+            .as_ref()
+            .unwrap()
+            .items
+            .iter()
+            .map(|i| i.name.as_str())
+            .collect();
+        assert_eq!(names, ["style"]);
+        assert_eq!(
+            fs::read_to_string(repo.join("package.json")).unwrap(),
+            "{ \"name\": \"api\" }\n"
         );
     }
 
@@ -2206,7 +2436,7 @@ mod tests {
                       t=$(mktemp) && echo ok > \"$t\" || echo 'tmp:1: no private temp'\n\
                       exit 0\n";
         assert_eq!(
-            check(script, &repo),
+            check(script, &repo, false),
             Measure::Done {
                 count: 0,
                 findings: vec![]
