@@ -1895,6 +1895,18 @@ impl Inner {
             .map(|d| d.id)
             .collect();
         problems.extend(route::check_replaces(routing, &in_force));
+        for (n, name) in routing.roles.iter().enumerate() {
+            match termf_library::role(&self.config_dir, &scope, name) {
+                Err(_) => problems.push(format!("roles: {name} is not a role of the library")),
+                Ok(item) if !termf_library::plannable(&item) => {
+                    problems.push(format!("roles: {name} never takes a task"))
+                }
+                Ok(_) if routing.roles[..n].iter().any(|r| same_role(r, name)) => {
+                    problems.push(format!("roles: {name} is named twice"))
+                }
+                Ok(_) => {}
+            }
+        }
         Ok(problems)
     }
 
@@ -2069,6 +2081,9 @@ impl Inner {
 
     /// The routing without what changes nothing in its workflow, so that it says only what differs.
     fn normalize(&self, run: &TeamRun, routing: &mut Routing) {
+        if let Ok(team) = self.team(run) {
+            routing.roles.retain(|r| !has_role(&team, r));
+        }
         if let Ok(workflow) = workflow::load(
             &self.config_dir,
             Some(&run.target.project),
@@ -4797,12 +4812,15 @@ impl Inner {
     /// squad named, a task's squad `""` is that one.
     fn squads(&self, run: &TeamRun) -> Result<Squads> {
         let mut team = self.team(run)?;
-        if let Some(routing) = run
-            .routing
-            .as_ref()
-            .filter(|r| r.questions.is_empty() && !r.squads.is_empty())
-        {
-            team.squads.retain(|s| routing.squads.contains(&s.id));
+        if let Some(routing) = run.routing.as_ref().filter(|r| r.questions.is_empty()) {
+            if !routing.squads.is_empty() {
+                team.squads.retain(|s| routing.squads.contains(&s.id));
+            }
+            for role in &routing.roles {
+                if !has_role(&team, role) {
+                    team.staff.push(role.clone());
+                }
+            }
         }
         Ok(team)
     }
@@ -5606,11 +5624,19 @@ impl Inner {
             }
             false => "empty (the project declares no squad)",
         };
+        let roles = match team.declared {
+            true => {
+                "the roles above that the work needs and the squads and staff lack, such as front for a screen \
+                 or docs for documentation: they join the staff for this run, and their work stays within your \
+                 budget_usd; empty when the team has what it needs"
+            }
+            false => "empty (every role can take a task)",
+        };
         Ok(format!(
             "\n## What to answer\n\nThe routing, as JSON: kind ({}), size (S, M or L), reason (one sentence), \
              workflow (one of the workflows above{chosen}), skip and add (ids of that workflow's optional steps to \
              leave out, or to turn on), efforts (agent steps of that workflow whose effort you set: low, medium, \
-             high, xhigh or max), squads ({squads}), questions (what the user must answer before you can route; \
+             high, xhigh or max), squads ({squads}), roles ({roles}), questions (what the user must answer before you can route; \
              empty when nothing blocks), budget_usd (what the whole run should cost in US dollars{cap}; 0 when \
              you cannot tell), rulings (each decision you took, one a line: `Ruling: what — why — cost if \
              wrong`) and replaces (each decision of the project you go back on, by its id, with the ruling that \
@@ -5778,6 +5804,15 @@ pub fn reads_freely(config_dir: &Path, id: &str) -> Result<bool> {
         Some(on) => on,
         None => route::flag(&config_dir.join("termf.toml"), "read_freely")?.unwrap_or(true),
     })
+}
+
+/// Whether a squad or the staff of `team` has `role` (a squad that names no role has them all).
+fn has_role(team: &Squads, role: &str) -> bool {
+    team.staff.iter().any(|r| same_role(r, role))
+        || team
+            .squads
+            .iter()
+            .any(|s| s.roles.is_empty() || s.roles.keys().any(|r| same_role(r, role)))
 }
 
 /// The `checks` of repository `repo` in the project's file `table`; empty when it has none.

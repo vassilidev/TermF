@@ -50,6 +50,8 @@ export type Routing = {
   add: string[];
   efforts: { step: string; effort: string }[];
   squads: string[];
+  /** Roles the project's team lacks, added for this run. */
+  roles?: string[];
   questions: Question[];
   budget_usd: number;
   /** The user changed it, or set it. */

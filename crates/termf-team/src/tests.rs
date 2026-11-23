@@ -2021,6 +2021,72 @@ fn routing(workflow: &str, squads: &[&str]) -> Value {
         "skip": [], "add": [], "efforts": [], "squads": squads, "questions": [], "budget_usd": 4.0})
 }
 
+/// The recette: a team the setup made without docs, so the lead gave the README to the back-end developer.
+#[test]
+fn the_cto_adds_the_role_a_ticket_needs_to_the_run() {
+    let env = Env::new("roles-on-demand");
+    triage_project(&env);
+    let mut bad = routing("lean", &["api"]);
+    bad["roles"] = json!(["nobody", "cto", "docs", "docs"]);
+    env.answer("triage.1.json", bad);
+    let mut good = routing("lean", &["api"]);
+    // front is in squad web already: left out.
+    good["roles"] = json!(["docs", "front"]);
+    env.answer("triage.2.json", good);
+    let mut t1 = task("T1", "docs", &["README.md"], &[]);
+    t1["squad"] = "".into();
+    env.answer("plan.json", env.plan(json!([t1])));
+
+    env.team
+        .start(env.target.clone(), Options::default())
+        .unwrap();
+    let run = env.until("the routing", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == ROUTE && s.state != StepState::Pending)
+    });
+    let second = env.message("triage", 2);
+    for expected in [
+        "roles: nobody is not a role of the library",
+        "roles: cto never takes a task",
+        "roles: docs is named twice",
+    ] {
+        assert!(second.contains(expected), "{expected} in {second}");
+    }
+    let routing = run.routing.as_ref().unwrap();
+    assert_eq!(routing.roles, ["docs"], "what the team lacks only");
+    if env.step(&run, ROUTE).state == StepState::Waiting {
+        env.team.approve(1, ROUTE).unwrap();
+    }
+    let run = env.until("the plan's gate", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "approve-plan" && s.state == StepState::Waiting)
+    });
+    assert_eq!(
+        env.step(&run, "plan").state,
+        StepState::Done,
+        "the plan gives the README to docs: {:?}",
+        env.step(&run, "plan").note
+    );
+    assert!(
+        env.message("plan", 1).contains("- docs: Technical writer."),
+        "the planner may give it a task"
+    );
+    let routed = env
+        .team
+        .events(1, 0)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == "routed")
+        .unwrap();
+    assert!(
+        routed.message.contains("adds roles docs"),
+        "{}",
+        routed.message
+    );
+}
+
 #[test]
 fn the_cto_routes_asks_then_its_routing_waits_for_you() {
     let env = Env::new("triage");
