@@ -126,7 +126,7 @@
   </fieldset>
   <p class="help">{t("expertMemoryAuto")}</p>
 {:else if !error}
-  <Skeleton rows={5} />
+  <Skeleton shape="form" rows={5} />
 {/if}
 
 {#if error}

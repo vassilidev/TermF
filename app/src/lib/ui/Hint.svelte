@@ -33,12 +33,7 @@
   }
 
   p {
-    display: -webkit-box;
     margin: 0;
-    overflow: hidden;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
   }
 
   .proof {
@@ -47,6 +42,7 @@
   }
 
   .btn.link {
+    margin-left: 4px;
     font-size: inherit;
   }
 </style>
