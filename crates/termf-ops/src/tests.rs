@@ -1825,3 +1825,255 @@ fn a_query_without_rows_is_an_empty_table_and_a_cut_one_says_so() {
     assert_eq!(stopped.table.unwrap().rows, [vec!["1", "short"]]);
     assert!(stopped.truncated);
 }
+
+/// The system's own `sqlite3` on a throwaway file: a query, a write refused by the analyzer and by the read-only
+/// file, the schema, a full export past the console's rows, a plan for the DBA, each audited with its event.
+#[cfg(unix)]
+#[test]
+fn a_real_sqlite_database_reads_and_never_writes() {
+    if !Path::new("/usr/bin/sqlite3").is_file() {
+        eprintln!("no /usr/bin/sqlite3: skipped");
+        return;
+    }
+    let env = Fixture::new("sqlite");
+    let db = env.root.join("acme.db");
+    let mut seed = String::from(
+        "CREATE TABLE users(id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, note TEXT);\
+         CREATE INDEX users_note ON users(note);",
+    );
+    for i in 1..=600 {
+        seed.push_str(&format!(
+            "INSERT INTO users VALUES ({i}, 'u{i}@acme.dev', 'n, \"{i}\"');"
+        ));
+    }
+    let made = std::process::Command::new("/usr/bin/sqlite3")
+        .arg(&db)
+        .arg(&seed)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let conn = env.connection(&format!(
+        "name = \"local\"\nkind = \"sqlite\"\nenv = \"dev\"\ndatabase = \"{}\"\n",
+        db.display()
+    ));
+    let vault = env.vault();
+    vault.init(&Actor::human(), PASSWORD, false).unwrap();
+    let runner = env.runner();
+    let (config, data) = (env.config(), env.data());
+    let ops = Ops {
+        config_dir: &config,
+        data_dir: &data,
+        vault: &vault,
+        runner: &runner,
+    };
+    let human = Actor::human();
+    let query = params(&[("query", "SELECT id, email, note FROM users ORDER BY id")]);
+    let (plan, out) = ops
+        .run("acme", &human, "sql-readonly", "local", &query, None)
+        .unwrap();
+    assert!(
+        plan.command.contains("sqlite3 -readonly -safe"),
+        "{}",
+        plan.command
+    );
+    let table = out.table.unwrap();
+    assert_eq!(table.columns, ["id", "email", "note"]);
+    assert_eq!(table.rows.len(), 500, "the console's LIMIT");
+    assert_eq!(table.rows[0], ["1", "[email]", "n, \"1\""]);
+
+    for write in [
+        "DELETE FROM users",
+        "SELECT writefile('x.txt', 'y')",
+        "ATTACH 'other.db' AS o",
+        "PRAGMA journal_mode = DELETE",
+    ] {
+        let given = params(&[("query", write)]);
+        assert!(
+            ops.run("acme", &human, "sql-readonly", "local", &given, None)
+                .is_err(),
+            "{write}"
+        );
+    }
+    // Past the analyzer, the file opened read-only still refuses.
+    let mut forced = plan.clone();
+    forced.args = vec!["DELETE FROM users".into()];
+    let raw = runner.run(&forced, &|_| unreachable!()).unwrap();
+    assert_ne!(raw.exit, Some(0));
+    assert!(raw.stderr.contains("readonly"), "{}", raw.stderr);
+
+    let schema = ops.schema("acme", "local").unwrap();
+    assert_eq!(schema.len(), 1);
+    let users = &schema[0];
+    assert_eq!(users.name, "users");
+    let cols: Vec<(&str, &str, &str)> = users
+        .columns
+        .iter()
+        .map(|c| (c.name.as_str(), c.kind.as_str(), c.key.as_str()))
+        .collect();
+    assert_eq!(
+        cols,
+        [
+            ("id", "INTEGER", "pk"),
+            ("email", "TEXT", ""),
+            ("note", "TEXT", "")
+        ]
+    );
+    assert!(!users.columns[1].nullable && users.columns[2].nullable);
+    assert!(
+        users
+            .indexes
+            .iter()
+            .any(|i| i.name == "users_note" && i.columns == "note" && !i.unique)
+    );
+    assert!(
+        users
+            .indexes
+            .iter()
+            .any(|i| i.unique && i.columns == "email")
+    );
+
+    let (_, all) = ops.export("acme", "local", "SELECT id FROM users").unwrap();
+    assert_eq!(
+        all.table.unwrap().rows.len(),
+        600,
+        "an export reads past the console's rows"
+    );
+
+    let explained = ops
+        .explain("acme", "local", "SELECT * FROM users WHERE note = 'x';")
+        .unwrap();
+    assert!(explained.text.contains("users_note"), "{}", explained.text);
+
+    let checks = runner
+        .test(&conn, std::slice::from_ref(&conn), &|_| unreachable!())
+        .unwrap();
+    assert!(checks.iter().all(|c| c.ok && !c.warn), "{checks:?}");
+
+    let events: Vec<String> = ops
+        .history("acme", 50)
+        .unwrap()
+        .iter()
+        .map(|e| {
+            let d: serde_json::Value = serde_json::from_str(e.detail.as_deref().unwrap()).unwrap();
+            d["event"].as_str().unwrap_or("query").to_owned()
+        })
+        .collect();
+    for event in ["schema", "export", "dba", "query"] {
+        assert!(events.iter().any(|e| e == event), "{event} in {events:?}");
+    }
+}
+
+#[test]
+fn saved_queries_live_in_the_project_file_and_one_becomes_a_recipe() {
+    let env = Fixture::new("queries");
+    env.connection(
+        "name = \"shop\"\nkind = \"mysql\"\nenv = \"prod\"\nhost = \"db\"\nuser = \"ro\"\ndatabase = \"shop\"\nai_access = \"redacted\"\n",
+    );
+    let config = env.config();
+    let q = Query {
+        name: "Orders of the day".into(),
+        description: "Today's paid orders".into(),
+        folder: "Sales".into(),
+        tags: vec!["daily".into()],
+        connection: Some("shop".into()),
+        sql: "SELECT id, total\nFROM orders\nWHERE paid_at > CURDATE()".into(),
+    };
+    let saved = save_query(&config, "acme", &q, None).unwrap();
+    assert_eq!(saved, [q.clone()]);
+    let file = fs::read_to_string(config.join("projects/acme.toml")).unwrap();
+    assert!(
+        file.starts_with("# Acme's project"),
+        "comments kept: {file}"
+    );
+    assert!(file.contains("[[ops.queries]]"), "{file}");
+    let twice = save_query(&config, "acme", &q, None).unwrap_err();
+    assert!(twice.to_string().contains("already named"));
+    let copy = Query {
+        name: "Orders of the day (copy)".into(),
+        ..q.clone()
+    };
+    assert_eq!(save_query(&config, "acme", &copy, None).unwrap().len(), 2);
+    let renamed = Query {
+        name: "Daily orders".into(),
+        ..copy.clone()
+    };
+    let after = save_query(&config, "acme", &renamed, Some(&copy.name)).unwrap();
+    let names: Vec<&str> = after.iter().map(|x| x.name.as_str()).collect();
+    assert_eq!(names, ["Orders of the day", "Daily orders"]);
+    let elsewhere = Query {
+        connection: Some("nope".into()),
+        ..renamed.clone()
+    };
+    assert!(save_query(&config, "acme", &elsewhere, Some("Daily orders")).is_err());
+    assert_eq!(
+        delete_query(&config, "acme", "Daily orders").unwrap().len(),
+        1
+    );
+    assert_eq!(connections(&config, "acme").unwrap().len(), 1);
+
+    let name = query_recipe(&config, "acme", "Orders of the day").unwrap();
+    assert_eq!(name, "query-orders-of-the-day");
+    assert!(
+        query_recipe(&config, "acme", "Orders of the day").is_err(),
+        "never overwritten"
+    );
+    let (all, errors) = recipes(&config, Some("acme"));
+    assert!(errors.is_empty(), "{errors:?}");
+    let recipe = all.iter().find(|r| r.name == name).unwrap();
+    assert_eq!(
+        (recipe.mode, recipe.approval, recipe.ai_access),
+        (Mode::Read, Approval::Always, AiAccess::Redacted)
+    );
+    let conns = connections(&config, "acme").unwrap();
+    let plan = crate::plan(recipe, &conns[0], &conns, &BTreeMap::new()).unwrap();
+    assert!(
+        plan.params["query"].starts_with("SELECT id, total"),
+        "its saved query by default"
+    );
+    let other = params(&[("query", "SELECT * FROM users")]);
+    let e = crate::plan(recipe, &conns[0], &conns, &other).unwrap_err();
+    assert!(format!("{e:#}").contains("only its saved query"), "{e:#}");
+}
+
+#[test]
+fn a_failure_says_what_is_missing() {
+    for (said, hint) in [
+        ("alex@bastion: Permission denied (publickey).", "keyRefused"),
+        (
+            "ssh: Could not resolve hostname db.acme.dev: nodename nor servname provided",
+            "unknownHost",
+        ),
+        (
+            "ssh: connect to host 10.0.0.4 port 22: Connection refused",
+            "portClosed",
+        ),
+        (
+            "ssh: connect to host 10.0.0.4 port 22: Operation timed out",
+            "timeout",
+        ),
+        ("Host key verification failed.", "hostKey"),
+        (
+            "psql: error: FATAL:  password authentication failed for user \"ro\"",
+            "passwordRefused",
+        ),
+        (
+            "ERROR 1045 (28000): Access denied for user 'ro'@'10.0.0.1' (using password: YES)",
+            "passwordRefused",
+        ),
+        (
+            "psql: error: FATAL:  database \"acme\" does not exist",
+            "noDatabase",
+        ),
+        (
+            "ERROR 2002 (HY000): Can't connect to MySQL server on '127.0.0.1' (61)",
+            "portClosed",
+        ),
+        (
+            "Error: unable to open database \"/srv/x.db\": unable to open database file",
+            "noFile",
+        ),
+    ] {
+        assert_eq!(diagnose(said), Some(hint), "{said}");
+    }
+    assert_eq!(diagnose("something else"), None);
+}

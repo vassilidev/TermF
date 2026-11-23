@@ -20,8 +20,12 @@ termf-claude = { path = "../termf-claude" }
 termf-core = { path = "../termf-core" }
 termf-library = { path = "../termf-library" }
 termf-vault = { path = "../termf-vault" }
+# The databases a repository declares, and database URLs, as its worktree setup reads them.
+termf-worktree = { path = "../termf-worktree" }
 toml = "1.2.2"
 toml_edit = "0.25"
+# Already in the build (the updater): an .xlsx export is a zip of XML parts, stored uncompressed.
+zip = { version = "9.8.1", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"

@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 mod cow;
 mod database;
+mod declared;
 mod detect;
 mod files;
 mod ports;
@@ -29,6 +30,7 @@ mod recipe;
 mod tests;
 
 pub use database::{DbView, Engine};
+pub use declared::{Declared, Url, declared, parse_url};
 pub use detect::detect;
 pub use ports::reserve as reserve_port;
 pub use recipe::{Draft, RecipeView, RepoView, discard, propose, save, view};

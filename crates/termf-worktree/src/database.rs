@@ -302,7 +302,7 @@ fn unquote(value: &str) -> String {
         .to_owned()
 }
 
-fn get<'a>(vars: &'a [(String, String)], key: &str) -> Option<&'a str> {
+pub(crate) fn get<'a>(vars: &'a [(String, String)], key: &str) -> Option<&'a str> {
     vars.iter()
         .rev()
         .find(|(k, _)| k == key)
@@ -347,69 +347,25 @@ pub(crate) fn set_env(text: &str, key: &str, value: &str) -> String {
     out
 }
 
-fn url_conn(url: &str, key: &str) -> Result<Conn> {
-    let (scheme, rest) = url
-        .split_once(':')
-        .with_context(|| format!("{key} is not a URL"))?;
-    let engine = match scheme.to_ascii_lowercase().as_str() {
+pub(crate) fn url_conn(url: &str, key: &str) -> Result<Conn> {
+    let url = crate::declared::parse_url(url).with_context(|| format!("{key} is not a URL"))?;
+    let engine = match url.scheme.as_str() {
         "postgres" | "postgresql" | "pgsql" => Engine::Postgres,
         "mysql" | "mysql2" | "mariadb" | "trilogy" => Engine::Mysql,
         "sqlite" | "sqlite3" | "file" => Engine::Sqlite,
         other => bail!("{other} databases are not supported"),
     };
     let mut conn = Conn::new(engine, Key::Url(key.into()));
-    if engine == Engine::Sqlite {
-        let path = rest.strip_prefix("//").unwrap_or(rest);
-        let path = path.split(['?', '#']).next().unwrap_or_default();
-        // `sqlite:////abs/path` is an absolute path.
-        let path = if path.starts_with("//") {
-            &path[1..]
-        } else {
-            path
-        };
-        ensure!(!path.is_empty(), "{key} names no file");
-        conn.name = path.into();
-        return Ok(conn);
-    }
-    let rest = rest
-        .strip_prefix("//")
-        .with_context(|| format!("{key} is not a URL"))?;
-    let rest = rest.split('#').next().unwrap_or_default();
-    let (rest, query) = rest.split_once('?').unwrap_or((rest, ""));
-    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
-    let (userinfo, hostport) = authority.rsplit_once('@').unwrap_or(("", authority));
-    let (user, password) = userinfo.split_once(':').unwrap_or((userinfo, ""));
-    let (host, port) = match hostport.strip_prefix('[') {
-        Some(v6) => {
-            let (host, port) = v6
-                .split_once(']')
-                .with_context(|| format!("{key} has a bad host"))?;
-            (host, port.strip_prefix(':'))
-        }
-        None => match hostport.rsplit_once(':') {
-            Some((host, port)) => (host, Some(port)),
-            None => (hostport, None),
-        },
-    };
-    conn.host = decode(host);
-    for pair in query.split('&') {
-        if let Some(socket) = pair.strip_prefix("host=").or(pair.strip_prefix("socket=")) {
-            conn.host = decode(socket);
-        }
-    }
-    conn.port = port
-        .filter(|p| !p.is_empty())
-        .map(str::parse)
-        .transpose()
-        .with_context(|| format!("{key} has a bad port"))?;
-    conn.user = decode(user);
-    conn.password = decode(password);
-    conn.name = decode(path);
+    conn.host = url.host;
+    conn.port = url.port;
+    conn.user = url.user;
+    conn.password = url.password;
+    conn.name = url.database;
     ensure!(!conn.name.is_empty(), "{key} names no database");
     Ok(conn)
 }
 
-fn laravel(vars: &[(String, String)]) -> Result<Conn> {
+pub(crate) fn laravel(vars: &[(String, String)]) -> Result<Conn> {
     let value = |key: &str| get(vars, key).unwrap_or_default().to_owned();
     let engine = match value("DB_CONNECTION").as_str() {
         "mysql" | "mariadb" => Engine::Mysql,
@@ -442,7 +398,7 @@ fn laravel(vars: &[(String, String)]) -> Result<Conn> {
 }
 
 /// The `development` database of `config/database.yml`.
-fn yaml(text: &str) -> Result<Conn> {
+pub(crate) fn yaml(text: &str) -> Result<Conn> {
     let doc = YamlLoader::load_from_str(text)?
         .into_iter()
         .next()
@@ -489,7 +445,7 @@ fn yaml(text: &str) -> Result<Conn> {
     Ok(conn)
 }
 
-fn decode(text: &str) -> String {
+pub(crate) fn decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
