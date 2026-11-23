@@ -185,6 +185,10 @@ fn edits_a_setting_atomically_in_strict_json() {
     )
     .unwrap();
     assert_eq!(local, json!({"autoMemoryEnabled": false}));
+    assert!(
+        fs::read_to_string(root.join("repo/.git/info/exclude")).is_err(),
+        "outside git, no exclude"
+    );
 
     for (scope, key, value) in [
         (Scope::User, "effortLevel", json!("max")),
@@ -233,6 +237,43 @@ fn edits_a_setting_atomically_in_strict_json() {
 }
 
 #[cfg(unix)]
+#[test]
+fn local_settings_stay_out_of_git() {
+    let (root, env) = tree("local-git");
+    let repo = root.join("repo");
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(args)
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout).unwrap()
+    };
+    git(&["init", "-q"]);
+    // Not the global ignore of whoever runs the tests, which may list it already.
+    let none = root.join("no-ignore");
+    write(&none, "");
+    git(&["config", "core.excludesFile", &none.to_string_lossy()]);
+    for _ in 0..2 {
+        settings::save(&env, Scope::Local, &set("model", json!("haiku")), None).unwrap();
+    }
+    assert_eq!(git(&["status", "--porcelain", "-uall"]), "");
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert_eq!(
+        exclude.matches("/.claude/settings.local.json").count(),
+        1,
+        "{exclude}"
+    );
+    settings::save(&env, Scope::Project, &set("model", json!("haiku")), None).unwrap();
+    assert_eq!(
+        git(&["status", "--porcelain", "-uall"]),
+        "?? .claude/settings.json\n",
+        "the shared file is for git"
+    );
+    fs::remove_dir_all(&root).unwrap();
+}
+
 #[test]
 fn writes_through_a_symlinked_settings_file() {
     let (root, env) = tree("symlink");

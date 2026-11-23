@@ -264,7 +264,61 @@ pub fn save(env: &Env, scope: Scope, edit: &Edit, hash: Option<&str>) -> Result<
     }
     let preview = preview(env, scope, edit)?;
     write_atomic(Path::new(&preview.path), &preview.text)?;
+    if scope == Scope::Local {
+        exclude_local(Path::new(&preview.path))?;
+    }
     Ok(preview)
+}
+
+/// Your own settings for one repository stay out of git, as when Claude Code creates the file: unless git
+/// ignores it already, through `info/exclude`, which is never committed. Outside git, nothing to do.
+fn exclude_local(file: &Path) -> Result<()> {
+    let dir = file.parent().context("no parent folder")?;
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+    };
+    if git(&["check-ignore", "-q", "settings.local.json"])?
+        .status
+        .success()
+    {
+        return Ok(());
+    }
+    let out = git(&["rev-parse", "--show-prefix", "--git-path", "info/exclude"])?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut lines = text.lines();
+    let (true, Some(prefix), Some(exclude)) = (out.status.success(), lines.next(), lines.next())
+    else {
+        return Ok(());
+    };
+    // Taken literally: a folder's name may hold what gitignore reads as a pattern.
+    let prefix: String = prefix
+        .chars()
+        .flat_map(|c| ["\\*?[".contains(c).then_some('\\'), Some(c)])
+        .flatten()
+        .collect();
+    let exclude = dir.join(exclude);
+    let before = fs::read_to_string(&exclude).unwrap_or_default();
+    let newline = if before.is_empty() || before.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    fs::create_dir_all(exclude.parent().context("no parent folder")?)?;
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&exclude)
+        .and_then(|mut f| {
+            std::io::Write::write_all(
+                &mut f,
+                format!("{newline}/{prefix}settings.local.json\n").as_bytes(),
+            )
+        })
+        .with_context(|| format!("cannot write {}", exclude.display()))
 }
 
 /// The value of a dotted key in `scope`'s file, unmasked: only for a value you asked to see.
