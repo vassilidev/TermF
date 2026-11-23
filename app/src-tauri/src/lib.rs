@@ -258,7 +258,8 @@ pub fn run() {
     let builder = match e2e::plugin() {
         Some(bridge) => builder.plugin(bridge),
         None => builder,
-    };
+    }
+    .plugin(e2e::quiet());
     // The test app runs while the user works: it never becomes the active app (see `window::open`).
     #[cfg(all(feature = "e2e", target_os = "macos"))]
     let builder = builder.activate_ignoring_other_apps(false);

@@ -128,6 +128,9 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, data_dir: &Path) {
     #[cfg(all(feature = "e2e", target_os = "macos"))]
     {
         let _ = window.set_always_on_bottom(true);
+        // Never key either: `show()` would make it so for a moment, and the page would sometimes believe it has the
+        // focus (`document.hasFocus()`).
+        let _ = window.set_focusable(false);
         // Covered, WebKit would take the page for hidden: no frames for xterm, its timers slowed down.
         let _ = window.with_webview(|webview| {
             let view: &objc2::runtime::AnyObject = unsafe { &*(webview.inner() as *const _) };

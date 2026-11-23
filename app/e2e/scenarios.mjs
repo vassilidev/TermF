@@ -204,6 +204,8 @@ export const scenarios = [
         return list.includes("working") && list.at(-1) === "idle" && list;
       }, { what: "working, then idle" });
       check(seen.join(" ") === "idle working idle", `statuses seen: ${seen.join(" → ")}`);
+      // Never in front on macOS, the app notifies the finished turn: kept in the page, never shown by the system.
+      if (t.mac) await s.wait(() => s.exec(() => window.__e2eNotifications.length > 0), { what: "the notification kept in the page" });
       check(/--plugin-dir/.test(read(box.calls)), "the agent got no hooks plugin");
       await t.clean();
     },
