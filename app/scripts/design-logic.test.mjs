@@ -4,10 +4,12 @@ import {
   aliased,
   describe,
   families,
+  fetchedFor,
   fontState,
   kit,
   latest,
   literal,
+  loadFamilies,
   passes,
   primitive,
   ramps,
@@ -22,6 +24,7 @@ import {
   tokensOf,
   tone,
   weights,
+  withSources,
 } from "../src/lib/design-logic.ts";
 
 const t = (key, vars = {}) => `${key}${Object.keys(vars).length ? JSON.stringify(vars) : ""}`;
@@ -214,4 +217,60 @@ test("kit: the project's colors, radius and shadow by their names, in each theme
   assert.deepEqual([quiet.muted, quiet.soft, quiet.onSoft], ["#5b6170", "#eef1fb", "#1d2a5c"]);
   const bare = kit([token({ name: "--color-brand-500", value: "#16a34a", color: "#16a34a" })], false);
   assert.deepEqual([bare.accent, bare.bg, bare.radius], ["#16a34a", "#ffffff", "6px"]);
+});
+
+test("kit: a ground is never the text, and a color without a step beats its scale's steps", () => {
+  const tokens = [
+    token({ name: "--body-bg", value: "#ffffff", color: "#ffffff" }),
+    token({ name: "--body-color", value: "#212529", color: "#212529" }),
+    token({ name: "--primary-50", value: "#eef2ff", color: "#eef2ff" }),
+    token({ name: "--primary", value: "#4f46e5", color: "#4f46e5" }),
+  ];
+  const k = kit(tokens, false);
+  assert.deepEqual([k.text, k.bg, k.accent], ["#212529", "#ffffff", "#4f46e5"]);
+  // Of a scale alone, still the step a filled control uses.
+  const scale = ["100", "600", "900"].map((n) => token({ name: `--brand-${n}`, value: n, color: `#0000${n.slice(0, 2)}` }));
+  assert.equal(kit(scale, false).accent, "#000060");
+});
+
+const face = (over) => ({ weight: "400", style: "normal", src: "", file: "a.woff2", size: 10, modified: 1, ...over });
+
+test("fonts: the bytes read apart join their faces", () => {
+  const list = [font({ faces: [face({ file: "a.woff2" }), face({ file: "b.woff2", style: "italic" }), face({ file: "", src: "data:font/woff2;base64,AA" })] })];
+  const got = withSources(list, { "a.woff2": "data:font/woff2;base64,QQ" });
+  assert.deepEqual(got[0].faces.map((f) => f.src), ["data:font/woff2;base64,QQ", "", "data:font/woff2;base64,AA"]);
+  assert.equal(list[0].faces[0].src, "", "the scan's fonts are left as they were");
+});
+
+test("fonts: an older load never writes over a newer one", async () => {
+  const loads = latest();
+  const gates = [];
+  const load = () => new Promise((resolve) => gates.push(resolve));
+  let n = 0;
+  const name = () => `termf-design-${++n}`;
+  const one = [font({ family: "Old", faces: [face({ src: "data:x" })] })];
+  const two = [font({ family: "New", faces: [face({ src: "data:y" })] })];
+  const first = loads.start();
+  const older = loadFamilies(one, load, () => loads.isLast(first), name);
+  const second = loads.start();
+  const newer = loadFamilies(two, load, () => loads.isLast(second), name);
+  gates.forEach((open) => open());
+  assert.equal(await older, null);
+  assert.deepEqual([...(await newer).aliases], [["new", "termf-design-2"]]);
+  // A family whose bytes are missing or do not decode is broken, the others load.
+  const mixed = [
+    font({ family: "Gone", faces: [face({ file: "gone.woff2" })] }),
+    font({ family: "Bad", faces: [face({ src: "data:bad", file: "bad.woff2" })] }),
+    font({ family: "Good", faces: [face({ src: "data:ok" })] }),
+  ];
+  const got = await loadFamilies(mixed, (_, f) => (f.src === "data:bad" ? Promise.reject(new Error("decode")) : Promise.resolve()), () => true, name);
+  assert.deepEqual([...got.broken], [["gone", "gone.woff2"], ["bad", "bad.woff2"]]);
+  assert.deepEqual([...got.aliases.keys()], ["good"]);
+});
+
+test("fonts: a web font fetched for a repository left meanwhile is dropped", () => {
+  const had = [font({ family: "Fraunces", origin: "service" })];
+  const got = [font({ family: "Fraunces", origin: "service", faces: [face({ src: "data:z" })] }), font({ family: "Work Sans", origin: "service" })];
+  assert.equal(fetchedFor("/code/a", "/code/b", got, had), null);
+  assert.deepEqual(fetchedFor("/code/a", "/code/a", got, had).map((f) => [f.family, f.faces.length]), [["Fraunces", 1], ["Work Sans", 0]]);
 });

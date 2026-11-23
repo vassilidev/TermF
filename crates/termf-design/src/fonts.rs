@@ -1,11 +1,13 @@
 //! The fonts a repository uses, as files the view can draw them with: its own `@font-face` files, the
 //! `@fontsource` packages it imports (their stylesheet and files read in `node_modules`, never run), and the web
-//! font services it links, fetched only when the user asks (`fetch`).
+//! font services it links, fetched only when the user asks (`fetch`). A scan lists the faces; their bytes come
+//! apart (`files`), so a view reading the repository again does not carry them each time.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::UNIX_EPOCH;
 
 use anyhow::{Context, Result, ensure};
 use base64ct::Encoding;
@@ -37,10 +39,14 @@ pub enum Origin {
 pub struct Face {
     pub weight: String,
     pub style: String,
-    /// The font file as a data URI.
+    /// The font as a data URI: written in the stylesheet, or fetched from a service; empty for a file of the
+    /// repository, which `files` reads.
     pub src: String,
     /// Where it was read: a path in the repository, or the service's URL.
     pub file: String,
+    /// The file's size and its last change in seconds: a file that changed is loaded again.
+    pub size: u64,
+    pub modified: u64,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -134,7 +140,7 @@ fn local(root: &Path, dir: &Path, url: &str) -> Option<PathBuf> {
     })
 }
 
-/// The faces of a stylesheet's `@font-face` with their line, and the file found for each, read within the budget.
+/// The faces of a stylesheet's `@font-face` with their line, and the file found for each, within the budget.
 fn faces(
     root: &Path,
     dir: &Path,
@@ -145,33 +151,68 @@ fn faces(
         .into_iter()
         .map(|f| {
             let face = f.src.iter().find_map(|url| {
-                let (src, file) =
-                    if url.starts_with("data:font/") || url.starts_with("data:application/font") {
-                        (url.clone(), String::new())
-                    } else {
-                        let path = local(root, dir, url)?;
-                        let size = fs::metadata(&path).ok()?.len();
-                        if !budget.take(size) {
-                            return None;
-                        }
-                        let name = path.to_string_lossy().into_owned();
-                        let file = path
-                            .strip_prefix(root)
-                            .unwrap_or(&path)
-                            .to_string_lossy()
-                            .replace('\\', "/");
-                        (data_uri(mime(&name)?, &fs::read(&path).ok()?), file)
-                    };
-                Some(Face {
+                let mut face = Face {
                     weight: f.weight.clone().unwrap_or_else(|| "400".into()),
                     style: f.style.clone().unwrap_or_else(|| "normal".into()),
-                    src,
-                    file,
-                })
+                    src: String::new(),
+                    file: String::new(),
+                    size: 0,
+                    modified: 0,
+                };
+                if url.starts_with("data:font/") || url.starts_with("data:application/font") {
+                    face.src = url.clone();
+                    return Some(face);
+                }
+                let path = local(root, dir, url)?;
+                let meta = fs::metadata(&path).ok()?;
+                if !budget.take(meta.len()) {
+                    return None;
+                }
+                face.file = relative(root, &path);
+                face.size = meta.len();
+                face.modified = meta
+                    .modified()
+                    .ok()
+                    .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_secs());
+                Some(face)
             });
             (f.family.clone(), f.line, face)
         })
         .collect()
+}
+
+fn relative(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// The font files of the repository a view asks for (`Face.file`), as data URIs: only font files inside it, within
+/// the scan's limits; the others are left out.
+pub fn files(repo: &Path, wanted: &[String]) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let Ok(root) = repo.canonicalize() else {
+        return out;
+    };
+    let mut budget = Budget::default();
+    for rel in wanted {
+        let Ok(path) = root.join(rel).canonicalize() else {
+            continue;
+        };
+        let Some(mime) = mime(&path.to_string_lossy()) else {
+            continue;
+        };
+        let size = fs::metadata(&path).map_or(u64::MAX, |m| m.len());
+        if !path.starts_with(&root) || !path.is_file() || !budget.take(size) {
+            continue;
+        }
+        if let Ok(bytes) = fs::read(&path) {
+            out.insert(rel.clone(), data_uri(mime, &bytes));
+        }
+    }
+    out
 }
 
 /// `@fontsource/inter`, `@fontsource-variable/inter/wght.css`, as a script or stylesheet imports them.
@@ -245,19 +286,24 @@ fn service_urls(text: &str) -> Vec<(usize, String)> {
     out
 }
 
-/// The families a service stylesheet asks for: `family=Inter:wght@400;700&family=Playfair+Display`, `family=A|B`.
+/// The families a service stylesheet asks for: `family=Inter:wght@400;700&family=Playfair+Display`, `family=A|B`,
+/// and Bunny's `family=playfair-display:400`.
 pub fn families(url: &str) -> Vec<String> {
     url.split(['?', '&'])
         .filter_map(|p| p.strip_prefix("family="))
         .flat_map(|p| p.split('|'))
         .map(|f| {
-            f.split(':')
+            let name = f
+                .split(':')
                 .next()
                 .unwrap_or("")
                 .replace('+', " ")
-                .replace("%20", " ")
-                .trim()
-                .to_owned()
+                .replace("%20", " ");
+            if name.chars().any(|c| c.is_uppercase()) {
+                name.trim().to_owned()
+            } else {
+                markup::title(name.replace('-', " ").trim())
+            }
         })
         .filter(|f| !f.is_empty())
         .collect()
@@ -429,11 +475,18 @@ fn curl(url: &str) -> Result<Vec<u8>> {
 /// The fonts of a web font service's stylesheet, fetched by the system's curl on the user's word only: the
 /// stylesheet and its files must come from the service itself.
 pub fn fetch(url: &str) -> Result<Vec<Font>> {
+    fetch_with(url, curl)
+}
+
+/// `fetch`, `get` bringing each URL: a file that cannot be had (too large, gone) is left out, and only when none
+/// can is it an error.
+pub(crate) fn fetch_with(url: &str, get: impl Fn(&str) -> Result<Vec<u8>>) -> Result<Vec<Font>> {
     ensure!(service(url), "not a web font stylesheet: {url}");
-    let text = String::from_utf8(curl(url)?).context("the stylesheet is not text")?;
+    let text = String::from_utf8(get(url)?).context("the stylesheet is not text")?;
     let sheet = css::parse(&text, false, 1, &mut 0);
     let mut budget = Budget::default();
     let mut fonts = Vec::new();
+    let mut failed = None;
     for f in pick(&sheet.faces) {
         let Some(src) = f
             .src
@@ -443,15 +496,23 @@ pub fn fetch(url: &str) -> Result<Vec<Font>> {
             continue;
         };
         let Some(mime) = mime(src) else { continue };
-        let bytes = curl(src)?;
+        let bytes = match get(src) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                failed = Some(e);
+                continue;
+            }
+        };
         if !budget.take(bytes.len() as u64) {
-            break;
+            continue;
         }
         let face = Face {
             weight: f.weight.clone().unwrap_or_else(|| "400".into()),
             style: f.style.clone().unwrap_or_else(|| "normal".into()),
             src: data_uri(mime, &bytes),
             file: src.clone(),
+            size: bytes.len() as u64,
+            modified: 0,
         };
         add(
             &mut fonts,
@@ -461,6 +522,9 @@ pub fn fetch(url: &str) -> Result<Vec<Font>> {
             url,
             f.line,
         );
+    }
+    if let (true, Some(e)) = (fonts.is_empty(), failed) {
+        return Err(e);
     }
     for font in &mut fonts {
         font.url = Some(url.to_owned());

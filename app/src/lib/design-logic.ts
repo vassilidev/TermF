@@ -67,7 +67,8 @@ export type Brand = {
   guidelines: string | null;
   pdf: boolean;
 };
-export type FontFace = { weight: string; style: string; src: string; file: string };
+/** `src` empty: a file of the repository, whose bytes `design_font_files` gives; `size` and `modified` say when it changed. */
+export type FontFace = { weight: string; style: string; src: string; file: string; size: number; modified: number };
 export type Font = {
   family: string;
   origin: "repo" | "package" | "service" | "missing";
@@ -364,7 +365,8 @@ export function kit(tokens: Token[], dark: boolean): Kit {
   const own: string[] = [];
   const colors = tokens.filter((t) => t.family === "color" && t.color);
   const parts = (t: Token) => t.name.toLowerCase().replace(/^(--|\$)(color-|colors?\.)?/, "").split(/[-._]/);
-  const step = (t: Token) => Number(parts(t).at(-1)) || 0;
+  // A color without a step is the scale's own: as good as the step a filled control uses.
+  const step = (t: Token) => (/^\d+$/.test(parts(t).at(-1) ?? "") ? Number(parts(t).at(-1)) : 600);
   const color = (t: Token) => (dark ? (t.darkColor ?? t.color) : t.color) as string;
   const find = (key: keyof Kit, words: string[], avoid: string[], ok: (c: string) => boolean = () => true) => {
     for (const w of words) {
@@ -383,7 +385,7 @@ export function kit(tokens: Token[], dark: boolean): Kit {
   const fills = [...ink, ...states, "border"];
   const bg = find("bg", ["background", "bg", "canvas", "page", "paper", "base", "body"], fills) ?? (dark ? "#121316" : "#ffffff");
   const text =
-    find("text", ["foreground", "fg", "text", "ink", "body", "content"], ["muted", "secondary", "subtle", "primary", "accent", "on", "inverse", "placeholder", "disabled", "link"]) ??
+    find("text", ["foreground", "fg", "text", "ink", "body", "content"], ["muted", "secondary", "subtle", "primary", "accent", "on", "inverse", "placeholder", "disabled", "link", "bg", "background", "surface", "border"]) ??
     (dark ? "#ececee" : "#17181c");
   const accent = find("accent", ["primary", "accent", "brand", "action", "interactive"], [...fills, "bg", "background"]) ?? text;
   const onAccent =
@@ -433,4 +435,45 @@ export function luminance(hex: string): number {
     return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   });
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** The faces given the bytes `design_font_files` read for their file. */
+export function withSources(list: Font[], sources: Record<string, string>): Font[] {
+  return list.map((f) => ({ ...f, faces: f.faces.map((x) => (x.src || !sources[x.file] ? x : { ...x, src: sources[x.file] })) }));
+}
+
+/**
+ * Loads each family's faces by `load`, under a name of its own (`name()`). As soon as `current()` says a newer load
+ * began, it stops and gives nothing, so an older load never writes over a newer one. A family whose files could not be
+ * read or decoded is `broken`, with its first file.
+ */
+export async function loadFamilies(
+  list: Font[],
+  load: (alias: string, face: FontFace) => Promise<unknown>,
+  current: () => boolean,
+  name: () => string,
+): Promise<{ aliases: Map<string, string>; broken: Map<string, string> } | null> {
+  const aliases = new Map<string, string>();
+  const broken = new Map<string, string>();
+  for (const font of list) {
+    if (!font.faces.length) continue;
+    if (!current()) return null;
+    const key = font.family.toLowerCase();
+    const faces = font.faces.filter((f) => f.src);
+    try {
+      if (!faces.length) throw new Error("no bytes");
+      const alias = name();
+      await Promise.all(faces.map((f) => load(alias, f)));
+      aliases.set(key, alias);
+    } catch {
+      broken.set(key, font.faces[0].file);
+    }
+  }
+  return current() ? { aliases, broken } : null;
+}
+
+/** The fonts fetched for repository `asked` joined to those fetched before, or null when another one is shown since. */
+export function fetchedFor(asked: string, shown: string, got: Font[], had: Font[]): Font[] | null {
+  if (asked !== shown) return null;
+  return [...had.filter((f) => !got.some((g) => g.family === f.family)), ...got];
 }

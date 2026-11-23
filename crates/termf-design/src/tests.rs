@@ -1097,8 +1097,23 @@ fn reads_a_tailwind_app_with_its_own_font_files() {
             ),
         ]
     );
+    // The scan lists the faces; their bytes come apart, only for font files inside the repository.
     assert_eq!(
-        satoshi.faces[0].src,
+        (satoshi.faces[0].src.as_str(), satoshi.faces[0].size),
+        ("", 12)
+    );
+    assert!(satoshi.faces[0].modified > 0);
+    let wanted = [
+        "static/fonts/Satoshi-Variable.woff2",
+        "../outside.woff2",
+        "src/app.css",
+        "static/fonts/none.woff2",
+    ]
+    .map(String::from);
+    let files = fonts::files(&inner, &wanted);
+    assert_eq!(files.len(), 1, "{:?}", files.keys());
+    assert_eq!(
+        files["static/fonts/Satoshi-Variable.woff2"],
         format!(
             "data:font/woff2;base64,{}",
             <base64ct::Base64 as base64ct::Encoding>::encode_string(b"wOF2 satoshi")
@@ -1214,5 +1229,47 @@ fn knows_web_font_stylesheets_and_their_families() {
         fonts::families("https://fonts.googleapis.com/css?family=Open+Sans:400,700|Roboto%20Slab"),
         ["Open Sans", "Roboto Slab"]
     );
+    // Bunny writes them in lowercase, with dashes.
+    assert_eq!(
+        fonts::families("https://fonts.bunny.net/css?family=playfair-display:400|inter:500,700"),
+        ["Playfair Display", "Inter"]
+    );
     assert!(fonts::fetch("https://example.com/font.css").is_err());
+}
+
+#[test]
+fn fetches_what_it_can_of_a_web_font_and_fails_only_when_nothing_comes() {
+    let url = "https://fonts.bunny.net/css?family=inter:400,700";
+    let sheet = "@font-face { font-family: 'Inter'; font-weight: 400; src: url(https://fonts.bunny.net/inter/files/inter-latin-400-normal.woff2) format('woff2'); }\n@font-face { font-family: 'Inter'; font-weight: 700; src: url(https://fonts.bunny.net/inter/files/inter-latin-700-normal.woff2) format('woff2'); }\n@font-face { font-family: 'Evil'; src: url(https://evil.test/x.woff2); }\n";
+    let asked = std::cell::RefCell::new(Vec::new());
+    let get = |u: &str| -> anyhow::Result<Vec<u8>> {
+        asked.borrow_mut().push(u.to_owned());
+        match u {
+            _ if u == url => Ok(sheet.as_bytes().to_vec()),
+            _ if u.ends_with("-400-normal.woff2") => Ok(b"wOF2 400".to_vec()),
+            // curl's code 63: over --max-filesize.
+            _ => anyhow::bail!("cannot fetch {u}: (63) Maximum file size exceeded"),
+        }
+    };
+    let got = fonts::fetch_with(url, get).unwrap();
+    assert_eq!(got.len(), 1);
+    assert_eq!(
+        (
+            got[0].family.as_str(),
+            got[0].faces.len(),
+            got[0].faces[0].weight.as_str()
+        ),
+        ("Inter", 1, "400")
+    );
+    assert_eq!(got[0].url.as_deref(), Some(url));
+    // Never a file from another host.
+    assert!(asked.borrow().iter().all(|u| !u.contains("evil.test")));
+    let none = fonts::fetch_with(url, |u: &str| {
+        if u == url {
+            Ok(sheet.as_bytes().to_vec())
+        } else {
+            anyhow::bail!("cannot fetch {u}")
+        }
+    });
+    assert!(none.is_err());
 }

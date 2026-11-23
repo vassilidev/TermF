@@ -34,9 +34,11 @@
     aliased,
     describe,
     families,
+    fetchedFor,
     fontState,
     kit,
     latest,
+    loadFamilies,
     passes,
     primitive,
     ramps,
@@ -50,6 +52,7 @@
     tokensOf,
     tone,
     weights,
+    withSources,
     type Component,
     type Design,
     type Font,
@@ -146,41 +149,51 @@
     return out.buffer;
   }
 
-  async function loadFonts(list: Font[]) {
+  const fontLoads = latest();
+
+  // The bytes of the repository's files come apart from the scan, and only when they changed.
+  async function loadFonts(repo: string, list: Font[]) {
+    const run = fontLoads.start();
     for (const f of added) document.fonts.delete(f);
     added = [];
     aliases.clear();
     broken.clear();
-    for (const font of list) {
-      if (!font.faces.length) continue;
-      const alias = `termf-design-${++serial}`;
-      const key = font.family.toLowerCase();
-      try {
-        const faces = font.faces.map((face) => new FontFace(alias, bytes(face.src), { weight: face.weight, style: face.style }));
-        for (const face of faces) {
-          added.push(face);
-          document.fonts.add(face);
-        }
-        await Promise.all(faces.map((face) => face.load()));
-        aliases.set(key, alias);
-      } catch {
-        broken.set(key, font.faces[0].file);
-      }
-    }
+    const wanted = list.flatMap((f) => f.faces.filter((x) => !x.src && x.file).map((x) => x.file));
+    const sources = wanted.length ? await invoke<Record<string, string>>("design_font_files", { repo, wanted }).catch(() => ({})) : {};
+    if (!fontLoads.isLast(run)) return;
+    const got = await loadFamilies(
+      withSources(list, sources),
+      (alias, face) => {
+        const loaded = new FontFace(alias, bytes(face.src), { weight: face.weight, style: face.style });
+        added.push(loaded);
+        document.fonts.add(loaded);
+        return loaded.load();
+      },
+      () => fontLoads.isLast(run),
+      () => `termf-design-${++serial}`,
+    );
+    if (!got) return;
+    for (const [family, alias] of got.aliases) aliases.set(family, alias);
+    for (const [family, file] of got.broken) broken.set(family, file);
   }
 
   $effect(() => {
     const list = fonts;
-    const key = JSON.stringify(list.map((f) => [f.family, f.faces.map((x) => `${x.file}:${x.src.length}`)]));
-    if (key !== loadedKey) untrack(() => ((loadedKey = key), loadFonts(list)));
+    const repo = scanned;
+    const key = JSON.stringify([repo, list.map((f) => [f.family, f.faces.map((x) => `${x.file}:${x.size}:${x.modified}:${x.src.length}`)])]);
+    if (key !== loadedKey) untrack(() => ((loadedKey = key), loadFonts(repo, list)));
   });
 
   const probe = document.createElement("canvas").getContext("2d");
   const seen = new Map<string, boolean>();
-  /** The machine has the family: it draws differently from each generic family alone. */
+  /** The machine has the family: it draws differently from each generic family alone, and is not one TermF carries. */
   function installed(family: string): boolean {
     if (!probe) return false;
     if (!seen.has(family)) {
+      const own = [...document.fonts].some(
+        (f) => !f.family.includes("termf-design-") && f.family.replace(/^["']|["']$/g, "").toLowerCase() === family.toLowerCase(),
+      );
+      if (own) return false;
       const text = "mmmmmmmmmmlli10OQW";
       seen.set(
         family,
@@ -197,13 +210,14 @@
   const loaded = (family: string) => aliases.has(family.toLowerCase());
 
   async function fetchFonts(url: string) {
+    const repo = scanned;
     fetching = url;
     error = "";
     try {
       const got = await invoke<Font[]>("design_web_fonts", { url });
-      fetched = [...fetched.filter((f) => !got.some((g) => g.family === f.family)), ...got];
+      fetched = fetchedFor(repo, scanned, got, fetched) ?? fetched;
     } catch (e) {
-      error = String(e);
+      if (repo === scanned) error = String(e);
     } finally {
       fetching = null;
     }
@@ -279,8 +293,9 @@
   });
 
   const looks = ["variant", "kind", "intent", "appearance", "tone", "color", "severity", "status"];
+  // Twelve previews at most; the base components past them go with the others, never nowhere.
   const prims = $derived((data?.components ?? []).filter((c) => primitive(c.name)).slice(0, 12));
-  const others = $derived((data?.components ?? []).filter((c) => !primitive(c.name)));
+  const others = $derived((data?.components ?? []).filter((c) => !prims.includes(c)));
   const variantsOf = (c: Component) => c.variants.find((v) => looks.includes(v.prop))?.values.slice(0, 4) ?? [];
   const toneColor = (k: Kit, look: Tone) =>
     look === "danger" ? k.danger : look === "success" ? k.success : look === "warning" ? k.warning : look === "info" ? k.info : k.accent;
@@ -521,10 +536,8 @@
         <header class="head">
           <h2>{t(titles[design.section])}</h2>
           <span class="grow"></span>
-          {#if design.section === "type" || design.section === "components" || design.section === "depth"}
+          {#if design.section === "type" || design.section === "components" || design.section === "depth" || design.section === "color"}
             {@render themeSwitch()}
-          {:else if design.section === "color" && data.dark}
-            <span class="legend muted"><Sun size={13} aria-hidden="true" />{t("designLight")}<Moon size={13} aria-hidden="true" />{t("designDark")}</span>
           {:else if design.section === "issues" && findings.length}
             <div class="segmented" role="radiogroup" aria-label={t("designFilter")}>
               {#each filters as [id, label] (id)}
@@ -1075,17 +1088,6 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-  }
-
-  .legend {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: var(--text-sm);
-  }
-
-  .legend :global(svg:last-of-type) {
-    margin-left: 8px;
   }
 
   /* Empty */
