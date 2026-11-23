@@ -489,6 +489,26 @@ pub fn set_toggle(
     termf_core::write_atomic(&file, &doc.to_string())
 }
 
+/// Copies the item that applies in `scope` into the project's library (the global one without a project), where it
+/// can be edited. The copy hides the item it comes from and keeps its state: off there if the item was off.
+pub fn copy_here(config_dir: &Path, scope: &Scope, kind: Kind, name: &str) -> Result<PathBuf> {
+    let item = explain(config_dir, scope, kind, name)?;
+    let project = scope.project.as_deref();
+    let layer = if project.is_some() {
+        Layer::Project
+    } else {
+        Layer::Global
+    };
+    ensure!(item.layer < layer, "{kind} {name} can be edited where it is");
+    let dest = library_dir(config_dir, project)?.join(&item.rel);
+    ensure!(!dest.exists(), "{} already exists", dest.display());
+    copy_item(&item, &dest)?;
+    if !item.active && !item.toggles.contains_key(&layer) {
+        set_toggle(config_dir, project, kind, name, Some(false))?;
+    }
+    Ok(dest)
+}
+
 fn read_toggles(file: &Path) -> Result<Toggles> {
     #[derive(Deserialize)]
     struct File {
@@ -1291,6 +1311,33 @@ mod tests {
         assert_eq!(Kind::parse("skills"), Some(Kind::Skill));
         assert_eq!(Kind::parse("preference"), Some(Kind::Preference));
         assert_eq!(Kind::parse("nope"), None);
+    }
+
+    #[test]
+    fn a_copy_to_edit_hides_the_shipped_item_and_keeps_its_state() {
+        let dir = temp_dir("copy-here");
+        put(&dir.join("termf.toml"), "roots = [\"~\"]\n");
+        fs::create_dir_all(dir.join("projects")).unwrap();
+        put(&dir.join("projects/acme.toml"), "name = \"Acme\"\n");
+        let scope = Scope {
+            project: Some("acme".into()),
+            ..Scope::default()
+        };
+        let skill = resolve(&dir, &scope)
+            .unwrap()
+            .into_iter()
+            .find(|i| i.kind == Kind::Skill && !i.active)
+            .expect("a shipped skill off");
+
+        let dest = copy_here(&dir, &scope, Kind::Skill, &skill.name).unwrap();
+        assert_eq!(dest, dir.join("projects/acme/library/skills").join(&skill.name));
+        assert!(dest.join("SKILL.md").is_file());
+        let copied = explain(&dir, &scope, Kind::Skill, &skill.name).unwrap();
+        assert_eq!(copied.layer, Layer::Project);
+        assert_eq!(copied.shadows, [Layer::Shipped]);
+        assert!(!copied.active, "a copy of an item off stays off");
+        // Once in the project, it is edited there.
+        assert!(copy_here(&dir, &scope, Kind::Skill, &skill.name).is_err());
     }
 
     fn stack(path: &Path, tags: &[&str], trusted: bool) -> stack::RepoStack {

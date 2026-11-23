@@ -381,6 +381,7 @@ pub fn run() {
             library::library_stack,
             library::library_lsp,
             library::library_toggle,
+            library::library_copy,
             library::library_explain,
             library::library_import_claude,
             library::config_export,
