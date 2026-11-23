@@ -242,7 +242,7 @@
 {/snippet}
 
 <!-- Until a task starts, the plan is what to read (it lists the tasks); then the tasks at work are, the plan folded under them. -->
-{#if planFirst && stage === "tasks"}
+{#if planFirst && stage === "tasks" && run.plan}
   {@render planSection()}
 {:else}
   {@render stepsSection()}
