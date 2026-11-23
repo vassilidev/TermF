@@ -10,6 +10,7 @@ import {
   reachable,
   recipeLines,
   replacesHand,
+  teamAnswers,
   teamEdit,
   teamKeys,
   ticketProposal,
@@ -18,6 +19,13 @@ import {
 } from "../src/lib/onboarding-logic.ts";
 
 const q = (id, theme, kind, options = []) => ({ id, theme, text: id, kind, options, default: [] });
+
+test("the team's choices answer TermF's own questions, only those asked and with an option they have", () => {
+  const asked = [q("team-size", "agents", "choice", ["1", "2", "3"]), q("team-model", "agents", "choice", ["own", "sonnet", "opus"])];
+  assert.deepEqual(teamAnswers(asked, { keep: {}, size: 2, split: true, model: "" }), { "team-size": ["2"], "team-model": ["own"] });
+  assert.deepEqual(teamAnswers(asked, { keep: {}, size: 5, model: "opus" }), { "team-model": ["opus"] });
+  assert.deepEqual(teamAnswers(asked, { keep: {} }), {});
+});
 
 test("questions are grouped by theme in a fixed order", () => {
   const list = [q("a", "agents", "bool"), q("b", "quality", "bool"), q("c", "agents", "text")];

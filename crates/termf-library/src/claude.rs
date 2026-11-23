@@ -111,6 +111,19 @@ pub fn materialize(
             serde_json::to_string_pretty(&lsp)?.as_bytes(),
         )?;
     }
+    // The project's MCP servers come with the plugin: nothing is written in the repositories or in `~/.claude`.
+    let servers = scope
+        .project
+        .as_deref()
+        .map(|p| crate::mcp_servers(config_dir, p))
+        .unwrap_or_default();
+    if !servers.is_empty() {
+        let config = serde_json::json!({ "mcpServers": servers });
+        write_file(
+            &plugin.join(".mcp.json"),
+            serde_json::to_string_pretty(&config)?.as_bytes(),
+        )?;
+    }
     let manifest = plugin.join(".claude-plugin/plugin.json");
     if plugin.is_dir() && !manifest.exists() {
         write_file(&manifest, br#"{ "name": "termf" }"#)?;
@@ -463,6 +476,7 @@ pub fn export_claude(item: &Item, claude_dir: &Path) -> Result<PathBuf> {
 mod tests {
     use super::*;
     use crate::{put, set_toggle, temp_dir};
+    use toml_edit::DocumentMut;
 
     /// A scope without the skills TermF ships, some of which are always on: the test sees only its own.
     fn own_skills_only() -> Scope {
@@ -1011,6 +1025,44 @@ mod tests {
         assert!(!other.join("plugin/.lsp.json").exists());
         let file = fs::read_to_string(dir.join("projects/acme.toml")).unwrap();
         assert!(file.starts_with("name = \"Acme\"\n"), "{file}");
+    }
+
+    #[test]
+    fn gives_the_project_s_mcp_servers_to_its_sessions_through_the_plugin() {
+        let dir = temp_dir("materialize-mcp");
+        let session = dir.join("session");
+        put(&dir.join("projects/acme.toml"), "name = \"Acme\"\n");
+        let file = dir.join("projects/acme.toml");
+        let mut doc: DocumentMut = fs::read_to_string(&file).unwrap().parse().unwrap();
+        let servers = json!({
+            "next-devtools": { "command": "npx", "args": ["-y", "next-devtools-mcp@latest"] },
+            "svelte": { "type": "http", "url": "https://mcp.svelte.dev/mcp" },
+        });
+        crate::set_mcp_servers(&mut doc, servers.as_object().unwrap()).unwrap();
+        fs::write(&file, doc.to_string()).unwrap();
+        let scope = Scope {
+            project: Some("acme".into()),
+            ..own_skills_only()
+        };
+
+        materialize(&dir, &scope, &session).unwrap();
+        let given: Value =
+            serde_json::from_str(&fs::read_to_string(session.join("plugin/.mcp.json")).unwrap())
+                .unwrap();
+        assert_eq!(given, json!({ "mcpServers": servers }));
+        assert!(session.join("plugin/.claude-plugin/plugin.json").is_file());
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(
+            text.starts_with("name = \"Acme\"\n") && text.contains("[mcp.svelte]"),
+            "{text}"
+        );
+
+        let other = dir.join("other");
+        materialize(&dir, &own_skills_only(), &other).unwrap();
+        assert!(
+            !other.join("plugin/.mcp.json").exists(),
+            "a session outside the project gets none"
+        );
     }
 
     #[test]

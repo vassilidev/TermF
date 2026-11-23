@@ -695,19 +695,45 @@ pub async fn ops_detect(app: AppHandle, project: String) -> CmdResult<Vec<Detect
             .iter()
             .map(|r| (r.name.clone(), PathBuf::from(&r.path)))
             .collect();
-        let mut candidates = termf_ops::declared(&repos);
-        let mut found = state.found.lock().unwrap();
-        *found = candidates
-            .iter_mut()
-            .map(|c| c.password.take().map(Secret::new))
-            .collect();
-        Ok(candidates
-            .into_iter()
-            .enumerate()
-            .map(|(id, candidate)| Detected { id, candidate })
-            .collect())
+        Ok(hold_declared(state, &repos))
     })
     .await
+}
+
+/// [`ops_detect`] for repositories that are not a project yet (the new project's setup), by path.
+#[tauri::command]
+pub async fn ops_declared(app: AppHandle, repos: Vec<String>) -> CmdResult<Vec<Detected>> {
+    blocking(app, move |_, state, _| {
+        let repos: Vec<(String, PathBuf)> = repos
+            .iter()
+            .map(|p| {
+                let path = PathBuf::from(p);
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                (name, path)
+            })
+            .collect();
+        Ok(hold_declared(state, &repos))
+    })
+    .await
+}
+
+/// The databases the repositories declare; their passwords are kept here, by rank, for `found`.
+fn hold_declared(state: &OpsState, repos: &[(String, PathBuf)]) -> Vec<Detected> {
+    let mut candidates = termf_ops::declared(repos);
+    let mut found = state.found.lock().unwrap();
+    *found = candidates
+        .iter_mut()
+        .map(|c| c.password.take().map(Secret::new))
+        .collect();
+    candidates
+        .into_iter()
+        .enumerate()
+        .map(|(id, candidate)| Detected { id, candidate })
+        .collect()
 }
 
 /// The database's tables, columns, keys and indexes.

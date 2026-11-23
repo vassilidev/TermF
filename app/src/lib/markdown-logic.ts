@@ -9,7 +9,7 @@ export type Span =
 export type Block =
   | { kind: "paragraph"; spans: Span[] }
   | { kind: "list"; start: number | null; items: Span[][] }
-  | { kind: "code"; text: string }
+  | { kind: "code"; text: string; lang?: string }
   | { kind: "heading"; level: number; spans: Span[] }
   | { kind: "table"; align: Align[]; head: Span[][]; rows: Span[][][] };
 export type Align = "left" | "center" | "right" | null;
@@ -76,9 +76,11 @@ export function blocks(text: string, rich = false): Block[] {
     const line = lines[i];
     if (fence.test(line)) {
       close();
+      // The fence's info string names the language, which a caller may draw its own way.
+      const lang = line.trim().slice(3).trim().split(/\s/)[0];
       const code: string[] = [];
       while (++i < lines.length && !fence.test(lines[i])) code.push(lines[i]);
-      out.push({ kind: "code", text: code.join("\n") });
+      out.push(lang ? { kind: "code", text: code.join("\n"), lang } : { kind: "code", text: code.join("\n") });
       continue;
     }
     if (!line.trim()) {

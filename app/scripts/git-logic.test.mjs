@@ -2,12 +2,22 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   changeKind,
+  chosen,
+  cleanupContext,
   joinMessage,
+  keyOf,
   lanes,
   localFor,
+  matchPlan,
+  nextStep,
   onRemote,
   path,
+  pickable,
   picks,
+  planOf,
+  planTarget,
+  takePlan,
+  undoFor,
   prFor,
   runs,
   samePath,
@@ -186,4 +196,92 @@ test("a worktree's folder relative to the repository's", () => {
   assert.equal(within("/w/acme/", "/w/acme/.claude/worktrees/run-7"), ".claude/worktrees/run-7");
   assert.equal(within("C:\\w\\acme", "C:/w/acme/wt"), "wt");
   assert.equal(within("/w/acme", "/w/acme-other"), null);
+});
+
+const tip1 = { oid: "a1", author: "Alex", date: 1_700_000_000, subject: "Fix" };
+const br = (name, o = {}) => ({ name, tip: tip1, reasons: [], lost: 0, run: null, blocked: null, suggested: false, ...o });
+const wt = (path, o = {}) => ({ path, checkedOut: null, branch: null, head: "h", date: 0, subject: "", reasons: [], lost: 0, changes: 0, run: null, closeRun: false, blocked: null, suggested: false, ...o });
+const mess = {
+  defaultBranch: "origin/main",
+  branches: [br("merged", { reasons: ["merged"], suggested: true }), br("wip", { lost: 3 }), br("run-8", { blocked: "runOpen", lost: 1 })],
+  worktrees: [wt("/w/run-6", { branch: "termf/run-6", lost: 2, reasons: ["prMerged", "run"], suggested: true }), wt("/w/dirty", { changes: 4 })],
+};
+
+test("a cleanup selection: worktrees first, what it loses, blocked items never in it", () => {
+  const c = chosen(mess, new Set(["b:merged", "b:wip", "b:run-8", "w:/w/dirty", "w:/w/run-6"]));
+  assert.deepEqual(c.worktrees.map(keyOf), ["w:/w/run-6", "w:/w/dirty"]);
+  assert.deepEqual(c.branches.map(keyOf), ["b:merged", "b:wip"]);
+  assert.deepEqual([c.lost, c.changes, c.count, c.runs, c.final], [5, 4, 4, 0, true]);
+  assert.equal(chosen(mess, new Set(["b:merged"])).final, false);
+  // Closing a run does not come back: it asks first, like a loss.
+  const closing = { ...mess, worktrees: [wt("/w/run-3", { closeRun: true, run: 3, reasons: ["run"] })] };
+  assert.deepEqual([chosen(closing, new Set(["w:/w/run-3"])).runs, chosen(closing, new Set(["w:/w/run-3"])).final], [1, true]);
+  assert.deepEqual(pickable(mess), { all: ["w:/w/run-6", "w:/w/dirty", "b:merged", "b:wip"], suggested: ["w:/w/run-6", "b:merged"] });
+});
+
+test("a cleanup proposed by the expert, matched against what can go", () => {
+  const text = "repo /w/acme\n- branch merged\nbranch `wip`\nworktree /w/run-6/\nbranch run-8\nbranch nope\nrm -rf /\nbranch merged";
+  const plan = planOf(text);
+  assert.equal(plan.repo, "/w/acme");
+  assert.deepEqual(plan.keys, ["b:merged", "b:wip", "w:/w/run-6/", "b:run-8", "b:nope"]);
+  // A blocked branch and an unknown one are not picked.
+  assert.deepEqual(matchPlan(mess, plan.keys), { keys: ["b:merged", "b:wip", "w:/w/run-6"], unknown: 2 });
+  assert.deepEqual(planOf("nothing here"), { repo: null, keys: [] });
+});
+
+test("the Git view's one next step, the most pressing first", () => {
+  const f = { operation: false, behind: 0, changed: 0, ahead: 0, suggested: 0 };
+  assert.equal(nextStep(f), null);
+  assert.equal(nextStep({ ...f, suggested: 2 }), "cleanup");
+  assert.equal(nextStep({ ...f, suggested: 2, ahead: 1 }), "push");
+  assert.equal(nextStep({ ...f, ahead: 1, changed: 3 }), "commit");
+  assert.equal(nextStep({ ...f, changed: 3, behind: 2 }), "pull");
+  assert.equal(nextStep({ ...f, behind: 2, operation: true }), null);
+});
+
+test("the expert reads what can go, what each loses, the history and how to propose a cleanup", () => {
+  const text = cleanupContext("/w/acme", { current: "main", defaultBranch: "origin/main" }, mess, [{ oid: "abcdef12", author: "Bo", date: 1_700_000_000, subject: "Ship it" }]);
+  assert.match(text, /- merged: merged · 0 commit\(s\) only here · last commit 2023-11-14 "Fix"/);
+  assert.match(text, /- wip: in progress · 3 commit\(s\) only here/);
+  assert.match(text, /- run-8: .* cannot go: its run is still open/);
+  assert.match(text, /- \/w\/run-6: branch termf\/run-6 goes with it · pull request merged, TermF run over · 0 uncommitted change\(s\) · 2 commit\(s\) lost/);
+  assert.match(text, /- \/w\/dirty: its branch stays · in progress · 4 uncommitted/);
+  assert.match(text, /- abcdef1 Ship it \(Bo, 2023-11-14\)/);
+  assert.match(text, /language is termf-cleanup: first `repo \/w\/acme`/);
+  assert.doesNotMatch(cleanupContext("/w/acme", { current: null, defaultBranch: null }, null, []), /Local branches/);
+});
+
+test("an undo puts a worktree back on the branch it had, even when only the folder went or its branch stayed", () => {
+  // Its branch stayed (it held unpushed commits): back on it, not on a detached HEAD.
+  const kept = wt("/w/feature", { checkedOut: "feature", head: "f1" });
+  assert.deepEqual(undoFor(kept, { removed: true, branchDeleted: false }), [{ kind: "worktree", path: "/w/feature", branch: "feature", head: "f1" }]);
+  // The folder went but deleting its branch failed: the folder still comes back, on that branch.
+  const both = wt("/w/old", { checkedOut: "old", branch: "old", head: "o1" });
+  assert.deepEqual(undoFor(both, { removed: true, branchDeleted: false }), [{ kind: "worktree", path: "/w/old", branch: "old", head: "o1" }]);
+  assert.deepEqual(undoFor(both, { removed: true, branchDeleted: true }), [
+    { kind: "branch", name: "old", at: "o1" },
+    { kind: "worktree", path: "/w/old", branch: "old", head: "o1" },
+  ]);
+  assert.deepEqual(undoFor(both, { removed: false, branchDeleted: false }), []);
+  // Detached: back detached at its commit.
+  assert.deepEqual(undoFor(wt("/w/spike", { head: "s1", reasons: ["detached"] }), { removed: true, branchDeleted: false }), [
+    { kind: "worktree", path: "/w/spike", branch: null, head: "s1" },
+  ]);
+  // Lost changes, a folder already gone, a closed run: the folder does not come back; a branch that went does.
+  assert.deepEqual(undoFor({ ...both, changes: 2 }, { removed: true, branchDeleted: true }), [{ kind: "branch", name: "old", at: "o1" }]);
+  assert.deepEqual(undoFor({ ...both, reasons: ["prunable"] }, { removed: true, branchDeleted: false }), []);
+  assert.deepEqual(undoFor({ ...both, closeRun: true, run: 3 }, { removed: true, branchDeleted: true }), []);
+});
+
+test("a plan applies only to a repository of the project it names, and only once", () => {
+  const repos = ["/w/acme", "/w/web"];
+  assert.equal(planTarget("/w/web/", repos), "/w/web");
+  assert.equal(planTarget(null, repos), null);
+  assert.equal(planTarget("/elsewhere/web", repos), null);
+  const holder = { plan: { repo: "/w/web/", keys: ["b:x"] } };
+  assert.equal(takePlan(holder, "/w/acme"), null);
+  assert.ok(holder.plan, "another repository's plan is kept for it");
+  assert.deepEqual(takePlan(holder, "/w/web")?.keys, ["b:x"]);
+  assert.equal(holder.plan, null);
+  assert.equal(takePlan(holder, "/w/web"), null, "reopening the cleanup does not play it again");
 });

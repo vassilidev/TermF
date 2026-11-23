@@ -124,24 +124,24 @@
 </script>
 
 <div class="picker">
+  <label class="search">
+    <Search size={16} aria-hidden="true" />
+    <input
+      type="search"
+      class="field"
+      placeholder={t("setupSearch")}
+      aria-label={t("setupSearch")}
+      aria-controls="repo-list"
+      spellcheck="false"
+      autocomplete="off"
+      bind:value={query}
+      onkeydown={onSearchKey}
+      {@attach (el) => {
+        if (autofocus) el.focus();
+      }}
+    />
+  </label>
   <div class="tools">
-    <label class="search">
-      <Search size={15} aria-hidden="true" />
-      <input
-        type="search"
-        class="field"
-        placeholder={t("setupSearch")}
-        aria-label={t("setupSearch")}
-        aria-controls="repo-list"
-        spellcheck="false"
-        autocomplete="off"
-        bind:value={query}
-        onkeydown={onSearchKey}
-        {@attach (el) => {
-          if (autofocus) el.focus();
-        }}
-      />
-    </label>
     <div class="segmented" role="radiogroup" aria-label={t("setupFilter")}>
       {#each filters as [id, label] (id)}
         <button type="button" role="radio" aria-checked={filter === id} onclick={() => (filter = id)}>
@@ -149,20 +149,21 @@
         </button>
       {/each}
     </div>
-    <button type="button" class="btn" onclick={addFolder}><FolderPlus size={14} aria-hidden="true" />{t("setupAddFolder")}</button>
+    <span class="grow"></span>
+    <button type="button" class="btn sm quiet" onclick={addFolder}><FolderPlus size={14} aria-hidden="true" />{t("setupAddFolder")}</button>
   </div>
 
   {#if suggestions.length}
     <ul class="suggest" aria-label={t("setupSuggestions")}>
       {#each suggestions as g (g.kind + g.label)}
         <li>
-          <span class="icon">
-            {#if g.kind === "owner"}<ForgeIcon host="github.com" size={14} />{:else}<Folder size={14} aria-hidden="true" />{/if}
-          </span>
-          <span class="text">
-            {#if g.kind === "owner"}{t("setupGroupOwner", { owner: g.label, count: g.paths.length })}{:else}{t("setupGroupFolder", { folder: shortPath(g.label), count: g.paths.length })}{/if}
-          </span>
-          <button type="button" class="btn sm" onclick={() => take(g.paths)}>{t("setupTakeAll")}</button>
+          <button type="button" onclick={() => take(g.paths)}>
+            {#if g.kind === "owner"}<ForgeIcon host="github.com" size={13} />{:else}<Folder size={13} aria-hidden="true" />{/if}
+            <span class="text">
+              {#if g.kind === "owner"}{t("setupGroupOwner", { owner: g.label, count: g.paths.length })}{:else}{t("setupGroupFolder", { folder: shortPath(g.label), count: g.paths.length })}{/if}
+            </span>
+            <span class="take">{t("setupTakeAll")}</span>
+          </button>
         </li>
       {/each}
     </ul>
@@ -222,23 +223,26 @@
 
   .search {
     position: relative;
-    flex: 1 1 240px;
     color: var(--muted);
   }
 
   .search :global(svg) {
     position: absolute;
-    top: 9px;
-    left: 11px;
+    top: 12px;
+    left: 13px;
     pointer-events: none;
   }
 
   .search .field {
-    height: 34px;
-    padding-left: 34px;
+    height: var(--h-lg);
+    padding-left: 38px;
     border-color: var(--border-strong);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     font-size: var(--text-md);
+  }
+
+  .grow {
+    flex: 1;
   }
 
   .segmented button {
@@ -251,37 +255,36 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .tools .btn {
-    height: 34px;
-    border-radius: var(--radius-lg);
-  }
-
   .suggest {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
-  .suggest li {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 6px 6px 12px;
-    border: 1px dashed var(--border-strong);
-    border-radius: var(--radius-lg);
-    font-size: var(--text-sm);
-  }
-
-  .suggest .icon {
+  .suggest button {
     display: inline-flex;
-    color: var(--muted);
+    align-items: center;
+    gap: 7px;
+    height: var(--h-sm);
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    background: var(--panel);
+    color: var(--soft);
+    font-size: var(--text-sm);
+    transition: border-color var(--dur-fast) ease;
   }
 
-  .suggest .text {
-    color: var(--text);
+  .suggest button:hover {
+    border-color: var(--border-strong);
+  }
+
+  .suggest .take {
+    color: var(--accent-ink);
+    font-weight: 500;
   }
 
   .list {

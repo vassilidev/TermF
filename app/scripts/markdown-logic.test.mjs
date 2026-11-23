@@ -79,6 +79,8 @@ test("paragraphs keep their line breaks, lists and fenced code are blocks", () =
   assert.equal(out[2].items.length, 2);
   assert.deepEqual(out[3].spans, [{ kind: "text", text: "Une ligne\net la suivante." }]);
   assert.equal(out[4].text, "const a = 1;\n");
+  assert.equal(out[4].lang, "ts");
+  assert.deepEqual(blocks("```termf-cleanup extra\nbranch x\n```"), [{ kind: "code", text: "branch x", lang: "termf-cleanup" }]);
 });
 
 test("a list after another kind starts a new one; an unclosed fence runs to the end", () => {

@@ -267,6 +267,67 @@ pub fn language_servers_on(config_dir: &Path, project: Option<&str>) -> bool {
         .unwrap_or(true)
 }
 
+/// The MCP servers the project's sessions get, from `[mcp.<name>]` of its file, as Claude Code's config takes
+/// them (`{command, args, env}` or `{type, url}`).
+pub fn mcp_servers(config_dir: &Path, project: &str) -> Map<String, Value> {
+    let Ok(file) = termf_core::project_file(config_dir, project) else {
+        return Map::new();
+    };
+    let text = fs::read_to_string(file).unwrap_or_default();
+    toml::from_str::<toml::Table>(&text)
+        .ok()
+        .and_then(|t| serde_json::to_value(t.get("mcp")?).ok())
+        .and_then(|v| v.as_object().cloned())
+        .map(|servers| servers.into_iter().filter(|(_, s)| s.is_object()).collect())
+        .unwrap_or_default()
+}
+
+/// Adds the MCP servers `servers` (by name, each a JSON object) to the project's file as `[mcp.<name>]`, replacing
+/// one of the same name and keeping the others.
+pub fn set_mcp_servers(doc: &mut DocumentMut, servers: &Map<String, Value>) -> Result<()> {
+    if servers.is_empty() {
+        return Ok(());
+    }
+    let table = doc
+        .entry("mcp")
+        .or_insert(toml_edit::Item::Table(Table::new()))
+        .as_table_mut()
+        .context("`mcp` must be a table")?;
+    table.set_implicit(true);
+    for (name, server) in servers {
+        let toml_edit::Value::InlineTable(inline) =
+            toml_of(server).context("an MCP server is an object")?
+        else {
+            bail!("the MCP server {name} is not an object");
+        };
+        table.insert(name, toml_edit::Item::Table(inline.into_table()));
+    }
+    Ok(())
+}
+
+/// A JSON value as TOML; `null` has none.
+fn toml_of(value: &Value) -> Option<toml_edit::Value> {
+    Some(match value {
+        Value::Null => return None,
+        Value::Bool(b) => (*b).into(),
+        Value::Number(n) => match n.as_i64() {
+            Some(i) => i.into(),
+            None => n.as_f64()?.into(),
+        },
+        Value::String(s) => s.as_str().into(),
+        Value::Array(list) => toml_edit::Value::Array(list.iter().filter_map(toml_of).collect()),
+        Value::Object(map) => {
+            let mut inline = toml_edit::InlineTable::new();
+            for (k, v) in map {
+                if let Some(v) = toml_of(v) {
+                    inline.insert(k, v);
+                }
+            }
+            toml_edit::Value::InlineTable(inline)
+        }
+    })
+}
+
 /// Writes `[lsp] enabled` in the project's file, keeping the rest of it.
 pub fn set_language_servers(config_dir: &Path, project: &str, on: bool) -> Result<()> {
     let file = termf_core::project_file(config_dir, project)?;
