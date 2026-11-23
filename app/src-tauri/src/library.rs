@@ -82,6 +82,18 @@ pub fn library_toggle(
         .map_err(err)
 }
 
+/// A copy of the item in the project's library (the global one without `project`) to edit there; its path.
+#[tauri::command]
+pub async fn library_copy(
+    state: State<'_, AppState>,
+    kind: Kind,
+    name: String,
+    project: Option<String>,
+) -> CmdResult<PathBuf> {
+    let scope = scope(&state, None, project)?;
+    termf_library::copy_here(&state.config_dir, &scope, kind, &name).map_err(err)
+}
+
 #[tauri::command]
 pub async fn library_explain(
     state: State<'_, AppState>,
