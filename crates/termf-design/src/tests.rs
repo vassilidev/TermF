@@ -1179,10 +1179,7 @@ fn reads_a_component_kit_with_stories_and_its_variable_font() {
     );
     assert_eq!((inter.file.as_str(), inter.line), ("src/main.tsx", 1));
     let mono = font(&d, "Jetbrains Mono");
-    assert_eq!(
-        (mono.origin, mono.faces.len()),
-        (fonts::Origin::Missing, 0)
-    );
+    assert_eq!((mono.origin, mono.faces.len()), (fonts::Origin::Missing, 0));
     let names: Vec<_> = d.components.iter().map(|c| c.name.as_str()).collect();
     for name in ["Alert", "Badge", "Button", "Card", "TextField"] {
         assert!(names.contains(&name), "{name} in {names:?}");
@@ -1214,9 +1211,7 @@ fn knows_web_font_stylesheets_and_their_families() {
         assert!(!fonts::service(url), "{url}");
     }
     assert_eq!(
-        fonts::families(
-            "https://fonts.googleapis.com/css?family=Open+Sans:400,700|Roboto%20Slab"
-        ),
+        fonts::families("https://fonts.googleapis.com/css?family=Open+Sans:400,700|Roboto%20Slab"),
         ["Open Sans", "Roboto Slab"]
     );
     assert!(fonts::fetch("https://example.com/font.css").is_err());

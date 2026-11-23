@@ -180,7 +180,9 @@ fn fontsource(text: &str) -> Vec<(usize, String)> {
         .filter_map(|(at, _)| {
             let spec: String = text[at..]
                 .chars()
-                .take_while(|c| !matches!(c, '"' | '\'' | '`' | ')' | ';' | ',') && !c.is_whitespace())
+                .take_while(|c| {
+                    !matches!(c, '"' | '\'' | '`' | ')' | ';' | ',') && !c.is_whitespace()
+                })
                 .collect();
             let mut parts = spec.split('/');
             let scope = parts.next()?;
@@ -372,12 +374,22 @@ pub(crate) fn read(repo: &Path, read: &Read) -> Vec<Font> {
                     continue;
                 }
                 // The same family installed as a package: read rather than fetched.
-                let spec = format!("@fontsource/{}", family.to_ascii_lowercase().replace(' ', "-"));
+                let spec = format!(
+                    "@fontsource/{}",
+                    family.to_ascii_lowercase().replace(' ', "-")
+                );
                 if let Some(sheet) = package(&root, &dir_of(&file.rel), &spec) {
                     from_package(&root, &mut fonts, &mut budget, &sheet, at, Some(&family));
                     continue;
                 }
-                add(&mut fonts, family.clone(), None, Origin::Service, at.0, at.1);
+                add(
+                    &mut fonts,
+                    family.clone(),
+                    None,
+                    Origin::Service,
+                    at.0,
+                    at.1,
+                );
                 if let Some(font) = fonts
                     .iter_mut()
                     .find(|f| f.family.eq_ignore_ascii_case(&family))
@@ -393,7 +405,15 @@ pub(crate) fn read(repo: &Path, read: &Read) -> Vec<Font> {
 
 fn curl(url: &str) -> Result<Vec<u8>> {
     let out = Command::new("curl")
-        .args(["-q", "-fsSL", "-g", "--proto", "=https", "--proto-redir", "=https"])
+        .args([
+            "-q",
+            "-fsSL",
+            "-g",
+            "--proto",
+            "=https",
+            "--proto-redir",
+            "=https",
+        ])
         .args(["--max-redirs", "3", "--max-time", "20"])
         .args(["--max-filesize", &MAX_FILE.to_string(), url])
         .output()
@@ -433,7 +453,14 @@ pub fn fetch(url: &str) -> Result<Vec<Font>> {
             src: data_uri(mime, &bytes),
             file: src.clone(),
         };
-        add(&mut fonts, f.family.clone(), Some(face), Origin::Service, url, f.line);
+        add(
+            &mut fonts,
+            f.family.clone(),
+            Some(face),
+            Origin::Service,
+            url,
+            f.line,
+        );
     }
     for font in &mut fonts {
         font.url = Some(url.to_owned());
