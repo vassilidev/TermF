@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { elapsed, feed, follow, phrase, replay } from "../src/lib/live-logic.ts";
+import { broke, elapsed, follow, phrase, replay } from "../src/lib/live-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}, at = 0) => ({ id: ++n, session: 1, at, kind, ...fields });
@@ -16,6 +16,7 @@ test("an agent thinks, writes, runs a tool, then is done", () => {
   assert.deepEqual([a.now.kind, a.now.state, a.recent.length], ["tool", "running", 1]);
   a = follow(a, ev("tool_result", { call: "t1", output: "boom", isError: true, truncated: false }));
   assert.equal(a.recent[0].state, "failed");
+  assert.equal(a.recent[0].output, "boom", "a failure keeps what it said");
   assert.equal(a.now.kind, "thinking");
   a = follow(a, ev("turn_end", { outcome: "done" }));
   assert.equal(a.now, null);
@@ -25,6 +26,10 @@ test("an agent thinks, writes, runs a tool, then is done", () => {
 test("a result for a call never heard changes nothing", () => {
   const a = follow(undefined, ev("user", { text: "go" }));
   assert.equal(follow(a, ev("tool_result", { call: "x", output: "", isError: false, truncated: false })), a);
+  // A long failed run keeps its last lines only, where it says what broke.
+  let b = follow(undefined, ev("tool_use", { call: "t9", name: "Bash", input: { command: "pytest" } }));
+  b = follow(b, ev("tool_result", { call: "t9", output: Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n") + "\n", isError: true, truncated: false }));
+  assert.deepEqual(b.recent[0].output.split("\n"), Array.from({ length: 12 }, (_, i) => `line ${i + 28}`));
 });
 
 test("a tool call in plain words, what it is about as its target", () => {
@@ -44,34 +49,6 @@ test("durations read as seconds, minutes, then hours", () => {
   assert.deepEqual(elapsed(-3), { key: "liveSeconds", vars: { n: 0 } });
 });
 
-test("a run's feed: starts and ends in time order, files changed in a row as one line", () => {
-  const step = (key, fields) => ({ key, role: "back", state: "running", session: null, started: null, finished: null, report: null, ...fields });
-  const call = (at, name, input, call = `c${at}`) => ({ kind: "tool", at, call, name, input, state: "done" });
-  const heard = { 7: [call(12, "Read", { file_path: "a.ts" }), call(13, "Edit", { file_path: "a.ts" }), call(14, "Edit", { file_path: "b.ts" }), call(15, "Write", { file_path: "c.ts" }), call(16, "Bash", { command: "npm test" })] };
-  const steps = [
-    step("plan", { role: "orchestrator", state: "done", started: 1, finished: 10 }),
-    step("back", { session: 7, started: 11 }),
-    step("review", { role: "reviewer", state: "blocked", started: 2, finished: 9, report: { status: "failed" } }),
-    step("later", { state: "pending" }),
-  ];
-  const moments = feed(steps, (s) => heard[s] ?? []);
-  assert.deepEqual(
-    moments.map((m) => [m.kind, m.at, m.step]),
-    [
-      ["start", 1, "plan"],
-      ["start", 2, "review"],
-      ["end", 9, "review"],
-      ["end", 10, "plan"],
-      ["start", 11, "back"],
-      ["act", 12, "back"],
-      ["edits", 13, "back"],
-      ["act", 16, "back"],
-    ],
-  );
-  assert.equal(moments[2].how, "failed");
-  assert.deepEqual(moments[6].files, ["a.ts", "b.ts", "c.ts"]);
-});
-
 test("a session's past read after it was heard live counts each call once", () => {
   const use = ev("tool_use", { call: "r1", name: "Read", input: { file_path: "a.ts" } });
   const done = ev("tool_result", { call: "r1", output: "", isError: false, truncated: false });
@@ -85,10 +62,11 @@ test("a session's past read after it was heard live counts each call once", () =
   assert.equal(a.now.kind, "writing");
 });
 
-test("a failed change, or one with no file, keeps its own line in a run's feed", () => {
-  const step = { key: "front", role: "front", state: "running", session: 3, started: 1, finished: null, report: null };
-  const edit = (at, path, state = "done") => ({ kind: "tool", at, call: `e${at}`, name: "Edit", input: path ? { file_path: path } : {}, state });
-  const kinds = (calls) => feed([step], () => calls).map((m) => (m.kind === "edits" ? `edits:${m.files.length}` : m.kind));
-  assert.deepEqual(kinds([edit(2, "a.ts"), edit(3, "b.ts", "failed"), edit(4, "c.ts")]), ["start", "act", "act", "act"]);
-  assert.deepEqual(kinds([edit(2, "a.ts"), edit(3, ""), edit(4, "c.ts"), edit(5, "d.ts")]), ["start", "act", "act", "edits:2"]);
+test("a line that says something broke, not a count of none", () => {
+  for (const line of ["FAILED tests/test_export.py::test_rounding", "1 failed, 3 passed in 0.42s", "0 failed, 2 errors", "error[E0425]: cannot find value", "thread 'main' panicked at src/main.rs", "✗ invoices › paginates"]) {
+    assert.ok(broke(line), line);
+  }
+  for (const line of ["0 failed, 3 passed in 0.42s", "Tests  128 passed (128)", "no errors found", "..F."]) {
+    assert.ok(!broke(line), line);
+  }
 });

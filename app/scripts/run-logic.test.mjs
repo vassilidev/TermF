@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { askTitle, awaitsDelivery, baseUpdate, expected, mergeRequest, named, prName, repoRuns, shown, stageOf, stages, stepLabel, stepNames } from "../src/lib/run-logic.ts";
+import { askTitle, awaitsDelivery, baseUpdate, defaultStage, expected, mergeRequest, named, prName, repoRuns, shown, stageOf, stages, stepLabel, stepNames, stuck } from "../src/lib/run-logic.ts";
 
 const ticket = (o = {}) => ({ status: "running", prUrl: null, prState: null, ...o });
 const step = (key, state, kind = "agent") => ({ key, kind, state });
@@ -204,4 +204,31 @@ test("a change over several repositories: its own run first, each with where its
   );
   const merged = repoRuns([r(1), r(2, { parent: 1, status: "closed", prUrl: pr, prState: "merged" })], 1);
   assert.equal(merged[1].state, "merged");
+});
+
+test("stuck: where a team no longer at work stopped, nothing while it works", () => {
+  const steps = [step("frame", "done"), step("implement:T1", "done", "task"), step("checks", "blocked", "shell"), step("deliver", "pending", "connector")];
+  assert.deepEqual(stuck(team(steps, "running")), [], "at work, what waits is on a lane");
+  assert.deepEqual(stuck(team(steps, "paused")).map((s) => s.key), ["checks"]);
+  const halted = [step("frame", "done"), step("implement", "running", "foreach"), step("implement:T1", "running", "task")];
+  assert.deepEqual(stuck(team(halted, "stopped")).map((s) => s.key), ["implement:T1"], "stopped mid-way: the step at work, not its foreach");
+  assert.deepEqual(stuck(team(halted, "paused")), [], "a pause only waits");
+});
+
+test("the Run page's stage: where it stopped, else the tasks, else the stage under way or the last done", () => {
+  const at = (steps, state = "running") => defaultStage(team(steps, state), stages(ticket(), team(steps, state)));
+  const tasks = [step("plan", "done"), step("implement", "running", "foreach"), step("implement:T1", "running", "task"), step("checks", "pending", "shell")];
+  assert.equal(at(tasks), "tasks");
+  // A failed check of a team that stopped shows, not the tasks.
+  const failed = [step("plan", "done"), step("implement:T1", "done", "task"), step("checks", "blocked", "shell"), step("deliver", "pending", "connector")];
+  assert.equal(at(failed, "stopped"), "review");
+  // The integrator's conflict, on the delivery stage.
+  const conflict = [step("implement:T1", "done", "task"), step("update-base", "blocked", "update")];
+  assert.equal(at(conflict, "paused"), "deliver");
+  // A workflow without a foreach: the stage at work, else the last one done.
+  assert.equal(at([step("spike", "done"), step("write", "running"), step("ship", "pending")]), "write");
+  assert.equal(at([step("spike", "done"), step("write", "done")], "done"), "write", "not the delivery, which has no step here");
+  // The CTO's escalation counts in the stage of the step it decides on.
+  const escalated = [step("implement:T1", "done", "task"), { ...step("escalate-checks", "blocked"), escalates: "checks" }, step("checks", "done", "shell")];
+  assert.equal(at(escalated, "paused"), "review");
 });

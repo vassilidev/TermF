@@ -233,6 +233,22 @@ input[type="radio"] {
   font-variant-numeric: tabular-nums;
 }
 
+/* A section's heading in a page, its count beside it: "Tasks 4". */
+.h-sec {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.h-sec .n {
+  color: var(--muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
 ::placeholder {
   color: var(--muted);
   opacity: 1;

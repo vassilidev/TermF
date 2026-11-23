@@ -136,6 +136,23 @@
     color: var(--working);
   }
 
+  /* The action under way glints, once the eye has the rest; still under reduced motion. */
+  @media (prefers-reduced-motion: no-preference) {
+    .now .verb {
+      background: linear-gradient(90deg, var(--text) 30%, var(--muted) 50%, var(--text) 70%) 0 0 / 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: glint 2.2s linear infinite;
+    }
+  }
+
+  @keyframes glint {
+    to {
+      background-position: -200% 0;
+    }
+  }
+
   .ok > :global(svg) {
     color: var(--done);
   }

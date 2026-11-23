@@ -890,23 +890,40 @@ export const scenarios = [
     },
   },
   {
-    name: "team: a step is told the skills that fit its ticket, and reads and tests without asking (fake claude)",
+    name: "team: the plan approved on its lane of the Run page, then a step is told the skills that fit its ticket, and reads and tests without asking (fake claude)",
     views: [],
     async run(t) {
       const { s, box } = t;
-      // No triage and no gate: the plan's one task starts on its own.
+      // No triage, one gate: the plan waits for the user on its lane, then its one task starts.
       mkdirSync(join(box.configDir, "library", "workflows"), { recursive: true });
       writeFileSync(
         join(box.configDir, "library", "workflows", "e2e.toml"),
-        '[steps.plan]\ntype = "agent"\nrole = "lead"\n\n[steps.implement]\ntype = "foreach"\nover = "plan.tasks"\nneeds = ["plan"]\n',
+        '[steps.plan]\ntype = "agent"\nrole = "lead"\n\n[steps.approve-plan]\ntype = "gate"\nneeds = ["plan"]\n\n' +
+          '[steps.implement]\ntype = "foreach"\nover = "plan.tasks"\nneeds = ["approve-plan"]\n',
       );
       const project = join(box.configDir, "projects", "acme.toml");
       writeFileSync(project, `${read(project)}\n[team]\ntriage = false\n\n[workflows]\ndefault = "e2e"\n`);
       await t.ready();
       await t.project();
       await t.view("tickets");
-      await s.wait(async () => (await s.text(t.shown("tickets")))?.includes("Fix the login button"), { what: "the issue in the inbox" });
-      await s.click(`${t.shown("tickets")} button[title$="with the agent team"]`);
+      const inbox = t.shown("tickets");
+      await s.wait(async () => (await s.text(inbox))?.includes("Fix the login button"), { what: "the issue in the inbox" });
+      // The oldest ticket is offered first.
+      check(/Fix the login button/.test(await s.text(`${inbox} .suggest`)), "the oldest ticket is not suggested");
+      await s.click(`${inbox} button[title$="with the agent team"]`);
+
+      // The Run page: its stages in a band under the title, no "Steps" block repeating them, the plan's gate on its lane.
+      const run = t.shown("run");
+      const lane = `${run} .live .ask.lane`;
+      await s.waitFor(lane, { timeout: 90_000 });
+      check(await s.exec((c) => !!document.querySelector(`${c} .run > ol.timeline`), run), "the stages are not a band under the title");
+      check(
+        !(await s.exec((c) => [...document.querySelectorAll(`${c} h3`)].some((h) => h.textContent.trim() === "Steps"), run)),
+        "a Steps block repeats the stages",
+      );
+      check(/lead/.test(await s.text(`${lane} .lane-head`)), "the lane does not say who waits");
+      check(/approve the plan/i.test(await s.text(`${run} .side .next`)), "the next step does not say what answering sets going");
+      await s.click(`${lane} .btn.primary`);
       const line = await s.wait(() => read(box.calls).split("\n").find((l) => l.startsWith("team-step implement:T1 ")), {
         what: "the task's step",
         timeout: 90_000,
@@ -916,6 +933,25 @@ export const scenarios = [
       check(line.includes(" missing=none told=true role=true "), `each one is the plugin's, and the brief and the role say to use them: ${line}`);
       // Only what is neither a read nor the repository's tests asks: installing a package, the network.
       check(line.includes(" asks=2/12 npm install left-pad | curl -s https://example.com"), `the acceptance run's commands: ${line}`);
+
+      // The fake's report has no summary: the task is blocked, answered on its lane too, accepted as it is.
+      const accept = () =>
+        s.exec((c) => {
+          const button = [...document.querySelectorAll(`${c} .ask.lane button`)].find((b) => b.textContent.trim() === "Accept as it is");
+          button?.click();
+          return !!button;
+        }, run);
+      await s.wait(accept, { what: "the blocked task's lane", timeout: 90_000 });
+      // Done, the delivery waits on a lane of its own; the tasks are listed, without a cost on each line.
+      await s.wait(async () => /Ready to deliver/.test((await s.text(`${run} .live`)) ?? ""), { what: "the delivery's lane", timeout: 90_000 });
+      check(/T1/.test(await s.text(`${run} .stage`)), "the plan's task is not listed");
+      check(!/\$/.test(await s.text(`${run} .stage`)), "a cost is repeated on the task's line");
+
+      // Back on the tickets, the ticket's run shows at a glance, and its row opens the Run page.
+      await t.view("tickets");
+      await s.waitFor(`${inbox} .runstate`);
+      await s.click(`${inbox} .runstate`);
+      await s.waitFor(lane);
       await t.clean();
     },
   },

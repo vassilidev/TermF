@@ -1,33 +1,35 @@
 <script lang="ts">
-  import Check from "@lucide/svelte/icons/check";
-  import CircleCheck from "@lucide/svelte/icons/circle-check";
-  import CirclePlay from "@lucide/svelte/icons/circle-play";
-  import CircleX from "@lucide/svelte/icons/circle-x";
-  import FilePen from "@lucide/svelte/icons/file-pen";
-  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
-  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
-  import Action from "$lib/Action.svelte";
-  import { stepName } from "$lib/TeamRunDetail.svelte";
-  import { agents, apiUsd, showConversation } from "$lib/agents.svelte";
+  import LaneHead from "$lib/LaneHead.svelte";
+  import TermOut from "$lib/TermOut.svelte";
+  import StatusPill from "$lib/ui/StatusPill.svelte";
+  import StreamSteps, { type Step as Line } from "$lib/ui/StreamSteps.svelte";
+  import { agents, showConversation } from "$lib/agents.svelte";
   import { lang, t } from "$lib/i18n";
   import { activity, calls, track } from "$lib/live.svelte";
-  import { elapsed, feed } from "$lib/live-logic";
+  import { elapsed, phrase, type ToolAct } from "$lib/live-logic";
+  import { repoName } from "$lib/state.svelte";
   import type { Step, TeamRun } from "$lib/team-run-logic";
-  import { costHelp } from "$lib/usage.svelte";
+  import { laneOf } from "$lib/team.svelte";
 
-  /** A team run as it happens: what each step at work does now, then the run's story in plain words. */
+  /**
+   * The lanes of a team run's agents at work, one per step: who, on what, since when, then what it does in plain
+   * words, its earlier actions folded in one sentence, a failure with what the terminal printed, the action under way
+   * last. An agent whose session asks for a permission comes first: it waits for the user.
+   */
   let { run }: { run: TeamRun } = $props();
 
   // A foreach only holds its tasks: they are what works. A paused or stopped run keeps its step "running" to take it
   // up again, but nothing works on it meanwhile.
   const active = $derived(run.state === "running" || run.state === "waiting");
-  const running = $derived(active ? run.steps.filter((s) => s.state === "running" && s.kind !== "foreach") : []);
+  const asking = (s: Step) => s.session !== null && agents.sessions.find((a) => a.id === s.session)?.state === "waiting";
+  const running = $derived(
+    (active ? run.steps.filter((s) => s.state === "running" && s.kind !== "foreach") : []).sort((a, b) => Number(asking(b)) - Number(asking(a))),
+  );
   $effect(() => {
     for (const s of running) if (s.session !== null) track(s.session);
   });
 
-  // "for 3 min" moves on while a step runs, and only then.
   let now = $state(Date.now() / 1000);
   $effect(() => {
     if (!running.length) return;
@@ -36,280 +38,97 @@
     return () => clearInterval(timer);
   });
 
-  const moments = $derived(feed(run.steps, calls));
-  const FEED = 8;
-  let all = $state(false);
-  const told = $derived(all ? moments : moments.slice(-FEED));
-
-  const who = (role: string | null) => role ?? "TermF";
-  const named = (key: string) => {
-    const step = run.steps.find((s) => s.key === key);
-    return step ? stepName(step) : key;
-  };
-  const say = (p: { key: string; vars?: Record<string, string | number> }) => t(p.key as Parameters<typeof t>[0], p.vars);
   const clock = (at: number) => new Date(at * 1000).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
-  /** The step's cost so far: its session's, which grows each turn, until the step adds it up. */
-  const spent = (step: Step) => Math.max(step.cost, agents.sessions.find((a) => a.id === step.session)?.cost ?? 0);
+
+  function line(act: ToolAct): Line {
+    const p = phrase(act.name, act.input);
+    const verb = t(p.key as Parameters<typeof t>[0], { ...p.vars, target: "" }).replace(/[«“"]\s*[»”"]/g, "").replace(/\s+/g, " ").trim();
+    const state = act.state === "running" ? "now" : act.state === "failed" ? "fail" : "ok";
+    return { verb, object: p.target || undefined, at: clock(act.at), state };
+  }
+
+  function folded(lines: Line[]): string {
+    const first = lines.slice(0, 2).map((l) => [l.verb, l.object].filter(Boolean).join(" "));
+    const list = `${first.join(", ")}${lines.length > 2 ? "…" : ""}`;
+    return lines.length === 1 ? t("aigFoldedOne", { first: list }) : t("aigFolded", { n: lines.length, first: list });
+  }
+
+  /** The earlier actions, folded; from the last failure on (or only the action under way), in full. */
+  function stream(step: Step) {
+    if (step.session === null) return null;
+    const acts = calls(step.session);
+    const fail = acts.findLastIndex((a) => a.state === "failed");
+    const cut = fail >= 0 && fail >= acts.length - 3 ? fail : acts.findIndex((a) => a.state === "running");
+    const split = cut < 0 ? acts.length : cut;
+    const live = acts.slice(split).map(line);
+    const act = activity[step.session]?.now;
+    if (act && act.kind !== "tool") live.push({ verb: t(act.kind === "thinking" ? "liveThinking" : "liveWriting"), state: "now" });
+    return { earlier: acts.slice(0, split).map(line), live, failed: fail >= split ? acts[fail] : undefined };
+  }
+
+  function meta(step: Step): string {
+    if (asking(step)) return t("uiRunAsksPermission");
+    const repo = run.plan?.tasks.find((x) => x.id === step.task)?.repo || repoName(run.target.repo);
+    if (!step.started) return repo;
+    const { key, vars } = elapsed(now - step.started);
+    return `${repo} · ${t("liveSince", { time: t(key as Parameters<typeof t>[0], vars) })}`;
+  }
+
+  const commandOf = (act: ToolAct) => {
+    const input = act.input as { command?: unknown } | null;
+    return typeof input?.command === "string" ? input.command : undefined;
+  };
 </script>
 
-{#if running.length}
-  <section class="panel" aria-labelledby="run-now">
-    <h3 id="run-now"><span class="pulse" aria-hidden="true"></span>{t("liveNow")}</h3>
-    <ul class="now">
-      {#each running as step (step.key)}
-        {@const act = step.session === null ? null : activity[step.session]?.now}
-        {@const cost = spent(step)}
-        {@const session = step.session}
-        {@const asks = session !== null && agents.sessions.find((a) => a.id === session)?.state === "waiting"}
-        <li class:asks>
-          <span class="role">{who(step.role)}</span>
-          <span class="what">
-            <b>{named(step.key)}</b>
-            {#if act}<span class="act"><Action {act} /></span>{/if}
-          </span>
-          <span class="meta">
-            {#if asks}<span class="waits">{t("statusWaiting")}</span>{:else if step.started}{t("liveSince", {
-                time: say(elapsed(now - step.started)),
-              })}{/if}
-            {#if cost}<span title={costHelp()}> · {apiUsd(cost)}</span>{/if}
-          </span>
-          {#if session !== null}
-            <button class="btn sm" class:primary={asks} onclick={() => showConversation(session)}>
-              <MessagesSquare size={14} aria-hidden="true" />{t("liveOpen")}
-            </button>
-          {/if}
-        </li>
-      {/each}
-    </ul>
-  </section>
-{/if}
-
-<section class="panel" aria-labelledby="run-feed">
-  <h3 id="run-feed">{t("liveFeed")}</h3>
-  {#if told.length < moments.length}
-    <button class="btn link earlier" onclick={() => (all = true)}>{t("liveMore", { count: moments.length })}</button>
-  {/if}
-  <ol class="feed">
-    {#each told as m}
-      <li class={m.kind === "end" ? m.how : m.kind === "act" ? m.act.state : ""}>
-        <time datetime={new Date(m.at * 1000).toISOString()}>{clock(m.at)}</time>
-        {#if m.kind === "start"}
-          <CirclePlay size={14} aria-hidden="true" />
-          <span class="said">{t("liveFeedStart", { who: who(m.role), step: named(m.step) })}</span>
-        {:else if m.kind === "end"}
-          {#if m.how === "done"}<CircleCheck size={14} aria-hidden="true" />{:else if m.how === "failed"}<CircleX
-              size={14}
-              aria-hidden="true"
-            />{:else}<TriangleAlert size={14} aria-hidden="true" />{/if}
-          <span class="said">{t(m.how === "done" ? "liveFeedDone" : m.how === "failed" ? "liveFeedFailed" : "liveFeedBlocked", { step: named(m.step) })}</span>
-        {:else if m.kind === "edits"}
-          <FilePen size={14} aria-hidden="true" />
-          <span class="said"><b>{who(m.role)}</b>{t("liveEditMany", { count: m.files.length })}</span>
-        {:else}
-          {#if m.act.state === "running"}<LoaderCircle size={14} aria-label={t("chatToolRunning")} class="spin" />{:else if m.act.state === "failed"}<CircleX
-              size={14}
-              aria-label={t("chatToolFailed")}
-            />{:else}<Check size={14} aria-hidden="true" />{/if}
-          <span class="said"><b>{who(m.role)}</b><Action act={m.act} /></span>
-        {/if}
-      </li>
-    {:else}
-      <li class="muted">{t("liveFeedEmpty")}</li>
-    {/each}
-  </ol>
-</section>
+{#each running as step (step.key)}
+  {@const who = laneOf(run, step)}
+  {@const asks = asking(step)}
+  {@const flow = stream(step)}
+  {@const session = step.session}
+  <article class="lane" class:asks>
+    <LaneHead role={who.role} title={who.title} meta={meta(step)} status={asks ? "waiting" : "working"}>
+      {#if session !== null}
+        <button class="btn sm" class:quiet={!asks} class:primary={asks} onclick={() => showConversation(session)}>
+          <MessagesSquare size={14} aria-hidden="true" />{t(asks ? "uiRunAnswer" : "chatThread")}
+        </button>
+      {/if}
+      {#if !asks}<StatusPill status="working" />{/if}
+    </LaneHead>
+    {#if flow && (flow.earlier.length || flow.live.length)}
+      <div class="body">
+        {#if flow.earlier.length}<StreamSteps steps={flow.earlier} summary={folded(flow.earlier)} />{/if}
+        {#if flow.live.length}<StreamSteps steps={flow.live} live />{/if}
+        {#if flow.failed?.output}<TermOut text={flow.failed.output} command={commandOf(flow.failed)} />{/if}
+      </div>
+    {/if}
+  </article>
+{/each}
 
 <style>
-  .panel {
-    container-type: inline-size;
-    padding: 14px 16px;
+  .lane {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     background: var(--panel);
   }
 
-  h3 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 0 0 10px;
-    font-size: var(--text-base);
-    font-weight: 650;
+  .lane.asks {
+    border-color: var(--waiting-line);
+    background: var(--waiting-soft);
   }
 
-  .pulse {
-    position: relative;
-    width: 8px;
-    height: 8px;
-    border-radius: var(--radius-pill);
-    background: var(--working);
-  }
-
-  /* A ring that widens and fades, on the compositor: a long run costs no repaint. */
-  .pulse::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background: var(--working);
-    animation: ring 2s var(--ease-out) infinite;
-  }
-
-  @keyframes ring {
-    from {
-      opacity: 0.5;
-      transform: scale(1);
-    }
-    to {
-      opacity: 0;
-      transform: scale(2.8);
-    }
-  }
-
-  .now {
-    display: flex;
-    flex-direction: column;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .now li {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 0;
-    border-top: 1px solid var(--border);
-  }
-
-  .now li:first-child {
-    padding-top: 0;
-    border-top: 0;
-  }
-
-  .role {
-    padding: 1px 8px;
-    border-radius: var(--radius-pill);
-    background: var(--working-soft);
-    color: var(--working);
-    font-size: var(--text-xs);
-    font-weight: 600;
-  }
-
-  .asks .role {
-    background: var(--waiting);
-    color: var(--waiting-text);
-  }
-
-  .waits {
-    color: var(--warning);
-    font-weight: 600;
-  }
-
-  .what {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-
-  .what b {
-    overflow: hidden;
-    font-weight: 600;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .act {
-    display: flex;
-    min-width: 0;
-    color: var(--muted);
-    font-size: var(--text-sm);
-  }
-
-  .meta {
-    color: var(--muted);
-    font-size: var(--text-sm);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-
-  .earlier {
-    margin-bottom: 6px;
-  }
-
-  .feed {
+  .body {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    font-size: var(--text-sm);
-  }
-
-  /* A long story only draws what is on screen. */
-  .feed li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
     min-width: 0;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 20px;
+    padding-left: 46px;
   }
 
-  .feed li > :global(svg) {
-    flex-shrink: 0;
-    color: var(--muted);
-  }
-
-  .feed li.done > :global(svg) {
-    color: var(--done);
-  }
-
-  .feed li.failed > :global(svg),
-  .feed li.blocked > :global(svg) {
-    color: var(--danger);
-  }
-
-  .feed li.running > :global(svg) {
-    color: var(--working);
-  }
-
-  time {
-    flex-shrink: 0;
-    width: 40px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .said {
-    display: flex;
-    gap: 6px;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .said b {
-    flex-shrink: 0;
-    font-weight: 600;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .pulse::after {
-      display: none;
-    }
-  }
-
-  @container (max-width: 560px) {
-    .now li {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-    }
-
-    .meta {
-      display: none;
-    }
+  .body :global(.out) {
+    margin-top: 4px;
   }
 </style>

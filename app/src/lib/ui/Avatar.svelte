@@ -26,6 +26,7 @@
     motion: "creative",
   };
   const marks: Record<string, string> = {
+    termf: "TF",
     cto: "CTO",
     researcher: "RES",
     "competitive-analyst": "CMP",

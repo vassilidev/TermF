@@ -18,6 +18,10 @@
   import X from "@lucide/svelte/icons/x";
   import Delivery from "$lib/Delivery.svelte";
   import DoneCriteria from "$lib/DoneCriteria.svelte";
+  import LaneHead from "$lib/LaneHead.svelte";
+  import TermOut from "$lib/TermOut.svelte";
+  import StatusPill from "$lib/ui/StatusPill.svelte";
+  import { elapsed } from "$lib/live-logic";
   import RunPlan from "$lib/RunPlan.svelte";
   import TeamQuestionnaire from "$lib/TeamQuestionnaire.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
@@ -30,7 +34,7 @@
   import { t } from "$lib/i18n";
   import { awaitsDelivery } from "$lib/run-logic";
   import { TRIAGE, asks, isForm, passes, rounds, LEAVE, type Ask, type Question, type Step, type TeamRun } from "$lib/team-run-logic";
-  import { upsertRun, waitTitle } from "$lib/team.svelte";
+  import { laneOf, upsertRun, waitTitle } from "$lib/team.svelte";
   import { tickets } from "$lib/tickets.svelte";
 
   /**
@@ -39,6 +43,7 @@
    * `primary` false makes no button of the cards the screen's main one; `compact` sums the plan up and leaves the
    * whole of it to the Run page. Once the team is done, the delivery left to the user is a card too. `ondismiss`: the
    * cards had something to show and no longer have (the delivery hidden, or made elsewhere; every wait answered).
+   * `lane`: each card is the lane of the agent that waits, as the Run page shows them: who, on what, since when.
    */
   let {
     run,
@@ -46,8 +51,32 @@
     context = false,
     primary = true,
     compact = false,
+    lane = false,
     ondismiss,
-  }: { run: TeamRun; step?: string; context?: boolean; primary?: boolean; compact?: boolean; ondismiss?: () => void } = $props();
+  }: {
+    run: TeamRun;
+    step?: string;
+    context?: boolean;
+    primary?: boolean;
+    compact?: boolean;
+    lane?: boolean;
+    ondismiss?: () => void;
+  } = $props();
+
+  // "waits for 12 min" moves on while a lane shows it.
+  let now = $state(Date.now() / 1000);
+  $effect(() => {
+    if (!lane) return;
+    const timer = setInterval(() => (now = Date.now() / 1000), 30_000);
+    return () => clearInterval(timer);
+  });
+  /** Since when a step waits: its end (blocked), else the end of the step it decides on. */
+  function since(s: Step): string {
+    const at = s.finished ?? Math.max(0, ...run.steps.filter((x) => s.needs.includes(x.key)).map((x) => x.finished ?? 0));
+    if (!at) return "";
+    const { key, vars } = elapsed(now - at);
+    return t("uiRunWaitsSince", { time: t(key as Parameters<typeof t>[0], vars) });
+  }
 
   /** The action under way: `<command>:<step>`. */
   let busy = $state("");
@@ -169,11 +198,19 @@
 {/snippet}
 
 {#snippet head(text: string, s?: Step)}
+  {#if lane && s}
+    {@const who = laneOf(run, s)}
+    <LaneHead role={who.role} title={who.title} meta={[text, since(s)].filter(Boolean).join(" · ")} status="waiting">
+      {@render conversation(s)}
+      <StatusPill status="waiting" />
+    </LaneHead>
+  {:else}
   <header>
     <BellRing size={15} aria-hidden="true" />
     <b>{text}</b>
     {#if s}<span class="end">{@render conversation(s)}</span>{/if}
   </header>
+  {/if}
   {#if context}<p class="where"><span class="mono">{ticketKey(run.target.ticket)}</span> · {run.target.title}</p>{/if}
 {/snippet}
 
@@ -222,19 +259,24 @@
 {#snippet deliverCard(onclick: () => void, name: string, gate?: string)}
   <!-- Nothing else to read before it: the preview that follows shows what the delivery sends. -->
   {@const held = !!gate && !passes(run.done)}
-  <article class="ask">
+  {#snippet button()}
+    <button class="btn" class:sm={!primary} class:primary disabled={!!busy} {onclick}>
+      {#if spinning(name)}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
+      {t("runDeliver")}
+    </button>
+  {/snippet}
+  <article class="ask" class:lane>
+    {#if lane}
+      <LaneHead role={null} title={t("ux3t2StageDeliver")} meta={t("teamRunsAskDeliver")} status="waiting">
+        {#if !held}{@render button()}{/if}
+      </LaneHead>
+    {:else}
     <header>
       <BellRing size={15} aria-hidden="true" />
       <b>{t("teamRunsAskDeliver")}</b>
-      {#if !held}
-        <span class="end">
-          <button class="btn" class:sm={!primary} class:primary disabled={!!busy} {onclick}>
-            {#if spinning(name)}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
-            {t("runDeliver")}
-          </button>
-        </span>
-      {/if}
+      {#if !held}<span class="end">{@render button()}</span>{/if}
     </header>
+    {/if}
     {#if context}<p class="where"><span class="mono">{ticketKey(run.target.ticket)}</span> · {run.target.title}</p>{/if}
     {#if run.done}<DoneCriteria done={run.done} />{/if}
     {#if held && gate}
@@ -267,7 +309,7 @@
       {#if ask.kind === "deliver"}
         {#if !delivering}{@render deliverCard(() => deliver(key), `approve:${key}`, key)}{/if}
       {:else}
-        <article class="ask">
+        <article class="ask" class:lane>
           {@render head(waitTitle(ask), ask.step)}
           {#if ask.kind === "route" && run.routing}
             <p class="help">{t("ctoEntryAskRouteHelp")}</p>
@@ -292,7 +334,7 @@
               {@render feedback(ask, t("teamRunsAnswers"), t("teamRunsAnswer"))}
             {:else}
               <!-- Never stuck in the form: accept as it is, answer in free text, or set the path yourself. -->
-              <TeamQuestionnaire {run} step={key} questions={questionsOf(ask)} {optionLabel} {primary}>
+              <TeamQuestionnaire {run} step={key} questions={questionsOf(ask)} {optionLabel} {primary} {lane}>
                 {#if ask.accept}
                   <button
                     class="btn sm"
@@ -318,7 +360,8 @@
             </ol>
             {@render feedback(ask, t("teamRunsAnswers"), t("teamRunsAnswer"))}
           {:else if ask.kind === "blocked"}
-            {#if ask.step.note}<p class="note mono">{ask.step.note}</p>{/if}
+            <!-- On its lane, what broke stands out: the output as the terminal printed it. -->
+            {#if ask.step.note && lane}<TermOut text={ask.step.note} />{:else if ask.step.note}<p class="note mono">{ask.step.note}</p>{/if}
             {#if ask.step.report?.summary}<p>{ask.step.report.summary}</p>{/if}
             {@render violations(ask.step)}
             <p class="help">{t(ask.accept ? "teamRunsAskBlockedHelp" : "teamRunsAskBlockedPlanHelp")}</p>
@@ -434,6 +477,18 @@
     border-radius: var(--radius-lg);
     background: var(--waiting-soft);
     font-size: var(--text-sm);
+  }
+
+  /* A lane: its head on the full width, what it asks aligned under the title, past the avatar. */
+  .ask.lane {
+    gap: 12px;
+    padding: 12px 14px 14px 60px;
+    border-color: var(--waiting-line);
+    border-radius: var(--radius-md);
+  }
+
+  .ask.lane > :global(.lane-head) {
+    margin-left: -46px;
   }
 
   header {

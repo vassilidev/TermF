@@ -5,7 +5,7 @@ import { t } from "$lib/i18n";
 import { askTitle, stepLabel } from "$lib/run-logic";
 import { app } from "$lib/state.svelte";
 import { tickets } from "$lib/tickets.svelte";
-import { asks, notices, upsert, type Ask, type Notice, type TeamRun } from "$lib/team-run-logic";
+import { asks, notices, upsert, type Ask, type Notice, type Step, type TeamRun } from "$lib/team-run-logic";
 
 export const team = $state({
   /** Every team run, most recent first. */
@@ -19,6 +19,16 @@ export { showRun as showTeamRun } from "$lib/commands";
 export function stepTitle(key: string, task: string | null = null): string {
   const label = stepLabel(key, task);
   return "name" in label ? t(label.name) : label.text;
+}
+
+/**
+ * A step as an agent's lane shows it: its role, else (a gate) the role of the step it decides on; what it works on, a
+ * task by its id and goal.
+ */
+export function laneOf(run: TeamRun, step: Step): { role: string | null; title: string } {
+  const role = step.role ?? run.steps.find((s) => step.needs.includes(s.key) && s.role)?.role ?? null;
+  const task = step.task === null ? undefined : run.plan?.tasks.find((x) => x.id === step.task);
+  return { role, title: task ? `${task.id} ${task.goal}` : stepTitle(step.key, step.task) };
 }
 
 /** What a wait is called, the same on its card and in any list of waits. */
