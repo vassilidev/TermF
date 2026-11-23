@@ -103,6 +103,9 @@ export const keys = {
   get cto() {
     return display("talk_cto");
   },
+  get ask() {
+    return display("ask_ai");
+  },
   get launcher() {
     return display("new_session");
   },

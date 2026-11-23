@@ -47,6 +47,7 @@ import Workflow from "@lucide/svelte/icons/workflow";
 import { agents, conversation, showConversation, showExpert, waitingAgents } from "$lib/agents.svelte";
 import { showClaude } from "$lib/claude.svelte";
 import { goToWait, home, projectWaits, talkCto } from "$lib/home.svelte";
+import { toggleAsk } from "$lib/ask.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { terminalReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
@@ -271,6 +272,7 @@ export function onShortcut(e: KeyboardEvent) {
     launch_ticket: launchTicket,
     switch_project: () => (ui.switcher = !ui.switcher),
     talk_cto: app.project === null ? undefined : talkCto,
+    ask_ai: toggleAsk,
     new_session: () => openLauncher(),
     reopen_tab: () => reopenTab(),
     toggle_nav: toggleNav,
@@ -574,6 +576,7 @@ export function commands(): Command[] {
   if (panes.other) {
     action({ id: "other-panel", label: t("t6bOtherPanel"), keys: display("other_panel"), icon: ArrowLeftRight, run: otherPanel });
   }
+  action({ id: "ask-ai", label: t("aigShortcut"), keys: keys.ask, icon: Sparkles, run: toggleAsk });
   action({ id: "help", label: t("t6bHelp"), keys: keys.help, icon: CircleHelp, run: () => (ui.help = true) });
   action({ id: "intro", label: t("wsIntroAgain"), icon: Compass, run: startTour });
   action({ id: "shortcuts", label: t("shortcuts"), icon: Keyboard, run: () => showSettings("keys") });

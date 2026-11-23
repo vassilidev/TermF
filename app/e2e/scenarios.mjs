@@ -760,11 +760,18 @@ export const scenarios = [
       await t.ready();
       await t.project();
       await t.view("home");
-      await s.type(`${t.shown("home")} form.composer textarea`, "Add a health check endpoint");
-      await s.click(`${t.shown("home")} form.composer button[type=submit]:not([disabled])`);
+      // The Home's "Ask" bar opens the ⌘I panel, where the CTO answers.
+      await s.click(`${t.shown("home")} .askbar .ask`);
+      const ask = "[data-ask]";
+      await s.waitFor(`${ask} form.composer textarea`);
+      // The screen goes with a question as a chip; taken off, the message is the question alone.
+      await s.click(`${ask} .chip .x`);
+      await s.waitGone(`${ask} .chip`);
+      await s.type(`${ask} form.composer textarea`, "Add a health check endpoint");
+      await s.click(`${ask} form.composer button[type=submit]:not([disabled])`);
       // The message goes to a headless session on its standard input; its answer comes back into the conversation.
-      await s.wait(async () => (await s.text(t.shown("home")))?.includes("Fake Claude received: Add a health check endpoint"), {
-        what: "the CTO's answer in the conversation",
+      await s.wait(async () => (await s.text(ask))?.includes("Fake Claude received: Add a health check endpoint"), {
+        what: "the CTO's answer in the panel",
       });
       check(/claude \["-p","--input-format","stream-json"/.test(read(box.calls)), "the CTO is not a headless session");
       await t.settled("home");
@@ -779,21 +786,55 @@ export const scenarios = [
       await t.ready();
       await t.project();
       await t.view("home");
-      const home = t.shown("home");
-      await s.exec(watchStream, home);
+      // ⌘I from the Home: the CTO, the screen as context.
+      await s.press(Key.mod, "i");
+      const ask = "[data-ask]";
+      await s.waitFor(`${ask} form.composer textarea`);
+      await s.exec(watchStream, ask);
       // "slowly": the fake streams its words, then runs `npm test` for a while (e2e/fakes/claude.mjs).
-      await s.type(`${home} form.composer textarea`, "Check the tests slowly");
-      await s.click(`${home} form.composer button[type=submit]:not([disabled])`);
-      const running = await s.wait(() => s.exec((css) => document.querySelector(`${css} .tool .state`)?.closest("summary")?.textContent, home), {
+      await s.type(`${ask} form.composer textarea`, "Check the tests slowly");
+      await s.click(`${ask} form.composer button[type=submit]:not([disabled])`);
+      const running = await s.wait(() => s.exec((css) => document.querySelector(`${css} .stream .step.now`)?.textContent, ask), {
         what: "the Bash call shown at work",
       });
       check(/Runs\s*npm test/.test(running), `the call is not said in plain words: ${running}`);
-      await s.wait(async () => (await s.text(home))?.includes("The tests pass."), { what: "the end of the answer" });
+      await s.wait(async () => (await s.text(ask))?.includes("The tests pass."), { what: "the end of the answer" });
       const seen = await s.exec(() => window.__e2e.stream);
       check(seen.thinking, "no thinking sign before the first word");
       check(seen.lengths.length >= 3, `the answer came whole, not word by word: ${JSON.stringify(seen.lengths)}`);
-      check(!(await s.exec((css) => !!document.querySelector(`${css} .tool .state`), home)), "the call still shows as running");
+      check(!(await s.exec((css) => !!document.querySelector(`${css} .stream .step.now`), ask)), "the call still shows as running");
+      // Once the turn is over, its actions fold into one line.
+      await s.wait(() => s.exec((css) => !!document.querySelector(`${css} .stream .fold`), ask), { what: "the actions folded into a line" });
+      // Escape closes the panel; the Home stays.
+      await s.press(Key.escape);
+      await s.waitGone(`${ask} aside`);
       await t.settled("home");
+      await t.clean();
+    },
+  },
+  {
+    name: "ask: from CI/CD the panel asks devops with the screen as context, kept in Conversations from CI/CD",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      await t.ready();
+      await t.project();
+      await t.view("ci");
+      await s.click(`${t.shown("ci")} .askbar .ask`);
+      const ask = "[data-ask]";
+      await s.wait(async () => (await s.exec(() => document.querySelector("[data-ask] select.role")?.value)) === "devops", {
+        what: "devops chosen by the screen",
+      });
+      await s.type(`${ask} form textarea`, "Why does the build fail?");
+      await s.click(`${ask} form button[type=submit]:not([disabled])`);
+      // Its own conversation, started by the question; the screen's context comes first.
+      await s.wait(async () => (await s.text(ask))?.includes('Fake Claude received: <termf-context screen="CI/CD">'), {
+        what: "devops's answer, with the screen's context",
+      });
+      const said = await s.exec(() => document.querySelector("[data-ask] .user")?.textContent);
+      check(said === "Why does the build fail?", `the question shows with its context: ${said}`);
+      await t.view("conversations");
+      await s.wait(async () => (await s.text(t.shown("conversations")))?.includes("from CI/CD"), { what: "the conversation from CI/CD" });
       await t.clean();
     },
   },
@@ -1160,9 +1201,9 @@ export const scenarios = [
       await t.ready();
       await t.project();
       const panel = t.shown("design");
-      const composer = () => t.s.exec(() => document.querySelector('[data-panel="home"] .composer textarea')?.value ?? "");
+      const composer = () => t.s.exec(() => document.querySelector("[data-ask] .composer textarea")?.value ?? "");
+      // The CTO's message box is in the ⌘I panel, beside the view.
       const asked = async (what) => {
-        await t.s.waitFor(t.shown("home"));
         await t.s.wait(async () => (await composer()).includes(what), { what: `${what} in the CTO's message box`, timeout: 30_000 });
       };
       const section = async (id) => {

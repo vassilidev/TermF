@@ -35,37 +35,6 @@ export function waits(
   return [...tiles.map((t) => ({ kind: "tile" as const, key: `tile:${t.id}`, at: null, id: t.id })), ...dated];
 }
 
-type NoticeRef = { key: number; about: string; run?: number; step?: string };
-
-/**
- * Where each step waiting for the user shows its card in the CTO's thread: in place of the latest notice that told of
- * it, else at the head of the thread (`rest`), when the step waited before the conversation could be told.
- */
-export function place(notices: NoticeRef[], asks: { run: number; step: string }[]): { at: Map<number, string>; rest: string[] } {
-  const open = new Set(asks.map((a) => askKey(a.run, a.step)));
-  const latest = new Map<string, number>();
-  for (const n of notices) {
-    if ((n.about !== "waiting" && n.about !== "blocked") || n.run === undefined || !n.step) continue;
-    const key = askKey(n.run, n.step);
-    if (open.has(key) && n.key > (latest.get(key) ?? -1)) latest.set(key, n.key);
-  }
-  return {
-    at: new Map([...latest].map(([ask, notice]) => [notice, ask])),
-    rest: asks.map((a) => askKey(a.run, a.step)).filter((k) => !latest.has(k)),
-  };
-}
-
-/**
- * The card whose action is the screen's primary one: the most recent open decision told in the thread, else the last
- * of those at its head. `done`: cards still shown that no longer ask anything (a delivery made). None while the CTO
- * itself waits for an answer, its permission being the last thing it said.
- */
-export function primary(placed: { at: Map<number, string>; rest: string[] }, ctoAsks: boolean, done: string[] = []): string | null {
-  if (ctoAsks) return null;
-  const told = [...placed.at].filter(([, key]) => !done.includes(key)).sort((a, b) => a[0] - b[0]);
-  return told.at(-1)?.[1] ?? placed.rest.filter((key) => !done.includes(key)).at(-1) ?? null;
-}
-
 type RunIn = { id: number; project: string; status: string; updated: number; parent?: number | null };
 type TeamIn = { run: number; target: { project: string }; state: string; updated: number };
 

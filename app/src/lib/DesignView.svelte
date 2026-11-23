@@ -66,8 +66,12 @@
   import { talkCto } from "$lib/home.svelte";
   import { lang, t } from "$lib/i18n";
   import { app, onScreen, setProject } from "$lib/state.svelte";
+  import { provide } from "$lib/ask.svelte";
 
   type Key = Parameters<typeof t>[0];
+
+  // The ⌘I panel: ux answers about the repository's design system.
+  $effect(() => provide("design", { repo: design.repo || undefined, chips: [] }));
 
   let data = $state<Design | null>(null);
   /** The repository `data` is about. */

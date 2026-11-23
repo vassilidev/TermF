@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import ApiConfirm from "$lib/ApiConfirm.svelte";
   import AppNav from "$lib/AppNav.svelte";
+  import AskPanel from "$lib/AskPanel.svelte";
   import UpdateBanner from "$lib/UpdateBanner.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Panel from "$lib/ui/Panel.svelte";
@@ -126,6 +127,7 @@
         {/if}
       </div>
     {/if}
+    <div class="stage">
     <div
       class="panels"
       class:two={panes.other !== null}
@@ -211,6 +213,8 @@
         ></div>
       {/if}
     </div>
+    <AskPanel />
+    </div>
   </div>
 </div>
 
@@ -277,9 +281,18 @@
     min-height: 0;
   }
 
+  /* The views, and the ⌘I panel docked on their right. */
+  .stage {
+    position: relative;
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+
   .panels {
     display: grid;
     flex: 1;
+    min-width: 0;
     grid-template: minmax(0, 1fr) / minmax(0, 1fr);
     min-height: 0;
   }
