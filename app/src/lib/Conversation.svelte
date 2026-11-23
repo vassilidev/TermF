@@ -467,7 +467,8 @@
 
   function folded(steps: Step[]): string {
     const first = steps.slice(0, 2).map((s) => [s.verb, s.object].filter(Boolean).join(" "));
-    return t("aigFolded", { n: steps.length, first: `${first.join(", ")}${steps.length > 2 ? "…" : ""}` });
+    const list = `${first.join(", ")}${steps.length > 2 ? "…" : ""}`;
+    return steps.length === 1 ? t("aigFoldedOne", { first: list }) : t("aigFolded", { n: steps.length, first: list });
   }
 
   const pretty = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));
@@ -1028,16 +1029,6 @@
   .composer.bare .chips {
     grid-area: chips;
     margin-bottom: 8px;
-  }
-
-  .proposal {
-    border-color: var(--border-strong);
-    background: var(--panel);
-    box-shadow: var(--shadow-1);
-  }
-
-  .proposal .ask-title :global(svg) {
-    color: var(--accent-ink);
   }
 
   .diff {

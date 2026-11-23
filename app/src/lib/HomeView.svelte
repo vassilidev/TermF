@@ -508,8 +508,8 @@
                   <button class="lrow" onclick={() => focusSession(s.id)}>
                     <Avatar role={s.role ?? s.agent ?? "term"} status={s.status ?? undefined} />
                     <span class="t">
-                      <span class="who-line"><b>{s.role ?? s.title}</b><span class="where">{shortPath(s.cwd)}</span></span>
-                      <span class="now"><SquareTerminal size={13} aria-hidden="true" />{s.role ? s.title : t("viewTerminals")}</span>
+                      <span class="who-line"><b>{s.role ?? s.title}</b></span>
+                      <span class="now"><SquareTerminal size={13} aria-hidden="true" />{shortPath(s.cwd)}</span>
                     </span>
                     {#if s.status}<StatusPill status={s.status} />{/if}
                   </button>
@@ -522,8 +522,8 @@
                       <span class="who-line"><b>{a.role ?? a.title}</b><span class="where">{repoName(a.cwd)}</span></span>
                       {#if act && a.state === "working"}
                         <span class="now live"><LoaderCircle size={13} aria-hidden="true" class="spin" /><Action {act} /></span>
-                      {:else}
-                        <span class="now">{a.role ? a.title : shortPath(a.cwd)}</span>
+                      {:else if a.role && a.title !== repoName(a.cwd)}
+                        <span class="now">{a.title}</span>
                       {/if}
                     </span>
                     <StatusPill status={a.state} />
@@ -670,6 +670,7 @@
   .today {
     flex: 1;
     min-height: 0;
+    container: today / inline-size;
     padding: 28px 32px 40px;
     overflow-y: auto;
   }
@@ -708,7 +709,8 @@
     margin-top: 28px;
   }
 
-  @media (max-width: 1000px) {
+  /* The Home's own width: the ⌘I panel or a split narrows it as much as the window. */
+  @container today (max-width: 820px) {
     .cols {
       grid-template-columns: minmax(0, 1fr);
     }

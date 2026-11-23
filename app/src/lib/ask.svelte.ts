@@ -83,12 +83,18 @@ export function pick(): Here {
   return ask.picked;
 }
 
+/** The project asked: the current one, or under every project the one of the repository the screen shows. */
+export function askedProject(): string | null {
+  const repo = ask.given[ui.view]?.repo;
+  return app.project ?? app.workspace?.projects.find((p) => p.repos.some((r) => r.path === repo))?.id ?? null;
+}
+
 export const screenRole = () => roleFor(ui.view, ask.given[ui.view]?.role);
 export const currentRole = () => here().role ?? screenRole();
 
 /** The chips sent with a question: the screen, then what it gives, then what the user added. */
 export function chips(): Chip[] {
-  const project = app.workspace?.projects.find((p) => p.id === app.project);
+  const project = app.workspace?.projects.find((p) => p.id === askedProject());
   const view: Chip = { id: "view", kind: "view", label: [screenName(ui.view), project?.name].filter(Boolean).join(" · ") };
   return chipsOf([view, ...(ask.given[ui.view]?.chips ?? [])], here().added, here().removed);
 }
@@ -140,8 +146,8 @@ export function loadRoles(project: string | null) {
   if (ask.rolesOf === project) return;
   ask.rolesOf = project;
   invoke<LibraryItem[]>("library_list", { kind: "role", project }).then(
-    (items) => (ask.roles = items.filter((i) => i.active || i.layer === "shipped").map((i) => i.name)),
-    () => (ask.roles = []),
+    (items) => void (ask.roles = items.filter((i) => i.active || i.layer === "shipped").map((i) => i.name)),
+    () => void (ask.roles = []),
   );
 }
 
@@ -166,7 +172,7 @@ function started(session: AgentSession) {
  * From the Run page, a role at work in the run gets it at its step. False when it did not go.
  */
 export async function send(text: string): Promise<boolean> {
-  const project = app.project;
+  const project = askedProject();
   if (project === null || !text.trim()) return false;
   const to = target(text, currentRole(), ask.roles);
   const body = compose(to.text, chips(), screenName(ui.view));

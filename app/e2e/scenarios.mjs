@@ -620,7 +620,7 @@ export const scenarios = [
       check(seen.lengths.length >= 3, `the answer came whole, not word by word: ${JSON.stringify(seen.lengths)}`);
       check(!(await s.exec((css) => !!document.querySelector(`${css} .stream .step.now`), ask)), "the call still shows as running");
       // Once the turn is over, its actions fold into one line.
-      check(await s.exec((css) => !!document.querySelector(`${css} .stream .fold`), ask), "the actions do not fold into a line");
+      await s.wait(() => s.exec((css) => !!document.querySelector(`${css} .stream .fold`), ask), { what: "the actions folded into a line" });
       // Escape closes the panel; the Home stays.
       await s.press(Key.escape);
       await s.waitGone(`${ask} aside`);

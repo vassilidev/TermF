@@ -17,7 +17,7 @@
   import SidePanel from "$lib/ui/SidePanel.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { showConversation } from "$lib/agents.svelte";
-  import { ask, chips, currentRole, here, loadRoles, outgoing, pick, screenName, screenRole, send, threadOf, type Chip } from "$lib/ask.svelte";
+  import { ask, askedProject, chips, currentRole, here, loadRoles, outgoing, pick, screenName, screenRole, send, threadOf, type Chip } from "$lib/ask.svelte";
   import { ensure } from "$lib/home.svelte";
   import { t } from "$lib/i18n";
   import { app, ui } from "$lib/state.svelte";
@@ -25,10 +25,11 @@
   import { files } from "$lib/files.svelte";
 
   /** The ⌘I panel: one way to ask an agent from any screen, docked on the right. */
-  const project = $derived(app.project);
+  const project = $derived(askedProject());
   const role = $derived(currentRole());
   const session = $derived(threadOf(project, role));
   const sent = $derived(chips());
+  const placeholder = $derived(role === "cto" ? t("aigPlaceholderCto") : t("aigPlaceholder", { role }));
 
   $effect(() => {
     if (ask.open) loadRoles(project);
@@ -175,7 +176,7 @@
       </div>
     {:else if session}
       {#key session.id}
-        <Conversation {session} bare chips={chipRow} {outgoing} placeholder={t("aigPlaceholder", { role })} />
+        <Conversation {session} bare chips={chipRow} {outgoing} {placeholder} />
       {/key}
     {:else if standing}
       <!-- Its conversation is being opened. -->
@@ -192,8 +193,8 @@
           <textarea
             class="field"
             rows="2"
-            placeholder={t("aigPlaceholder", { role })}
-            aria-label={t("aigPlaceholder", { role })}
+            {placeholder}
+            aria-label={placeholder}
             bind:value={draft}
             onkeydown={firstKey}
           ></textarea>
