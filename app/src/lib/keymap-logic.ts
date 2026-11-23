@@ -271,6 +271,17 @@ export function pressedCombo(e: Press, physical = false): Combo | null {
   return key ? { ctrl: e.ctrlKey, alt: e.altKey, cmd: e.metaKey, shift: e.shiftKey, key } : null;
 }
 
+/** - or = as typed (+ counts as =), whichever key the layout puts them on; null for any other character. */
+export const typedSymbol = (e: { key: string }): "=" | "-" | null =>
+  e.key === "=" || e.key === "+" ? "=" : e.key === "-" ? "-" : null;
+
+/** What the shortcut editor records for `a`: the symbol typed for an action matched on the character, else the key. */
+export function recordedCombo(e: Press, a: KeyAction): Combo | null {
+  const symbol = a.byCharacter ? typedSymbol(e) : null;
+  if (!symbol) return pressedCombo(e, a.scope === "global");
+  return { ctrl: e.ctrlKey, alt: e.altKey, cmd: e.metaKey, shift: e.shiftKey && e.key !== "+", key: symbol };
+}
+
 const GLYPHS: Record<string, string> = { Enter: "↵", Up: "↑", Down: "↓", Left: "←", Right: "→", Backspace: "⌫", Delete: "⌦", Tab: "⇥" };
 
 /** One label per key, as shown in `<kbd>`: `⌘` `⇧` `L` on macOS, `Ctrl` `Shift` `L` elsewhere. */
@@ -395,13 +406,17 @@ export function match(e: Press, current: Record<string, string>, ctx: Context): 
     if (typed) return { id: typed.id };
   }
   const got = pressedCombo(e);
-  const char = e.key === "+" ? "=" : e.key === "_" ? "-" : e.key.toUpperCase();
+  const symbol = typedSymbol(e);
   for (const a of actions) {
     if (a.scope === "global" || (a.scope !== "app" && a.scope !== ctx.view)) continue;
     const want = parse(current[a.id] ?? "");
     if (!want) continue;
-    if (a.byCharacter) {
-      if (char === want.key && e.ctrlKey === want.ctrl && e.altKey === want.alt && e.metaKey === want.cmd) return { id: a.id };
+    if (a.byCharacter && (want.key === "=" || want.key === "-")) {
+      // The symbol typed, + needing Shift on many layouts; a key typing neither (Ctrl+_ is readline's undo), by its place.
+      const hit = symbol
+        ? symbol === want.key && (e.key === "+" || e.shiftKey === want.shift)
+        : got?.key === want.key && got.shift === want.shift;
+      if (hit && e.ctrlKey === want.ctrl && e.altKey === want.alt && e.metaKey === want.cmd) return { id: a.id };
       continue;
     }
     if (!got) continue;

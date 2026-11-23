@@ -198,18 +198,24 @@
     if (target && target.id !== drag.tab.id) moveTab(drag.tab, target);
   }
 
+  /** Let go: dropped on a split, the tab joins it. */
   function up() {
     const from = drag?.tab;
     const to = drop;
+    cancel();
+    if (from && to) {
+      mergeTab(from, to.id, to.side);
+      focusSession(from.active);
+    }
+  }
+
+  /** A drag the system took away (another window, a gesture) drops nothing. */
+  function cancel() {
     drag = null;
     dragged = null;
     drop = null;
     targets = [];
     setTimeout(() => (moved = false));
-    if (from && to) {
-      mergeTab(from, to.id, to.side);
-      focusSession(from.active);
-    }
   }
 
   function onkeydown(e: KeyboardEvent, tab: Tab) {
@@ -265,7 +271,7 @@
             onpointerdown={(e) => down(e, tab)}
             onpointermove={over}
             onpointerup={up}
-            onpointercancel={up}
+            onpointercancel={cancel}
             onkeydown={(e) => (menuKey(e) ? openMenu(e, tab) : onkeydown(e, tab))}
             oncontextmenu={(e) => openMenu(e, tab)}
           >

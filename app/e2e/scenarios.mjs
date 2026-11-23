@@ -531,26 +531,41 @@ export const scenarios = [
       await pointer("up", first);
       await s.wait(() => s.exec(() => document.querySelectorAll('[role="tab"]').length === 1), { what: "the two tabs made one" });
       await count(3, "three splits in one tab");
-      // A file from the Finder dropped on a terminal: its path typed there, escaped.
-      const center = await s.exec((id) => {
-        const r = document.querySelector(`.tile[data-session="${id}"] .xterm-screen`).getBoundingClientRect();
-        return { x: (r.left + r.width / 2) * devicePixelRatio, y: (r.top + r.height / 2) * devicePixelRatio };
-      }, first);
-      await t.emit("tauri://drag-drop", { paths: ["/tmp/My Files/notes (1).txt"], position: center });
-      await s.wait(async () => (await t.terminal(first)).includes("/tmp/My\\ Files/notes\\ \\(1\\).txt"), { what: "the dropped path typed in the terminal" });
-      // ⌘+ in a terminal: its text only; elsewhere, the whole interface; ⌘0 back to the real size.
+      // Close from the native menu (an event as it sends it): nothing under the palette, nor from another view.
+      await t.palette();
+      await t.emit("menu", "close_split");
+      await s.press(Key.escape);
+      await t.view("home");
+      await t.emit("menu", "close_split");
+      await t.view("terminals");
+      await count(3, "no split closed by the menu under the palette or from the Home");
+      // The interface zoomed in: ⌘+ outside a terminal, a toast says the level.
       const toast = (text) => s.wait(async () => (await s.exec(() => [...document.querySelectorAll(".toast-card")].map((e) => e.textContent).join("|"))).includes(text), { what: text });
+      await s.exec(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+      await s.press(Key.mod, "=");
+      await toast("Interface: 110%");
+      // A file from the Finder dropped near the left edge of the rightmost split, the interface zoomed: its path goes
+      // there, escaped (Tauri gives window pixels, which WebKit's devicePixelRatio, zoom included, turns into the page's).
+      const target = await s.exec(() => {
+        const tiles = [...document.querySelectorAll(".tile[data-session]")].filter((e) => e.getClientRects().length);
+        const right = tiles.sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left)[0];
+        const r = right.querySelector(".xterm-screen").getBoundingClientRect();
+        return { id: right.dataset.session, x: (r.left + 30) * devicePixelRatio, y: (r.top + r.height / 2) * devicePixelRatio };
+      });
+      check(target.id !== first, "the rightmost split is the first one");
+      await t.emit("tauri://drag-drop", { paths: ["/tmp/My Files/notes (1).txt"], position: { x: target.x, y: target.y } });
+      await s.wait(async () => (await t.terminal(target.id)).includes("/tmp/My\\ Files/notes\\ \\(1\\).txt"), { what: "the dropped path typed in the terminal under the pointer" });
+      check(!(await t.terminal(first)).includes("My\\ Files"), "the path went to another terminal");
+      await s.exec(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+      await s.press(Key.mod, "0");
+      await toast("Interface: 100%");
+      // ⌘+ in a terminal: its text only; ⌘0 back to the real size.
       await s.exec((id) => document.querySelector(`.tile[data-session="${id}"] .xterm-helper-textarea`).focus(), first);
       await s.press(Key.mod, "=");
       await toast("Terminal text: 108%");
       check((await s.exec((id) => getComputedStyle(document.querySelector(`.tile[data-session="${id}"] .xterm-rows`)).fontSize, first)) === "14px", "the terminal's text is not bigger");
       await s.press(Key.mod, "0");
       await toast("Terminal text: 100%");
-      await s.exec(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
-      await s.press(Key.mod, "=");
-      await toast("Interface: 110%");
-      await s.press(Key.mod, "0");
-      await toast("Interface: 100%");
       await t.clean();
     },
   },

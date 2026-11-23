@@ -1,6 +1,7 @@
 import { untrack } from "svelte";
 import { creating } from "$lib/newproject.svelte";
 import { app, ui } from "$lib/state.svelte";
+import { introResume } from "$lib/workspace-logic";
 
 const seen = "termf.tour";
 
@@ -27,8 +28,11 @@ export function endTour() {
   }
 }
 
+let projectsBefore = 0;
+
 /** From the step "your first project": the assistant takes the screen, the introduction comes back after it. */
 export function pauseTour() {
+  projectsBefore = app.workspace?.projects.length ?? 0;
   tour.paused = true;
 }
 
@@ -47,12 +51,12 @@ export function watchTour(): () => void {
       }
       if (!done) untrack(startTour);
     });
-    // Created, the next step is the CTO's; left without a project, the same step again.
+    // A project created: the next step is the CTO's; the assistant left without one, the same step again.
     $effect(() => {
       if (!tour.paused || creating.open) return;
       untrack(() => {
         tour.paused = false;
-        if (tour.step !== null && app.workspace?.projects.length) tour.step = Math.max(tour.step, 3);
+        if (tour.step !== null) tour.step = introResume(tour.step, projectsBefore, app.workspace?.projects.length ?? 0);
       });
     });
   });

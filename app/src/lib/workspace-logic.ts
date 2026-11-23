@@ -67,5 +67,27 @@ export function shellPaths(paths: string[], windows: boolean): string {
   return paths.length ? paths.map(one).join(" ") + " " : "";
 }
 
+/**
+ * Where a file dropped from the Finder lands, in the page's pixels. Tauri gives the window's physical pixels; WebKit's
+ * `devicePixelRatio` already holds the interface's zoom (measured: 1 → 1.25 at a 125 % zoom), so it is the only divisor.
+ */
+export const dropPoint = (p: { x: number; y: number }, ratio: number) => ({ x: p.x / ratio, y: p.y / ratio });
+
+/**
+ * Whether an item of the native menu (`menu` event) runs now: as the keys of the page, never under the palette or the
+ * help, and Close only for a split of the Terminals view that has the keyboard.
+ */
+export function menuRuns(id: string, now: { palette: boolean; help: boolean; view: string }): boolean {
+  if (now.palette || now.help) return false;
+  return id !== "close_split" || now.view === "terminals";
+}
+
+/**
+ * The introduction's step once the project assistant it opened closes: the CTO's when a project was created
+ * meanwhile, else the same step.
+ */
+export const introResume = (step: number, projectsBefore: number, projectsNow: number) =>
+  projectsNow > projectsBefore ? Math.max(step, 3) : step;
+
 /** The newest first, at most `max`. */
 export const pushRecent = <T>(list: T[], item: T, max = 10): T[] => [item, ...list].slice(0, max);

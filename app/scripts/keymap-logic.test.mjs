@@ -10,6 +10,7 @@ import {
   match,
   parse,
   pressedCombo,
+  recordedCombo,
   refusal,
   setBinding,
   sheet,
@@ -118,6 +119,38 @@ test("zoom follows the character typed, whatever the layout puts it on", () => {
   // Outside macOS, Ctrl+Shift+= stays the splits' equalizer.
   assert.deepEqual(press(key("+", "Equal", { ctrlKey: true, shiftKey: true }), other, false), { id: "equalize_splits" });
   assert.deepEqual(press(key("=", "Equal", { ctrlKey: true }), other, false), { id: "zoom_in" });
+});
+
+test("zoom leaves Ctrl+_ (readline's undo) and the other shifted keys to the shell", () => {
+  const ctx = { mac: false, inTerminal: true, view: "terminals", limits: { tile: 0, project: 0 } };
+  assert.equal(match(key("_", "Minus", { ctrlKey: true, shiftKey: true }), other, ctx), null);
+  // French PC AZERTY: Ctrl+8 types _.
+  assert.equal(match(key("_", "Digit8", { ctrlKey: true }), other, ctx), null);
+  assert.equal(match(key("-", "Minus", { ctrlKey: true, shiftKey: true }), other, ctx), null, "Shift as recorded");
+  assert.deepEqual(match(key("-", "Minus", { ctrlKey: true }), other, ctx), { id: "zoom_out" });
+});
+
+test("a zoom shortcut changed in the editor is kept as typed, and works on any layout", () => {
+  const zoomIn = byId("zoom_in");
+  // French Mac AZERTY: = is on the US / key; recorded as =, not as the key's place.
+  const azerty = key("=", "Slash", { ctrlKey: true });
+  const recorded = recordedCombo(azerty, zoomIn);
+  assert.equal(format(recorded), "Ctrl+=");
+  const changed = bindings(setBinding({}, "zoom_in", format(recorded), true), true);
+  const ctx = { mac: true, inTerminal: false, view: "terminals", limits: nine };
+  assert.deepEqual(match(azerty, changed, ctx), { id: "zoom_in" });
+  assert.equal(format(recordedCombo(key("+", "Equal", { metaKey: true, shiftKey: true }), zoomIn)), "Cmd+=", "+ is =");
+  // Shift and a digit: its place, as for every other action.
+  const digit = recordedCombo(key("!", "Digit1", { ctrlKey: true, shiftKey: true }), zoomIn);
+  assert.equal(format(digit), "Ctrl+Shift+1");
+  const onDigit = bindings(setBinding({}, "zoom_in", format(digit), true), true);
+  assert.deepEqual(match(key("!", "Digit1", { ctrlKey: true, shiftKey: true }), onDigit, ctx), { id: "zoom_in" });
+  // A key typing neither - nor = keeps its place: AZERTY Mac Shift with its - key types _.
+  const shifted = recordedCombo(key("_", "Equal", { metaKey: true, shiftKey: true }), zoomIn);
+  assert.equal(format(shifted), "Cmd+Shift+=");
+  const onShifted = bindings(setBinding({}, "zoom_in", format(shifted), true), true);
+  assert.deepEqual(match(key("_", "Equal", { metaKey: true, shiftKey: true }), onShifted, ctx), { id: "zoom_in" });
+  assert.equal(format(recordedCombo(key("k", "KeyK", { metaKey: true }), byId("palette"))), "Cmd+K");
 });
 
 test("view shortcuts only in their view", () => {

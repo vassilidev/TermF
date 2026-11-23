@@ -53,6 +53,7 @@
   let menuOpen = $state(false);
   let menuAt = $state<{ x: number; y: number } | null>(null);
   let menuTrigger = $state<HTMLElement>();
+  let head = $state<HTMLElement>();
   let menuItems = $state<ContextItem[]>([]);
 
   /** A split's actions at the pointer: the same tool beside it in one gesture, or another session from the launcher. */
@@ -60,7 +61,9 @@
     e.preventDefault();
     const selection = selectionOf(session.id);
     menuTrigger = (document.activeElement as HTMLElement | null) ?? undefined;
-    menuAt = menuPoint(e);
+    // From the keyboard, under the header rather than at the foot of the tile.
+    const top = e instanceof KeyboardEvent ? head?.getBoundingClientRect() : undefined;
+    menuAt = top ? { x: top.left + 8, y: top.bottom } : menuPoint(e);
     menuItems = [
       ...(selection ? [{ label: t("wsCopy"), icon: Copy, kbd: isMac ? "⌘C" : "", run: () => void navigator.clipboard.writeText(selection) }] : []),
       { label: t("t6aSplitRight"), icon: Columns2, kbd: display("split_right"), divider: true, run: () => splitActive("right", session.id) },
@@ -105,10 +108,11 @@
   aria-label={session.title}
   onfocusin={() => activate(session.id)}
   oncontextmenu={openMenu}
-  onkeydown={(e) => menuKey(e) && openMenu(e)}
+  onkeydowncapture={(e) => menuKey(e) && (e.stopPropagation(), openMenu(e))}
 >
   <!-- svelte-ignore a11y_no_static_element_interactions (a shortcut for the zoom button) -->
   <header
+    bind:this={head}
     class:remote={remote && phase(remote) !== "off"}
     ondblclick={(e) => !alone && !(e.target as Element).closest("button, input") && toggleMaximize(session.id)}
   >

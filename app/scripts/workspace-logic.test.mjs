@@ -1,6 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NAV, dragNav, fontStep, navColumn, pushRecent, readNav, shellPaths, toggleNav, zoomStep } from "../src/lib/workspace-logic.ts";
+import {
+  NAV,
+  dragNav,
+  dropPoint,
+  fontStep,
+  introResume,
+  menuRuns,
+  navColumn,
+  pushRecent,
+  readNav,
+  shellPaths,
+  toggleNav,
+  zoomStep,
+} from "../src/lib/workspace-logic.ts";
 
 test("the navigation kept reads back, anything else gives the default", () => {
   assert.deepEqual(readNav(null), { width: 232, mode: "full", fold: "rail" });
@@ -54,6 +67,27 @@ test("dropped paths are typed as a shell reads them", () => {
   assert.equal(shellPaths(["/tmp/a\nb"], false), "'/tmp/a\nb' ");
   assert.equal(shellPaths(["C:\\Users\\Alex\\My Files\\a.txt", "C:\\b.txt"], true), '"C:\\Users\\Alex\\My Files\\a.txt" C:\\b.txt ');
   assert.equal(shellPaths([], false), "");
+});
+
+test("the native menu runs only where the page's own keys would", () => {
+  const terminals = { palette: false, help: false, view: "terminals" };
+  assert.equal(menuRuns("close_split", terminals), true);
+  assert.equal(menuRuns("close_split", { ...terminals, view: "tickets" }), false, "⌘W in the other panel");
+  assert.equal(menuRuns("close_split", { ...terminals, palette: true }), false, "under the palette");
+  assert.equal(menuRuns("new_session", { ...terminals, help: true }), false, "under the help");
+  assert.equal(menuRuns("toggle_nav", { ...terminals, view: "home" }), true);
+});
+
+test("a file dropped lands under the pointer, whatever the interface's zoom", () => {
+  // A Retina screen at a 125 % zoom: WebKit's devicePixelRatio is 2.5.
+  assert.deepEqual(dropPoint({ x: 1000, y: 500 }, 2.5), { x: 400, y: 200 });
+  assert.deepEqual(dropPoint({ x: 300, y: 120 }, 1), { x: 300, y: 120 });
+});
+
+test("the introduction goes on to the CTO only when a project was created", () => {
+  assert.equal(introResume(2, 0, 1), 3);
+  assert.equal(introResume(2, 2, 2), 2, "the assistant left without creating one");
+  assert.equal(introResume(4, 1, 2), 4);
 });
 
 test("the recently closed keep the ten newest", () => {

@@ -65,7 +65,7 @@
       : tools!.claude.tooOld
         ? { state: "warn", title: t("wsCheckOld"), text: t("releaseTooOld", { version: install.version ?? "", minimum: tools!.claude.minimum }) }
         : { state: "ok", title: t("wsCheckInstalled"), text: t("wsCheckInstalledText", { version: install.version ?? "", path: install.path }) };
-    version = install?.version ? `Claude Code ${install.version}` : "";
+    version = install?.version ? t("wsCheckVersion", { version: install.version }) : "";
     checks[1] = { state: "now", title: t("wsCheckAccount"), text: "" };
     let billing: Billing = { mode: "unknown", plan: null };
     if (install) billing = await invoke<Billing>("claude_billing", { refresh: true }).catch(() => billing);

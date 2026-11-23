@@ -111,9 +111,8 @@ export const dropping = $state({ on: null as number | null });
 /** Pasted as typed: escaped paths, the keyboard left in that terminal. */
 function onDrop(event: { payload: { type: string; paths?: string[]; position?: { x: number; y: number } } }) {
   const { type, paths, position } = event.payload;
-  const el =
-    position &&
-    document.elementFromPoint(position.x / devicePixelRatio, position.y / devicePixelRatio)?.closest<HTMLElement>("[data-term]");
+  const at = position && logic.dropPoint(position, devicePixelRatio);
+  const el = at && document.elementFromPoint(at.x, at.y)?.closest<HTMLElement>("[data-term]");
   dropping.on = type === "enter" || type === "over" ? (el ? Number(el.dataset.term) : null) : null;
   if (type !== "drop" || !el || !paths?.length) return;
   const data = logic.shellPaths(paths, navigator.platform.startsWith("Win"));
