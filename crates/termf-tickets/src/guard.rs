@@ -1328,7 +1328,7 @@ mod tests {
     fn a_team_reads_and_tests_without_asking() {
         let wt = worktree("real");
         let pass = |line: &str, cwd: &Path| reads(line, &wt, cwd, &checks());
-        // What the agents ran in the recette (PR #131), which asked the user each time.
+        // What the agents ran in the acceptance run (PR #131), which asked the user each time.
         for line in [
             "git status --short; echo ---; cat README.md; npm test | tail",
             "git status",

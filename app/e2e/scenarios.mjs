@@ -594,7 +594,7 @@ export const scenarios = [
       check(/ skills=[^ ]*tests-from-criteria/.test(line), `the brief lists the skills that fit: ${line}`);
       check(line.includes(" missing=none told=true role=true "), `each one is the plugin's, and the brief and the role say to use them: ${line}`);
       // Only what is neither a read nor the repository's tests asks: installing a package, the network.
-      check(line.includes(" asks=2/12 npm install left-pad | curl -s https://example.com"), `the recette's commands: ${line}`);
+      check(line.includes(" asks=2/12 npm install left-pad | curl -s https://example.com"), `the acceptance run's commands: ${line}`);
       await t.clean();
     },
   },

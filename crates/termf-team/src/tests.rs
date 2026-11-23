@@ -1692,7 +1692,7 @@ fn the_brief_puts_the_documents_first_and_caps_the_turns() {
     );
 }
 
-/// The recette (PR #131): no step ever invoked a skill, and each Bash command that only read asked the user.
+/// The acceptance run (PR #131): no step ever invoked a skill, and each Bash command that only read asked the user.
 #[test]
 fn a_step_is_told_its_skills_and_reads_without_asking() {
     let env = Env::new("skills");
@@ -2067,7 +2067,7 @@ fn routing(workflow: &str, squads: &[&str]) -> Value {
         "skip": [], "add": [], "efforts": [], "squads": squads, "questions": [], "budget_usd": 4.0})
 }
 
-/// The recette: a team the setup made without docs, so the lead gave the README to the back-end developer.
+/// The acceptance run: a team the setup made without docs, so the lead gave the README to the back-end developer.
 #[test]
 fn the_cto_adds_the_role_a_ticket_needs_to_the_run() {
     let env = Env::new("roles-on-demand");

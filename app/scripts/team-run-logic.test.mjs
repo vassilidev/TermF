@@ -496,7 +496,7 @@ test("tell: a finished agent is offered only while the run is at rest or done", 
 });
 
 test("tell: the reply ends with its turn, or when the agent fails or exits", () => {
-  const reply = () => ({ session: 4, who: "CTO", text: "", heard: false, done: false, error: null });
+  const reply = () => ({ session: 4, who: "CTO", sent: "hi", text: "", heard: false, done: false, error: null });
   const ev = (kind, more = {}) => ({ id: 1, session: 4, at: 1, kind, ...more });
   let r = reply();
   for (const e of [
@@ -528,6 +528,23 @@ test("tell: the reply ends with its turn, or when the agent fails or exits", () 
   hear(r, ev("user", { text: "hi" }));
   hear(r, ev("turn_end", { error: "overloaded" }));
   assert.deepEqual([r.done, r.error], [true, "overloaded"]);
+
+  // The third review of PR #135: another message, or one from TermF, may start a turn before ours.
+  r = reply();
+  for (const e of [
+    ev("user", { text: "The checks failed: fix them" }),
+    ev("delta", { text: "Fixing" }),
+    ev("turn_end", { error: null }),
+    ev("user", { text: "@expert why?\n\nhi" }),
+    ev("delta", { text: "Hello" }),
+  ])
+    hear(r, e);
+  assert.deepEqual([r.text, r.heard, r.done], ["Hello", true, false], "the answer starts with the turn that holds our message");
+});
+
+test("negations: no lookbehind, which WebKit before Safari 16.4 cannot load", () => {
+  const source = readFileSync(new URL("../src/lib/team-run-logic.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /\(\?<[=!]/);
 });
 
 test("tell: the CTO is named in the user's language", () => {

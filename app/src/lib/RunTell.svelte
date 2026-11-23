@@ -59,7 +59,7 @@
         session = step.session;
         who = `${step.role ?? ""} · ${stepName(step)}`;
       }
-      reply = { session, who, text: "", heard: false, done: false, error: null };
+      reply = { session, who, sent: message, text: "", heard: false, done: false, error: null };
       await invoke<boolean>("agent_send_or_queue", { id: session, text: message });
       draft = "";
     } catch (err) {

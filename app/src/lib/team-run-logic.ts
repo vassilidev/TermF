@@ -375,9 +375,10 @@ export function implications(q: Question): { option: string | null; text: string
     .filter((row) => row.text);
 }
 
-// Bounds of words in any script: `\b` ends a word at "î" or "é", and finds "ne" in "chaîne".
+// Bounds of words in any script: `\b` ends a word at "î" or "é", and finds "ne" in "chaîne". No lookbehind: WebKit
+// before Safari 16.4 (macOS 11) cannot load a module that has one.
 const NEGATION =
-  /(?<![\p{L}\p{N}])(?:not|no|never|without|none|nothing|cannot|nor|ne|pas|jamais|sans|aucun|aucune|rien|non)(?![\p{L}\p{N}])|n['’]t(?!\p{L})|(?<!\p{L})n['’](?=\p{L})/iu;
+  /(?:^|[^\p{L}\p{N}])(?:not|no|never|without|none|nothing|cannot|nor|ne|pas|jamais|sans|aucun|aucune|rien|non)(?![\p{L}\p{N}])|n['’]t(?!\p{L})|(?:^|[^\p{L}])n['’](?=\p{L})/iu;
 
 /** Whether a yes/no question's implications seem the wrong way round: the form warns, and shows them as they are. */
 export function reversed(q: Question): boolean {
@@ -544,8 +545,8 @@ export function tellable(run: TeamRun, open: boolean): Step[] {
     .sort((a, b) => Number(b.state === "running") - Number(a.state === "running"));
 }
 
-/** The answer to a message from the Run page: what its conversation said since, and how its turn ended. */
-export type Reply = { session: number; who: string; text: string; heard: boolean; done: boolean; error: string | null };
+/** The answer to `sent`, a message from the Run page: what its conversation said since, and how its turn ended. */
+export type Reply = { session: number; who: string; sent: string; text: string; heard: boolean; done: boolean; error: string | null };
 /** What `hear` reads of an agent's event (a `StoredEvent`). */
 type HeardEvent = { session: number; kind: string; text?: string; parent?: string; message?: string | null; error?: string | null };
 
@@ -561,6 +562,8 @@ export function hear(reply: Reply, e: HeardEvent): void {
     reply.error ??= e.message ?? null;
   } else if (reply.done && reply.heard) return;
   else if (e.kind === "user") {
+    // A turn TermF or another message starts first is not the answer; queued messages go together.
+    if (!e.text?.includes(reply.sent)) return;
     reply.heard = true;
     reply.done = false;
     reply.error = null;

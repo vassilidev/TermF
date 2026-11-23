@@ -14,11 +14,13 @@
     (e) => (error = String(e)),
   );
 
-  async function set(next: boolean) {
+  async function set(box: HTMLInputElement) {
     error = "";
     try {
-      on = await invoke<boolean>("team_read_freely", { project, on: next });
+      on = await invoke<boolean>("team_read_freely", { project, on: box.checked });
     } catch (e) {
+      // Not saved: the switch shows what holds.
+      box.checked = !!on;
       error = String(e);
     }
   }
@@ -33,7 +35,7 @@
         class="switch"
         checked={on}
         aria-describedby="team-reads-help"
-        onchange={(e) => set(e.currentTarget.checked)}
+        onchange={(e) => set(e.currentTarget)}
       />
       {t("practicalTeamReadFreely")}
     </label>

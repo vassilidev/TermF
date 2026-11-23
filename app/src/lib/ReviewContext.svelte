@@ -72,7 +72,9 @@
   <section>
     <h4>{t("review5bChanged")}</h4>
     <p>
-      {#if !screen.before && screen.after}
+      {#if screen.error}
+        {t("review5bScreenFailed")}
+      {:else if !screen.before && screen.after}
         {t("practicalVisualAfterOnly")}
       {:else if !screen.changed}
         {t("review5bSame")}

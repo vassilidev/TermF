@@ -48,8 +48,8 @@ export function fill(schema, root = schema) {
   }
 }
 
-/** What the agents of the team's recette (PR #131) ran in their steps, each of which asked the user then. */
-export const RECETTE = [
+/** What the agents of the team's acceptance run (PR #131) ran in their steps, each of which asked the user then. */
+export const ACCEPTANCE_COMMANDS = [
   "git status --short; echo ---; cat README.md; npm test | tail",
   "git diff HEAD~1 -- src",
   "git log --oneline -5",
@@ -66,7 +66,7 @@ export const RECETTE = [
 
 /**
  * A step of a team run, as an agent meets it: the skills its brief lists (and whether its plugin has them), whether
- * the brief and its role tell it to use them, and which of the recette's commands its PreToolUse hooks still leave
+ * the brief and its role tell it to use them, and which of the acceptance run's commands its PreToolUse hooks still leave
  * to the user (allowed: a hook allows it and none refuses or asks). One line in the log.
  */
 function teamStep(prompt) {
@@ -78,13 +78,13 @@ function teamStep(prompt) {
   const prompt_file = flag("--append-system-prompt-file");
   const role = !!prompt_file && existsSync(prompt_file) && readFileSync(prompt_file, "utf8").includes("Start from your skills");
   const pre = hooks().PreToolUse ?? [];
-  const asked = RECETTE.filter((command) => {
+  const asked = ACCEPTANCE_COMMANDS.filter((command) => {
     const input = JSON.stringify({ session_id: "e2e", cwd: process.cwd(), hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } });
     const outs = pre.map((h) => spawnSync(h.command, h.args ?? [], { input, encoding: "utf8", timeout: (h.timeout ?? 60) * 1000 }));
     const said = (d) => outs.some((o) => o.stdout?.includes(`"permissionDecision":"${d}"`));
     return !said("allow") || said("ask") || outs.some((o) => o.status === 2);
   });
-  const line = `team-step ${key} skills=${skills.join(",") || "none"} missing=${missing.join(",") || "none"} told=${told} role=${role} asks=${asked.length}/${RECETTE.length} ${asked.join(" | ")}`;
+  const line = `team-step ${key} skills=${skills.join(",") || "none"} missing=${missing.join(",") || "none"} told=${told} role=${role} asks=${asked.length}/${ACCEPTANCE_COMMANDS.length} ${asked.join(" | ")}`;
   if (process.env.TERMF_E2E_LOG) appendFileSync(process.env.TERMF_E2E_LOG, `${line}\n`);
 }
 
