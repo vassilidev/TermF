@@ -13,6 +13,7 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table};
 
+pub mod dba;
 pub mod env;
 mod exec;
 pub mod export;

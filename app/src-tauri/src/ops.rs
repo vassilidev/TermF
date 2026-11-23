@@ -15,6 +15,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use termf_agents::AgentSession;
 use termf_core::ipc::McpCall;
+use termf_ops::export::Format;
 use termf_ops::{
     APPROVAL_WAIT, Agent, Approvals, Check, Connection, Following, Ops, Output, Plan, Recipe,
     Request, Runner, Streamed, Use,
@@ -50,6 +51,9 @@ pub struct OpsState {
     tables: Mutex<BTreeMap<u64, termf_ops::sql::Table>>,
     /// The streams followed, by the id the front end chose: dropping one stops its client.
     follows: Mutex<BTreeMap<u64, Following>>,
+    /// The passwords of the databases the last `ops_detect` found, by their rank: they go to the vault, never to
+    /// the webview.
+    found: Mutex<Vec<Option<Secret>>>,
 }
 
 pub fn state(config_dir: PathBuf, data_dir: PathBuf) -> OpsState {
@@ -62,6 +66,7 @@ pub fn state(config_dir: PathBuf, data_dir: PathBuf) -> OpsState {
         kept: Mutex::default(),
         tables: Mutex::default(),
         follows: Mutex::default(),
+        found: Mutex::default(),
     }
 }
 
@@ -124,33 +129,65 @@ pub struct Overview {
     recipes: Vec<Recipe>,
     /// Recipe files that do not read.
     errors: Vec<String>,
+    queries: Vec<termf_ops::Query>,
 }
 
 #[tauri::command]
 pub fn ops_overview(state: State<OpsState>, project: String) -> CmdResult<Overview> {
     let connections = termf_ops::connections(&state.config_dir, &project).map_err(err)?;
     let (recipes, errors) = termf_ops::recipes(&state.config_dir, Some(&project));
+    let queries = termf_ops::queries(&state.config_dir, &project).map_err(err)?;
     Ok(Overview {
         connections,
         recipes,
         errors,
+        queries,
     })
 }
 
+/// Saves a connection; `password` (typed or pasted in a URL) or `found` (a database `ops_detect` found) goes to
+/// the vault first, under the name its `password` secret gives, in its environment and the project.
 #[tauri::command]
-pub fn ops_connection_save(
-    state: State<OpsState>,
+pub async fn ops_connection_save(
+    app: AppHandle,
     project: String,
     connection: Connection,
     previous: Option<String>,
+    password: Option<String>,
+    found: Option<usize>,
 ) -> CmdResult<Vec<Connection>> {
-    termf_ops::save_connection(
-        &state.config_dir,
-        &project,
-        &connection,
-        previous.as_deref(),
-    )
-    .map_err(err)
+    blocking(app, move |_, state, vault| {
+        connection.check()?;
+        let value = match (password, found) {
+            (Some(p), _) => Some(Secret::new(p)),
+            (None, Some(i)) => state.found.lock().unwrap().get(i).cloned().flatten(),
+            (None, None) => None,
+        };
+        if let Some(value) = value.filter(|v| !v.expose().is_empty()) {
+            let name = connection
+                .secrets
+                .get("password")
+                .context("name the vault's secret that holds the password")?;
+            ensure!(
+                vault.initialized(),
+                "there is no vault yet: create it in the Vault view, the password goes there"
+            );
+            let id = termf_vault::SecretId::new(name, connection.env, Some(&project))?;
+            vault.set(
+                &Actor::human(),
+                &id,
+                value,
+                Some(&format!("Password of the database {}", connection.name)),
+            )?;
+        }
+        termf_ops::save_connection(
+            &state.config_dir,
+            &project,
+            &connection,
+            previous.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -460,35 +497,301 @@ pub async fn ops_env_compare(
     .await
 }
 
-/// A query's table, masked as shown, written as CSV where the user chose.
+fn kept_table(state: &OpsState, result: u64) -> Result<(termf_ops::sql::Table, termf_ops::Kind)> {
+    let table = state
+        .tables
+        .lock()
+        .unwrap()
+        .get(&result)
+        .cloned()
+        .context("this result is no longer kept: run the query again")?;
+    let kind = state
+        .kept
+        .lock()
+        .unwrap()
+        .get(&result)
+        .map_or(termf_ops::Kind::Postgres, |k| k.plan.kind);
+    Ok((table, kind))
+}
+
+fn write_file(
+    path: &str,
+    table: &termf_ops::sql::Table,
+    format: Format,
+    kind: termf_ops::Kind,
+    name: &str,
+) -> Result<()> {
+    let file = std::fs::File::create(path).with_context(|| format!("cannot write {path}"))?;
+    let mut out = std::io::BufWriter::new(file);
+    termf_ops::export::write(table, format, kind, name, &mut out)?;
+    std::io::Write::flush(&mut out)?;
+    Ok(())
+}
+
+/// A query's table, masked as shown, written where the user chose: CSV unless `format` says otherwise; `name`: the
+/// table an SQL export's `INSERT`s fill.
 #[tauri::command]
-pub async fn ops_sql_export(app: AppHandle, result: u64, path: String) -> CmdResult<()> {
+pub async fn ops_sql_export(
+    app: AppHandle,
+    result: u64,
+    path: String,
+    format: Option<Format>,
+    name: Option<String>,
+) -> CmdResult<()> {
     blocking(app, move |_, state, _| {
-        let table = state
-            .tables
-            .lock()
-            .unwrap()
-            .get(&result)
-            .cloned()
-            .context("this result is no longer kept: run the query again")?;
-        std::fs::write(&path, csv(&table)).with_context(|| format!("cannot write {path}"))
+        let (table, kind) = kept_table(state, result)?;
+        let name = name.unwrap_or_else(|| "export".into());
+        write_file(&path, &table, format.unwrap_or(Format::Csv), kind, &name)
     })
     .await
 }
 
-/// A table as CSV: a cell in double quotes when it holds a comma, a quote or a line break.
-fn csv(table: &termf_ops::sql::Table) -> String {
-    let cell = |c: &String| {
-        if c.contains([',', '"', '\n', '\r']) {
-            format!("\"{}\"", c.replace('"', "\"\""))
-        } else {
-            c.clone()
+/// A query's table as text for the clipboard: TSV, CSV, JSON or Markdown.
+#[tauri::command]
+pub async fn ops_sql_copy(app: AppHandle, result: u64, format: Format) -> CmdResult<String> {
+    blocking(app, move |_, state, _| {
+        let (table, kind) = kept_table(state, result)?;
+        termf_ops::export::text(&table, format, kind, "export")
+    })
+    .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Exported {
+    rows: usize,
+    /// It stopped at the export's limit: more rows were left.
+    truncated: bool,
+}
+
+/// The query run again past the console's rows, up to `termf_ops::EXPORT_ROWS`, masked as the console masks it,
+/// then written row by row.
+#[tauri::command]
+pub async fn ops_sql_export_all(
+    app: AppHandle,
+    project: String,
+    connection: String,
+    query: String,
+    path: String,
+    format: Format,
+    name: Option<String>,
+) -> CmdResult<Exported> {
+    blocking(app, move |_, state, vault| {
+        let (plan, output) = state.ops(vault).export(&project, &connection, &query)?;
+        let table = match output.table {
+            Some(table) if output.exit == Some(0) => table,
+            _ => bail!("{}", output.stopped.unwrap_or(output.errors)),
+        };
+        let name = name.unwrap_or_else(|| "export".into());
+        write_file(&path, &table, format, plan.kind, &name)?;
+        Ok(Exported {
+            rows: table.rows.len(),
+            truncated: output.truncated,
+        })
+    })
+    .await
+}
+
+/// A database URL as a connection's fields; its password comes back apart, for `ops_connection_save`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FromUrl {
+    connection: Connection,
+    password: Option<String>,
+    ignored: Vec<String>,
+}
+
+#[tauri::command]
+pub fn ops_parse_url(url: String) -> CmdResult<FromUrl> {
+    let parsed = termf_ops::parse_url(&url).map_err(err)?;
+    Ok(FromUrl {
+        connection: parsed.connection,
+        password: parsed.password,
+        ignored: parsed.ignored,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Detected {
+    /// What `ops_connection_save` takes as `found`.
+    id: usize,
+    #[serde(flatten)]
+    candidate: termf_ops::Candidate,
+}
+
+/// The databases the project's repositories declare, read from their files only; their passwords stay here.
+#[tauri::command]
+pub async fn ops_detect(app: AppHandle, project: String) -> CmdResult<Vec<Detected>> {
+    blocking(app, move |_, state, _| {
+        let project = termf_core::load_projects(&state.config_dir)?
+            .into_iter()
+            .find(|p| p.id == project)
+            .context("no such project")?;
+        let repos: Vec<(String, PathBuf)> = project
+            .repos
+            .iter()
+            .map(|r| (r.name.clone(), PathBuf::from(&r.path)))
+            .collect();
+        let mut candidates = termf_ops::declared(&repos);
+        let mut found = state.found.lock().unwrap();
+        *found = candidates
+            .iter_mut()
+            .map(|c| c.password.take().map(Secret::new))
+            .collect();
+        Ok(candidates
+            .into_iter()
+            .enumerate()
+            .map(|(id, candidate)| Detected { id, candidate })
+            .collect())
+    })
+    .await
+}
+
+/// The database's tables, columns, keys and indexes.
+#[tauri::command]
+pub async fn ops_schema(
+    app: AppHandle,
+    project: String,
+    connection: String,
+) -> CmdResult<Vec<termf_ops::sql::SchemaTable>> {
+    blocking(app, move |_, state, vault| {
+        state.ops(vault).schema(&project, &connection)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn ops_query_save(
+    state: State<OpsState>,
+    project: String,
+    query: termf_ops::Query,
+    previous: Option<String>,
+) -> CmdResult<Vec<termf_ops::Query>> {
+    termf_ops::save_query(&state.config_dir, &project, &query, previous.as_deref()).map_err(err)
+}
+
+#[tauri::command]
+pub fn ops_query_delete(
+    state: State<OpsState>,
+    project: String,
+    name: String,
+) -> CmdResult<Vec<termf_ops::Query>> {
+    termf_ops::delete_query(&state.config_dir, &project, &name).map_err(err)
+}
+
+/// The project's recipe that runs this saved query only, for the agents: its name.
+#[tauri::command]
+pub fn ops_query_recipe(
+    state: State<OpsState>,
+    project: String,
+    name: String,
+) -> CmdResult<String> {
+    termf_ops::query_recipe(&state.config_dir, &project, &name).map_err(err)
+}
+
+/// Asks the console's DBA (the `dba` role, read-only): a query from words, an explanation, or a faster query from
+/// the database's plan. The first message of a conversation (no `session`) carries the schema; the session sees
+/// rows only through `ops_run` and the user's approval, when the connection's `ai_access` allows it.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn ops_ask(
+    app: AppHandle,
+    project: String,
+    connection: String,
+    session: Option<i64>,
+    kind: String,
+    text: String,
+    lang: String,
+) -> CmdResult<AgentSession> {
+    blocking(app, move |app, state, vault| {
+        let ops = state.ops(vault);
+        let conn = termf_ops::connections(&state.config_dir, &project)?
+            .into_iter()
+            .find(|c| c.name == connection)
+            .with_context(|| format!("no connection {connection} in project {project}"))?;
+        let plan;
+        let ask = match kind.as_str() {
+            "write" => termf_ops::dba::Ask::Write(&text),
+            "explain" => termf_ops::dba::Ask::Explain(&text),
+            "optimize" => {
+                let explained = ops.explain(&project, &connection, &text)?;
+                plan = match explained.table {
+                    Some(t) if explained.exit == Some(0) => t
+                        .rows
+                        .iter()
+                        .map(|r| r.join(" | "))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                    _ => bail!("the database gave no plan: {}", explained.errors),
+                };
+                termf_ops::dba::Ask::Optimize {
+                    query: &text,
+                    plan: &plan,
+                }
+            }
+            other => bail!("unknown request {other}"),
+        };
+        let agents = crate::agents::agents(app);
+        if let Some(id) = session {
+            agents.send(id, &termf_ops::dba::next(&ask))?;
+            return agents
+                .sessions()?
+                .into_iter()
+                .find(|s| s.id == id)
+                .context("no such session");
         }
-    };
-    std::iter::once(&table.columns)
-        .chain(&table.rows)
-        .map(|r| r.iter().map(cell).collect::<Vec<_>>().join(",") + "\n")
-        .collect()
+        let schema = ops.schema(&project, &connection)?;
+        let repo = termf_core::load_projects(&state.config_dir)?
+            .into_iter()
+            .find(|p| p.id == project)
+            .and_then(|p| p.repos.first().map(|r| PathBuf::from(&r.path)))
+            .context("the project has no repository")?;
+        let spec = |data: bool| {
+            let mut allowed: Vec<String> = ["Read", "Grep", "Glob"].map(String::from).to_vec();
+            if data {
+                allowed.push(termf_agents::OPS.into());
+            }
+            termf_agents::SessionSpec {
+                cwd: repo.clone(),
+                title: format!("DBA · {connection}"),
+                project: Some(project.clone()),
+                role: Some("dba".into()),
+                effort: Some("medium".into()),
+                allowed_tools: allowed,
+                disallowed_tools: [
+                    "Bash",
+                    "PowerShell",
+                    "Edit",
+                    "Write",
+                    "NotebookEdit",
+                    "WebFetch",
+                    "WebSearch",
+                ]
+                .map(String::from)
+                .to_vec(),
+                guard: data,
+                ..termf_agents::SessionSpec::default()
+            }
+        };
+        // Rows only through ops_run, which a guarded session gets; without the termf CLI, the schema only.
+        let data = conn.ai_access != termf_ops::AiAccess::None;
+        let (created, data) = match agents.create(spec(data)) {
+            Ok(s) => (s, data),
+            Err(_) if data => (agents.create(spec(false))?, false),
+            Err(e) => return Err(e),
+        };
+        agents.send(
+            created.id,
+            &termf_ops::dba::first(&conn, &schema, data, &ask, &lang),
+        )?;
+        agents
+            .sessions()?
+            .into_iter()
+            .find(|s| s.id == created.id)
+            .context("no such session")
+    })
+    .await
 }
 
 #[derive(Serialize, Clone)]
@@ -703,7 +1006,8 @@ mod tests {
         assert_eq!(tables.len(), TABLES);
         assert!(!tables.contains_key(&5) && tables.contains_key(&6));
         assert_eq!(
-            csv(&tables[&6]),
+            termf_ops::export::text(&tables[&6], Format::Csv, termf_ops::Kind::Postgres, "t")
+                .unwrap(),
             "id,note\n6,\"a, \"\"b\"\"\nc\"\n",
             "quoted as a spreadsheet reads it"
         );
