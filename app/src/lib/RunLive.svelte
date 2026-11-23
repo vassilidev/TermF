@@ -19,8 +19,10 @@
   /** A team run as it happens: what each step at work does now, then the run's story in plain words. */
   let { run }: { run: TeamRun } = $props();
 
-  // A foreach only holds its tasks: they are what works.
-  const running = $derived(run.steps.filter((s) => s.state === "running" && s.kind !== "foreach"));
+  // A foreach only holds its tasks: they are what works. A paused or stopped run keeps its step "running" to take it
+  // up again, but nothing works on it meanwhile.
+  const active = $derived(run.state === "running" || run.state === "waiting");
+  const running = $derived(active ? run.steps.filter((s) => s.state === "running" && s.kind !== "foreach") : []);
   $effect(() => {
     for (const s of running) if (s.session !== null) track(s.session);
   });
@@ -58,18 +60,21 @@
         {@const act = step.session === null ? null : activity[step.session]?.now}
         {@const cost = spent(step)}
         {@const session = step.session}
-        <li>
+        {@const asks = session !== null && agents.sessions.find((a) => a.id === session)?.state === "waiting"}
+        <li class:asks>
           <span class="role">{who(step.role)}</span>
           <span class="what">
             <b>{named(step.key)}</b>
             {#if act}<span class="act"><Action {act} /></span>{/if}
           </span>
           <span class="meta">
-            {#if step.started}{t("liveSince", { time: say(elapsed(now - step.started)) })}{/if}
+            {#if asks}<span class="waits">{t("statusWaiting")}</span>{:else if step.started}{t("liveSince", {
+                time: say(elapsed(now - step.started)),
+              })}{/if}
             {#if cost}<span title={costHelp()}> · {apiUsd(cost)}</span>{/if}
           </span>
           {#if session !== null}
-            <button class="btn sm" onclick={() => showConversation(session)}>
+            <button class="btn sm" class:primary={asks} onclick={() => showConversation(session)}>
               <MessagesSquare size={14} aria-hidden="true" />{t("liveOpen")}
             </button>
           {/if}
@@ -189,6 +194,16 @@
     background: var(--working-soft);
     color: var(--working);
     font-size: var(--text-xs);
+    font-weight: 600;
+  }
+
+  .asks .role {
+    background: var(--waiting);
+    color: var(--waiting-text);
+  }
+
+  .waits {
+    color: var(--warning);
     font-weight: 600;
   }
 

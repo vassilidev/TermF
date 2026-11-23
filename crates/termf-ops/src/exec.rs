@@ -110,22 +110,26 @@ pub(crate) fn base(
     };
     match conn.kind {
         Kind::Ssh => base.args = ssh(conn, timeout),
-        Kind::Postgres | Kind::Mysql => {
+        Kind::Sqlite => {
+            // The file opened read-only, and the shell's safe mode: no ATTACH, no file or shell function.
+            if mode == Mode::Read {
+                base.args.push("-readonly".into());
+            }
+            base.args
+                .extend(["-safe", "-bail", "-batch"].map(String::from));
+            base.args.push(conn.database.clone().unwrap_or_default());
+        }
+        Kind::Postgres | Kind::Mysql | Kind::Mariadb | Kind::Clickhouse => {
             let (host, port) = match &conn.via {
                 Some(via) => {
                     let server = all
                         .iter()
                         .find(|c| &c.name == via && c.kind == Kind::Ssh)
                         .with_context(|| format!("{} goes through {via}, which is not an SSH connection of the project", conn.name))?;
-                    let default = if conn.kind == Kind::Postgres {
-                        5432
-                    } else {
-                        3306
-                    };
                     base.tunnel = Some(Tunnel {
                         ssh: ssh(server, timeout),
                         host: conn.host.clone().unwrap_or_else(|| "127.0.0.1".into()),
-                        port: conn.port.unwrap_or(default),
+                        port: conn.port.unwrap_or(conn.kind.default_port()),
                     });
                     ("127.0.0.1".to_owned(), PORT.to_owned())
                 }
@@ -138,46 +142,91 @@ pub(crate) fn base(
                 conn.user.clone().unwrap_or_default(),
                 conn.database.clone().unwrap_or_default(),
             );
-            if conn.kind == Kind::Postgres {
-                base.args = ["-X", "-q", "-w", "-v", "ON_ERROR_STOP=1", "-h", &host]
+            let tls = conn.sslmode.as_deref();
+            match conn.kind {
+                Kind::Postgres => {
+                    base.args = ["-X", "-q", "-w", "-v", "ON_ERROR_STOP=1", "-h", &host]
+                        .map(String::from)
+                        .to_vec();
+                    if !port.is_empty() {
+                        base.args.extend(["-p".into(), port]);
+                    }
+                    base.args.extend(["-U".into(), user, "-d".into(), db]);
+                    base.vars.push(("PGCONNECT_TIMEOUT".into(), "10".into()));
+                    if let Some(mode) = tls {
+                        base.vars.push(("PGSSLMODE".into(), mode.into()));
+                    }
+                    if mode == Mode::Read {
+                        // The session refuses to write, whatever the user may: defense in depth (§12.3).
+                        let options = format!(
+                            "-c default_transaction_read_only=on -c statement_timeout={}",
+                            timeout * 1000
+                        );
+                        base.vars.push(("PGOPTIONS".into(), options));
+                    }
+                    if let Some(s) = secret("password") {
+                        base.env.push(("PGPASSWORD".into(), s));
+                    }
+                }
+                Kind::Clickhouse => {
+                    base.args = vec!["--host".into(), host];
+                    if !port.is_empty() {
+                        base.args.extend(["--port".into(), port]);
+                    }
+                    base.args
+                        .extend(["--user".into(), user, "--database".into(), db]);
+                    base.args.push("--connect_timeout=10".into());
+                    if matches!(tls, Some("require" | "verify-ca" | "verify-full")) {
+                        base.args.push("--secure".into());
+                    }
+                    if mode == Mode::Read {
+                        // The server refuses anything but a read, and any change to this setting (§12.3).
+                        base.args.push("--readonly=1".into());
+                    }
+                    if let Some(s) = secret("password") {
+                        base.env.push(("CLICKHOUSE_PASSWORD".into(), s));
+                    }
+                }
+                _ => {
+                    base.args = [
+                        "--batch",
+                        "--protocol=TCP",
+                        "--connect-timeout=10",
+                        "-h",
+                        &host,
+                    ]
                     .map(String::from)
                     .to_vec();
-                if !port.is_empty() {
-                    base.args.extend(["-p".into(), port]);
-                }
-                base.args.extend(["-U".into(), user, "-d".into(), db]);
-                base.vars.push(("PGCONNECT_TIMEOUT".into(), "10".into()));
-                if mode == Mode::Read {
-                    // The session refuses to write, whatever the user may: defense in depth (§12.3).
-                    let options = format!(
-                        "-c default_transaction_read_only=on -c statement_timeout={}",
-                        timeout * 1000
-                    );
-                    base.vars.push(("PGOPTIONS".into(), options));
-                }
-                if let Some(s) = secret("password") {
-                    base.env.push(("PGPASSWORD".into(), s));
-                }
-            } else {
-                base.args = [
-                    "--batch",
-                    "--protocol=TCP",
-                    "--connect-timeout=10",
-                    "-h",
-                    &host,
-                ]
-                .map(String::from)
-                .to_vec();
-                if !port.is_empty() {
-                    base.args.extend(["-P".into(), port]);
-                }
-                base.args.extend(["-u".into(), user, "-D".into(), db]);
-                if mode == Mode::Read {
-                    base.args
-                        .push("--init-command=SET SESSION TRANSACTION READ ONLY".into());
-                }
-                if let Some(s) = secret("password") {
-                    base.env.push(("MYSQL_PWD".into(), s));
+                    if !port.is_empty() {
+                        base.args.extend(["-P".into(), port]);
+                    }
+                    base.args.extend(["-u".into(), user, "-D".into(), db]);
+                    let mysql = conn.kind == Kind::Mysql;
+                    match tls {
+                        Some(mode) if mysql => base.args.push(format!(
+                            "--ssl-mode={}",
+                            match mode {
+                                "disable" => "DISABLED",
+                                "prefer" => "PREFERRED",
+                                "require" => "REQUIRED",
+                                "verify-ca" => "VERIFY_CA",
+                                _ => "VERIFY_IDENTITY",
+                            }
+                        )),
+                        Some("disable") => base.args.push("--skip-ssl".into()),
+                        Some("require") => base.args.push("--ssl".into()),
+                        Some("verify-ca" | "verify-full") => base
+                            .args
+                            .extend(["--ssl", "--ssl-verify-server-cert"].map(String::from)),
+                        _ => {}
+                    }
+                    if mode == Mode::Read {
+                        base.args
+                            .push("--init-command=SET SESSION TRANSACTION READ ONLY".into());
+                    }
+                    if let Some(s) = secret("password") {
+                        base.env.push(("MYSQL_PWD".into(), s));
+                    }
                 }
             }
         }
@@ -246,18 +295,78 @@ pub struct Check {
     pub subject: String,
     /// What the client said (masked), or what to install.
     pub detail: String,
+    /// What went wrong, read from `detail`: `keyRefused`, `hostKey`, `unknownHost`, `portClosed`, `timeout`,
+    /// `passwordRefused`, `noDatabase`, `noFile`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<&'static str>,
 }
 
 impl Check {
     fn new(code: &'static str, ok: bool, subject: &str, detail: impl Into<String>) -> Self {
+        let detail = detail.into();
         Self {
             code,
             ok,
             warn: false,
             subject: subject.into(),
-            detail: detail.into(),
+            hint: if ok { None } else { diagnose(&detail) },
+            detail,
         }
     }
+}
+
+/// What a client's failure means, in words the app translates, from what `ssh`, `psql`, `mysql`, `mariadb`,
+/// `sqlite3` or `clickhouse-client` print.
+pub fn diagnose(said: &str) -> Option<&'static str> {
+    let said = said.to_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| said.contains(w));
+    Some(
+        if has(&["permission denied (", "too many authentication failures"]) {
+            "keyRefused"
+        } else if has(&[
+            "host key verification failed",
+            "remote host identification has changed",
+        ]) {
+            "hostKey"
+        } else if has(&[
+            "could not resolve hostname",
+            "could not translate host name",
+            "unknown mysql server host",
+            "unknown server host",
+            "name or service not known",
+            "nodename nor servname",
+            "dns_error",
+        ]) {
+            "unknownHost"
+        } else if has(&[
+            "password authentication failed",
+            "access denied for user",
+            "authentication failed",
+            "no password supplied",
+            "using password: no",
+        ]) || (said.contains("role \"") && said.contains("does not exist"))
+        {
+            "passwordRefused"
+        } else if has(&["timed out", "timeout expired", "did not open within"])
+            // MySQL's and MariaDB's errno: ETIMEDOUT under Linux, macOS, Windows.
+            || (said.contains("can't connect to") && has(&["(110)", "(60)", "(10060)"]))
+        {
+            "timeout"
+        } else if has(&["connection refused", "can't connect to", "network_error"]) {
+            "portClosed"
+        } else if has(&[
+            "does not exist",
+            "unknown database",
+            "doesn't exist",
+            "unknown_database",
+        ]) {
+            "noDatabase"
+        } else if has(&["unable to open database"]) {
+            "noFile"
+        } else {
+            return None;
+        },
+    )
 }
 
 /// Resolves a secret of the vault by its name, for a connection's environment.
@@ -663,7 +772,9 @@ impl Runner {
                  FROM pg_roles r WHERE r.rolname = current_user"
                     .into(),
             ],
-            Kind::Mysql => vec!["-e".into(), "SELECT 'termf-ok'; SHOW GRANTS FOR CURRENT_USER()".into()],
+            Kind::Mysql | Kind::Mariadb => vec!["-e".into(), "SELECT 'termf-ok'; SHOW GRANTS FOR CURRENT_USER()".into()],
+            Kind::Sqlite => vec!["SELECT 'termf-ok';".into()],
+            Kind::Clickhouse => vec!["--query".into(), "SELECT 'termf-ok'; SHOW GRANTS".into()],
             Kind::Kubernetes => ["auth", "can-i", "list", "pods"].map(String::from).to_vec(),
             Kind::Cloudwatch => vec![
                 "logs".into(),
@@ -718,7 +829,8 @@ impl Runner {
         let masked = |text: &str| crate::redact::mask_with(text, &raw.used);
         let reached = raw.exit == Some(0)
             && match conn.kind {
-                Kind::Ssh | Kind::Postgres | Kind::Mysql => raw.stdout.contains("termf-ok"),
+                Kind::Ssh => raw.stdout.contains("termf-ok"),
+                k if k.is_db() => raw.stdout.contains("termf-ok"),
                 Kind::Kubernetes => raw.stdout.trim() == "yes",
                 Kind::Datadog => raw.stdout.contains("\"valid\":true"),
                 _ => true,
@@ -756,11 +868,12 @@ impl Runner {
                     ..Check::new("journal", journal, &target, "")
                 });
             }
-            Kind::Postgres | Kind::Mysql => {
-                let writes = if conn.kind == Kind::Postgres {
-                    raw.stdout.lines().any(|l| l.trim() == "termf-ok|t")
-                } else {
-                    mysql_writes(&raw.stdout)
+            k if k.is_db() => {
+                let writes = match k {
+                    Kind::Postgres => raw.stdout.lines().any(|l| l.trim() == "termf-ok|t"),
+                    // Opened read-only, whatever the file's permissions.
+                    Kind::Sqlite => false,
+                    _ => mysql_writes(&raw.stdout),
                 };
                 checks.push(Check {
                     warn: writes,

@@ -1825,3 +1825,581 @@ fn a_query_without_rows_is_an_empty_table_and_a_cut_one_says_so() {
     assert_eq!(stopped.table.unwrap().rows, [vec!["1", "short"]]);
     assert!(stopped.truncated);
 }
+
+/// The system's own `sqlite3` on a throwaway file: a query, a write refused by the analyzer and by the read-only
+/// file, the schema, a full export past the console's rows, a plan for the DBA, each audited with its event.
+#[cfg(unix)]
+#[test]
+fn a_real_sqlite_database_reads_and_never_writes() {
+    if !Path::new("/usr/bin/sqlite3").is_file() {
+        eprintln!("no /usr/bin/sqlite3: skipped");
+        return;
+    }
+    let env = Fixture::new("sqlite");
+    let db = env.root.join("acme.db");
+    let mut seed = String::from(
+        "CREATE TABLE users(id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, note TEXT);\
+         CREATE INDEX users_note ON users(note);",
+    );
+    for i in 1..=600 {
+        seed.push_str(&format!(
+            "INSERT INTO users VALUES ({i}, 'u{i}@acme.dev', 'n, \"{i}\"');"
+        ));
+    }
+    let made = std::process::Command::new("/usr/bin/sqlite3")
+        .arg(&db)
+        .arg(&seed)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let conn = env.connection(&format!(
+        "name = \"local\"\nkind = \"sqlite\"\nenv = \"dev\"\ndatabase = \"{}\"\n",
+        db.display()
+    ));
+    let vault = env.vault();
+    vault.init(&Actor::human(), PASSWORD, false).unwrap();
+    let runner = env.runner();
+    let (config, data) = (env.config(), env.data());
+    let ops = Ops {
+        config_dir: &config,
+        data_dir: &data,
+        vault: &vault,
+        runner: &runner,
+    };
+    let human = Actor::human();
+    let query = params(&[("query", "SELECT id, email, note FROM users ORDER BY id")]);
+    let (plan, out) = ops
+        .run("acme", &human, "sql-readonly", "local", &query, None)
+        .unwrap();
+    assert!(
+        plan.command.contains("sqlite3 -readonly -safe"),
+        "{}",
+        plan.command
+    );
+    let table = out.table.unwrap();
+    assert_eq!(table.columns, ["id", "email", "note"]);
+    assert_eq!(table.rows.len(), 500, "the console's LIMIT");
+    assert_eq!(table.rows[0], ["1", "[email]", "n, \"1\""]);
+
+    for write in [
+        "DELETE FROM users",
+        "SELECT writefile('x.txt', 'y')",
+        "ATTACH 'other.db' AS o",
+        "PRAGMA journal_mode = DELETE",
+    ] {
+        let given = params(&[("query", write)]);
+        assert!(
+            ops.run("acme", &human, "sql-readonly", "local", &given, None)
+                .is_err(),
+            "{write}"
+        );
+    }
+    // Past the analyzer, the file opened read-only still refuses.
+    let mut forced = plan.clone();
+    forced.args = vec!["DELETE FROM users".into()];
+    let raw = runner.run(&forced, &|_| unreachable!()).unwrap();
+    assert_ne!(raw.exit, Some(0));
+    assert!(raw.stderr.contains("readonly"), "{}", raw.stderr);
+
+    let schema = ops.schema("acme", "local").unwrap();
+    assert_eq!(schema.len(), 1);
+    let users = &schema[0];
+    assert_eq!(users.name, "users");
+    let cols: Vec<(&str, &str, &str)> = users
+        .columns
+        .iter()
+        .map(|c| (c.name.as_str(), c.kind.as_str(), c.key.as_str()))
+        .collect();
+    assert_eq!(
+        cols,
+        [
+            ("id", "INTEGER", "pk"),
+            ("email", "TEXT", ""),
+            ("note", "TEXT", "")
+        ]
+    );
+    assert!(!users.columns[1].nullable && users.columns[2].nullable);
+    assert!(
+        users
+            .indexes
+            .iter()
+            .any(|i| i.name == "users_note" && i.columns == "note" && !i.unique)
+    );
+    assert!(
+        users
+            .indexes
+            .iter()
+            .any(|i| i.unique && i.columns == "email")
+    );
+
+    let (_, all) = ops.export("acme", "local", "SELECT id FROM users").unwrap();
+    assert_eq!(
+        all.table.unwrap().rows.len(),
+        600,
+        "an export reads past the console's rows"
+    );
+
+    let explained = ops
+        .explain("acme", "local", "SELECT * FROM users WHERE note = 'x';")
+        .unwrap();
+    assert!(explained.text.contains("users_note"), "{}", explained.text);
+
+    let checks = runner
+        .test(&conn, std::slice::from_ref(&conn), &|_| unreachable!())
+        .unwrap();
+    assert!(checks.iter().all(|c| c.ok && !c.warn), "{checks:?}");
+
+    let events: Vec<String> = ops
+        .history("acme", 50)
+        .unwrap()
+        .iter()
+        .map(|e| {
+            let d: serde_json::Value = serde_json::from_str(e.detail.as_deref().unwrap()).unwrap();
+            d["event"].as_str().unwrap_or("query").to_owned()
+        })
+        .collect();
+    for event in ["schema", "export", "dba", "query"] {
+        assert!(events.iter().any(|e| e == event), "{event} in {events:?}");
+    }
+}
+
+#[test]
+fn saved_queries_live_in_the_project_file_and_one_becomes_a_recipe() {
+    let env = Fixture::new("queries");
+    env.connection(
+        "name = \"shop\"\nkind = \"mysql\"\nenv = \"prod\"\nhost = \"db\"\nuser = \"ro\"\ndatabase = \"shop\"\nai_access = \"redacted\"\n",
+    );
+    let config = env.config();
+    let q = Query {
+        name: "Orders of the day".into(),
+        description: "Today's paid orders".into(),
+        folder: "Sales".into(),
+        tags: vec!["daily".into()],
+        connection: Some("shop".into()),
+        sql: "SELECT id, total\nFROM orders\nWHERE paid_at > CURDATE()".into(),
+    };
+    let saved = save_query(&config, "acme", &q, None).unwrap();
+    assert_eq!(saved, std::slice::from_ref(&q));
+    let file = fs::read_to_string(config.join("projects/acme.toml")).unwrap();
+    assert!(
+        file.starts_with("# Acme's project"),
+        "comments kept: {file}"
+    );
+    assert!(file.contains("[[ops.queries]]"), "{file}");
+    let twice = save_query(&config, "acme", &q, None).unwrap_err();
+    assert!(twice.to_string().contains("already named"));
+    let copy = Query {
+        name: "Orders of the day (copy)".into(),
+        ..q.clone()
+    };
+    assert_eq!(save_query(&config, "acme", &copy, None).unwrap().len(), 2);
+    let renamed = Query {
+        name: "Daily orders".into(),
+        ..copy.clone()
+    };
+    let after = save_query(&config, "acme", &renamed, Some(&copy.name)).unwrap();
+    let names: Vec<&str> = after.iter().map(|x| x.name.as_str()).collect();
+    assert_eq!(names, ["Orders of the day", "Daily orders"]);
+    let elsewhere = Query {
+        connection: Some("nope".into()),
+        ..renamed.clone()
+    };
+    assert!(save_query(&config, "acme", &elsewhere, Some("Daily orders")).is_err());
+    assert_eq!(
+        delete_query(&config, "acme", "Daily orders").unwrap().len(),
+        1
+    );
+    assert_eq!(connections(&config, "acme").unwrap().len(), 1);
+
+    let name = query_recipe(&config, "acme", "Orders of the day").unwrap();
+    assert_eq!(name, "query-orders-of-the-day");
+    assert!(
+        query_recipe(&config, "acme", "Orders of the day").is_err(),
+        "never overwritten"
+    );
+    let (all, errors) = recipes(&config, Some("acme"));
+    assert!(errors.is_empty(), "{errors:?}");
+    let recipe = all.iter().find(|r| r.name == name).unwrap();
+    assert_eq!(
+        (recipe.mode, recipe.approval, recipe.ai_access),
+        (Mode::Read, Approval::Always, AiAccess::Redacted)
+    );
+    let conns = connections(&config, "acme").unwrap();
+    let plan = crate::plan(recipe, &conns[0], &conns, &BTreeMap::new()).unwrap();
+    assert!(
+        plan.params["query"].starts_with("SELECT id, total"),
+        "its saved query by default"
+    );
+    let other = params(&[("query", "SELECT * FROM users")]);
+    let e = crate::plan(recipe, &conns[0], &conns, &other).unwrap_err();
+    assert!(format!("{e:#}").contains("only its saved query"), "{e:#}");
+}
+
+#[test]
+fn a_failure_says_what_is_missing() {
+    for (said, hint) in [
+        ("alex@bastion: Permission denied (publickey).", "keyRefused"),
+        (
+            "ssh: Could not resolve hostname db.acme.dev: nodename nor servname provided",
+            "unknownHost",
+        ),
+        (
+            "ssh: connect to host 10.0.0.4 port 22: Connection refused",
+            "portClosed",
+        ),
+        (
+            "ssh: connect to host 10.0.0.4 port 22: Operation timed out",
+            "timeout",
+        ),
+        ("Host key verification failed.", "hostKey"),
+        (
+            "psql: error: connection to server at \"db\" failed: FATAL:  role \"reader\" does not exist",
+            "passwordRefused",
+        ),
+        (
+            "ERROR 2003 (HY000): Can't connect to MySQL server on 'db.acme.dev:3306' (110)",
+            "timeout",
+        ),
+        (
+            "ERROR 2003 (HY000): Can't connect to MySQL server on 'db.acme.dev:3306' (111)",
+            "portClosed",
+        ),
+        (
+            "psql: error: FATAL:  password authentication failed for user \"ro\"",
+            "passwordRefused",
+        ),
+        (
+            "ERROR 1045 (28000): Access denied for user 'ro'@'10.0.0.1' (using password: YES)",
+            "passwordRefused",
+        ),
+        (
+            "psql: error: FATAL:  database \"acme\" does not exist",
+            "noDatabase",
+        ),
+        (
+            "ERROR 2002 (HY000): Can't connect to MySQL server on '127.0.0.1' (61)",
+            "portClosed",
+        ),
+        (
+            "Error: unable to open database \"/srv/x.db\": unable to open database file",
+            "noFile",
+        ),
+    ] {
+        assert_eq!(diagnose(said), Some(hint), "{said}");
+    }
+    assert_eq!(diagnose("something else"), None);
+}
+
+/// A shop's SQLite database, its connection `shop`, and Ops over it.
+#[cfg(unix)]
+fn shop(env: &Fixture) -> Connection {
+    let db = env.root.join("shop.db");
+    let seed = "CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE, country TEXT);\
+        CREATE TABLE orders(id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id), status TEXT NOT NULL, total_eur NUMERIC NOT NULL, paid_at TEXT);\
+        CREATE INDEX orders_customer ON orders(customer_id);\
+        INSERT INTO customers VALUES (1, 'Northwind', 'a@northwind.test', 'FR'), (2, 'Kestrel', 'b@kestrel.test', 'DE'), (3, 'Vega', 'c@vega.test', 'FR');\
+        INSERT INTO orders VALUES (1, 1, 'paid', 120.5, '2026-11-02'), (2, 1, 'paid', 80, '2026-11-12'), (3, 2, 'paid', 300, '2026-11-20'), (4, 3, 'refunded', 50, '2026-11-21'), (5, 3, 'paid', 10, '2026-10-30');";
+    let made = std::process::Command::new("/usr/bin/sqlite3")
+        .arg(&db)
+        .arg(seed)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    env.connection(&format!(
+        "name = \"shop\"\nkind = \"sqlite\"\nenv = \"dev\"\ndatabase = \"{}\"\n",
+        db.display()
+    ))
+}
+
+/// One question to the console's DBA as the app asks it (`ops_ask`): its schema in the first message, the `dba`
+/// role, no tool that writes or reaches out; then its query run by the console. `claude`: the agent's program,
+/// `env`: added to its environment. The answer, its cost, and the table its query gave.
+#[cfg(unix)]
+fn ask_dba(
+    env: &Fixture,
+    claude: &Path,
+    extra: Vec<(String, String)>,
+) -> (String, f64, crate::sql::Table) {
+    let conn = shop(env);
+    let vault = env.vault();
+    let runner = env.runner();
+    let (config, data) = (env.config(), env.data());
+    let ops = Ops {
+        config_dir: &config,
+        data_dir: &data,
+        vault: &vault,
+        runner: &runner,
+    };
+    let schema = ops.schema("acme", "shop").unwrap();
+    let ask = crate::dba::Ask::Write(
+        "le chiffre d'affaires payé par pays en novembre 2026, du plus grand au plus petit",
+    );
+    let prompt = crate::dba::first(&conn, &schema, false, &ask, "fr");
+    let repo = env.root.join("repo");
+    let agents_config = env.root.join("agents-config");
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(&agents_config).unwrap();
+    fs::write(
+        agents_config.join("termf.toml"),
+        format!("[agents]\nclaude = {:?}\n", claude.display().to_string()),
+    )
+    .unwrap();
+    let agents =
+        termf_agents::Agents::build(agents_config, env.root.join("agents-data"), extra, |_| {});
+    let spec = termf_agents::SessionSpec {
+        cwd: repo,
+        title: "DBA · shop".into(),
+        role: Some("dba".into()),
+        model: Some("haiku".into()),
+        effort: Some("low".into()),
+        budget: Some(0.30),
+        allowed_tools: ["Read", "Grep", "Glob"].map(String::from).to_vec(),
+        disallowed_tools: [
+            "Bash",
+            "PowerShell",
+            "Edit",
+            "Write",
+            "NotebookEdit",
+            "WebFetch",
+            "WebSearch",
+        ]
+        .map(String::from)
+        .to_vec(),
+        ..termf_agents::SessionSpec::default()
+    };
+    let session = agents.start(spec, Some(&prompt)).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(180);
+    let (answer, cost) = loop {
+        let events = agents.events(session.id, 0).unwrap();
+        let end = events.iter().find_map(|e| match &e.event {
+            termf_agents::AgentEvent::TurnEnd { cost, .. } => Some(*cost),
+            _ => None,
+        });
+        if let Some(cost) = end {
+            let text = events
+                .iter()
+                .filter_map(|e| match &e.event {
+                    termf_agents::AgentEvent::Text { text, parent: None } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            break (text, cost);
+        }
+        assert!(std::time::Instant::now() < deadline, "{events:#?}");
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    let _ = agents.stop(session.id);
+    let fence = answer.find("```sql").expect("a ```sql block");
+    let rest = &answer[fence + 6..];
+    let query = rest[..rest.find("```").expect("its end")].trim();
+    let (_, out) = ops
+        .run(
+            "acme",
+            &Actor::human(),
+            "sql-readonly",
+            "shop",
+            &params(&[("query", query)]),
+            None,
+        )
+        .unwrap();
+    assert_eq!(out.exit, Some(0), "{}", out.errors);
+    (answer, cost, out.table.unwrap())
+}
+
+/// With a stand-in for Claude Code: what the DBA gets (the schema, the language, the role's limits), and its
+/// answer's query, which the console runs on the real database.
+#[cfg(unix)]
+#[test]
+fn the_dba_gets_the_schema_and_its_query_runs_in_the_console() {
+    if !Path::new("/usr/bin/sqlite3").is_file() {
+        eprintln!("no /usr/bin/sqlite3: skipped");
+        return;
+    }
+    let env = Fixture::new("dba");
+    let sql = "SELECT c.country, sum(o.total_eur) AS total FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.status = 'paid' AND o.paid_at >= '2026-11-01' GROUP BY c.country ORDER BY total DESC";
+    let text = format!("```sql\n{sql}\n```\nLe chiffre d'affaires payé, par pays.");
+    let usage = serde_json::json!({"input_tokens": 5, "output_tokens": 7, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0});
+    let lines = [
+        serde_json::json!({"type": "system", "subtype": "init", "session_id": "@SID@", "model": "claude-haiku-5-5", "permissionMode": "default"}),
+        serde_json::json!({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "```sql\nSELECT"}}, "parent_tool_use_id": null}),
+        serde_json::json!({"type": "assistant", "message": {"model": "claude-haiku-5-5", "content": [{"type": "text", "text": text}], "usage": usage}, "parent_tool_use_id": null}),
+        serde_json::json!({"type": "result", "subtype": "success", "total_cost_usd": 0.01, "usage": usage, "modelUsage": {"claude-haiku-5-5": {"contextWindow": 200000}}, "session_id": "@SID@"}),
+    ];
+    let answer_file = env.root.join("answer.jsonl");
+    fs::write(
+        &answer_file,
+        lines.iter().map(|l| format!("{l}\n")).collect::<String>(),
+    )
+    .unwrap();
+    env.fake(
+        "claude",
+        r#"[ "$1" = --version ] && { echo '2.1.330 (Claude Code)'; exit 0; }
+printf '%s\n' "$@" > "@DIR@/claude.args"
+prev=
+for a in "$@"; do
+  if [ "$prev" = --session-id ] || [ "$prev" = --resume ]; then sid=$a; fi
+  prev=$a
+done
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "@DIR@/claude.stdin"
+  case "$line" in *'"type":"user"'*) ;; *) continue ;; esac
+  sed "s/@SID@/$sid/g" "@DIR@/answer.jsonl"
+done"#,
+    );
+    let (answer, _, table) = ask_dba(&env, &env.bin().join("claude"), Vec::new());
+    assert!(answer.contains("```sql"), "{answer}");
+    assert_eq!(table.rows, [vec!["DE", "300"], vec!["FR", "200.5"]]);
+    let stdin = fs::read_to_string(env.root.join("claude.stdin")).unwrap();
+    assert!(
+        stdin.contains("orders(id INTEGER pk, customer_id INTEGER not null"),
+        "{stdin}"
+    );
+    assert!(stdin.contains("Answer in French") && stdin.contains("You see no rows"));
+    let args = fs::read_to_string(env.root.join("claude.args")).unwrap();
+    for word in [
+        "--model\nhaiku",
+        "--disallowedTools\nBash",
+        "--disallowedTools\nWebFetch",
+    ] {
+        assert!(args.contains(word), "{word} in {args}");
+    }
+}
+
+/// The same with the real Claude Code (Haiku, 0.30 $ at most). Not run by the automatic checks: it needs the
+/// user's Claude Code login. `TERMF_REAL_CLAUDE=<claude binary> DISABLE_AUTOUPDATER=1 cargo test -p termf-ops --
+/// --ignored real_dba --nocapture`
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn real_dba() {
+    let claude = std::env::var("TERMF_REAL_CLAUDE").expect("TERMF_REAL_CLAUDE: a claude binary");
+    let env = Fixture::new("real-dba");
+    let (answer, cost, table) = ask_dba(
+        &env,
+        Path::new(&claude),
+        vec![("DISABLE_AUTOUPDATER".into(), "1".into())],
+    );
+    eprintln!(
+        "DBA ({cost:.4} $):\n{answer}\n{}",
+        crate::sql::render(&table)
+    );
+    assert_eq!(table.rows.len(), 2, "DE then FR: {table:?}");
+}
+
+/// A full export reaches its 100 000 rows, cells on several lines included, and says what it left.
+#[cfg(unix)]
+#[test]
+fn a_full_export_reaches_its_limit_of_rows() {
+    if !Path::new("/usr/bin/sqlite3").is_file() {
+        eprintln!("no /usr/bin/sqlite3: skipped");
+        return;
+    }
+    let env = Fixture::new("export-limit");
+    let db = env.root.join("big.db");
+    let seed = "CREATE TABLE t(id INTEGER PRIMARY KEY, note TEXT);\
+        WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 100005)\
+        INSERT INTO t SELECT x, 'a' || char(10) || 'b' FROM n;";
+    let made = std::process::Command::new("/usr/bin/sqlite3")
+        .arg(&db)
+        .arg(seed)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    env.connection(&format!(
+        "name = \"big\"\nkind = \"sqlite\"\nenv = \"dev\"\ndatabase = \"{}\"\n",
+        db.display()
+    ));
+    let vault = env.vault();
+    let runner = env.runner();
+    let (config, data) = (env.config(), env.data());
+    let ops = Ops {
+        config_dir: &config,
+        data_dir: &data,
+        vault: &vault,
+        runner: &runner,
+    };
+    let (_, out) = ops.export("acme", "big", "SELECT id, note FROM t").unwrap();
+    let table = out.table.unwrap();
+    assert_eq!(table.rows.len(), EXPORT_ROWS);
+    assert_eq!(table.rows[0], ["1", "a\nb"]);
+    assert!(out.truncated, "rows were left");
+}
+
+#[test]
+fn a_saved_query_that_does_not_read_hides_nothing_else() {
+    let env = Fixture::new("bad-query");
+    env.connection(
+        "name = \"shop\"\nkind = \"mysql\"\nenv = \"prod\"\nhost = \"db\"\nuser = \"ro\"\ndatabase = \"shop\"\n",
+    );
+    let config = env.config();
+    let file = config.join("projects/acme.toml");
+    let mut text = fs::read_to_string(&file).unwrap();
+    text.push_str(
+        "\n[[ops.queries]]\nname = \"Good\"\nsql = \"SELECT 1\"\n\n[[ops.queries]]\nname = \"Typo\"\nsql = \"SELECT 2\"\nfoldr = \"x\"\n\n[[ops.queries]]\nsql = \"SELECT 3\"\n",
+    );
+    fs::write(&file, text).unwrap();
+    assert_eq!(connections(&config, "acme").unwrap().len(), 1);
+    let (found, errors) = queries(&config, "acme").unwrap();
+    assert_eq!(
+        found.iter().map(|q| q.name.as_str()).collect::<Vec<_>>(),
+        ["Good"]
+    );
+    assert_eq!(errors.len(), 2, "{errors:?}");
+    assert!(
+        errors[0].contains("#2") && errors[0].contains("foldr"),
+        "{errors:?}"
+    );
+    // The project still takes new ones.
+    let q = Query {
+        name: "Another".into(),
+        description: String::new(),
+        folder: String::new(),
+        tags: Vec::new(),
+        connection: None,
+        sql: "SELECT 4".into(),
+    };
+    assert_eq!(save_query(&config, "acme", &q, None).unwrap().len(), 2);
+}
+
+#[test]
+fn a_connection_that_cannot_save_is_refused_before_anything_is_written() {
+    let env = Fixture::new("check-save");
+    env.connection(
+        "name = \"shop\"\nkind = \"mysql\"\nenv = \"prod\"\nhost = \"db\"\nuser = \"ro\"\ndatabase = \"shop\"\n",
+    );
+    let config = env.config();
+    let before = fs::read_to_string(config.join("projects/acme.toml")).unwrap();
+    let same: Connection = toml::from_str(
+        "name = \"shop\"\nkind = \"postgres\"\nenv = \"prod\"\nhost = \"db2\"\nuser = \"ro\"\ndatabase = \"shop\"\n",
+    )
+    .unwrap();
+    let e = check_save(&config, "acme", &same, None).unwrap_err();
+    assert!(
+        e.to_string()
+            .contains("already has a connection named shop"),
+        "{e:#}"
+    );
+    let via: Connection = toml::from_str(
+        "name = \"other\"\nkind = \"postgres\"\nenv = \"prod\"\nvia = \"nowhere\"\nuser = \"ro\"\ndatabase = \"shop\"\n",
+    )
+    .unwrap();
+    assert!(check_save(&config, "acme", &via, None).is_err());
+    assert!(check_save(&config, "acme", &via, Some("gone")).is_err());
+    assert_eq!(
+        fs::read_to_string(config.join("projects/acme.toml")).unwrap(),
+        before
+    );
+    // The secret another connection's password lives in, in the same environment.
+    let mut shop = connections(&config, "acme").unwrap();
+    shop[0]
+        .secrets
+        .insert("password".into(), "SHOP_PASSWORD".into());
+    let mut twin = shop[0].clone();
+    twin.name = "shop_2".into();
+    assert_eq!(
+        secret_owner(&shop, &twin, None).map(|c| c.name.as_str()),
+        Some("shop")
+    );
+    assert!(secret_owner(&shop, &shop[0].clone(), Some("shop")).is_none());
+}

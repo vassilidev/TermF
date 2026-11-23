@@ -857,6 +857,17 @@ fn cycle(tasks: &[Task]) -> bool {
     }
 }
 
+/// `AC4: a JSON export` (or `AC4 - …`, `AC4. …`, `AC4) …`, any punctuation after the number) as its id and its text.
+pub fn criterion_with_text(said: &str) -> Option<(String, String)> {
+    let rest = said.strip_prefix("AC")?;
+    let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    let text = rest[digits..].trim_start_matches(|c: char| {
+        c.is_whitespace() || c.is_ascii_punctuation() || matches!(c, '–' | '—')
+    });
+    (digits > 0 && text.len() < rest.len() - digits && !text.is_empty())
+        .then(|| (format!("AC{}", &rest[..digits]), text.to_owned()))
+}
+
 /// What is wrong with a report. `criteria`: the plan's, when there is one.
 pub fn check_report(report: &Report, criteria: Option<&[Criterion]>) -> Vec<String> {
     let mut problems = Vec::new();
@@ -1266,6 +1277,27 @@ paths = ["services/**"]
             check_report(&empty, Some(&plan(vec![]).acceptance)).len(),
             2
         );
+    }
+
+    #[test]
+    fn reads_a_criterion_given_with_its_text() {
+        for said in [
+            "AC4: A JSON export",
+            "AC4 - A JSON export",
+            "AC4 – A JSON export",
+            "AC4 — A JSON export",
+            "AC4. A JSON export",
+            "AC4) A JSON export",
+        ] {
+            assert_eq!(
+                criterion_with_text(said),
+                Some(("AC4".into(), "A JSON export".into())),
+                "{said}"
+            );
+        }
+        for id in ["AC4", "AC4:", "ACME export", "AC4x", "AC"] {
+            assert_eq!(criterion_with_text(id), None, "{id}");
+        }
     }
 
     fn question(id: &str, kind: QuestionKind, options: &[&str], proposed: &[&str]) -> Question {

@@ -21,6 +21,10 @@ use crate::{
     redact,
 };
 
+/// What a full export reads at most: rows, and bytes of the client's output (held in memory before writing).
+pub const EXPORT_ROWS: usize = 100_000;
+pub const EXPORT_BYTES: usize = 64 << 20;
+
 /// How long an agent's call waits for the user.
 pub const APPROVAL_WAIT: Duration = Duration::from_secs(300);
 
@@ -363,7 +367,7 @@ impl Ops<'_> {
             exit: output.and_then(|o| o.exit),
             error,
             truncated: output.is_some_and(|o| o.truncated),
-            event: None,
+            event: plan.event,
             key: None,
             run: None,
         };
@@ -590,6 +594,103 @@ impl Ops<'_> {
             .find(|c| c.name == connection)
             .with_context(|| format!("no connection {connection} in project {project}"))?;
         crate::plan(recipe, conn, &connections, params)
+    }
+
+    /// The project's SQL console recipe on a database (one whose query is free), with `query` for its kind and these
+    /// limits, audited as `event` rather than as a query the user typed.
+    fn sql_plan(
+        &self,
+        project: &str,
+        connection: &str,
+        query: impl FnOnce(Kind) -> String,
+        limits: crate::Limits,
+        event: &'static str,
+    ) -> Result<Plan> {
+        let (connections, recipes) = self.load(project)?;
+        let conn = connections
+            .iter()
+            .find(|c| c.name == connection)
+            .with_context(|| format!("no connection {connection} in project {project}"))?;
+        let free = |r: &Recipe| {
+            r.params
+                .iter()
+                .find(|p| p.kind == crate::ParamKind::Sql && p.values.is_empty())
+                .map(|p| p.name.clone())
+        };
+        let mut recipe = recipes
+            .into_iter()
+            .find(|r| crate::runs_on(r, conn) && free(r).is_some())
+            .with_context(|| format!("no SQL recipe runs on {connection}"))?;
+        recipe.limits = limits;
+        let param = free(&recipe).expect("found");
+        let given = BTreeMap::from([(param, query(conn.kind))]);
+        let mut plan = crate::plan(&recipe, conn, &connections, &given)?;
+        plan.event = Some(event);
+        Ok(plan)
+    }
+
+    /// The database's tables, columns, keys and indexes, read in a read-only session for the user (audited
+    /// `schema`).
+    pub fn schema(&self, project: &str, connection: &str) -> Result<Vec<crate::sql::SchemaTable>> {
+        let limits = crate::Limits {
+            rows: Some(10_000),
+            lines: 10_000,
+            bytes: 4 << 20,
+            timeout_s: 30,
+        };
+        let plan = self.sql_plan(
+            project,
+            connection,
+            |kind| crate::sql::schema_query(kind).to_owned(),
+            limits,
+            "schema",
+        )?;
+        let output = self.execute(project, &Actor::human(), &plan, "user", &[])?;
+        match output.table.filter(|_| output.exit == Some(0)) {
+            Some(table) => Ok(crate::sql::schema(plan.kind, &table)),
+            None => bail!(
+                "the schema could not be read: {}",
+                output.stopped.unwrap_or(output.errors)
+            ),
+        }
+    }
+
+    /// A query the user runs beyond the console's rows: up to [`EXPORT_ROWS`] and [`EXPORT_BYTES`], masked as the
+    /// console masks it, audited `export`.
+    pub fn export(&self, project: &str, connection: &str, query: &str) -> Result<(Plan, Output)> {
+        let limits = crate::Limits {
+            // One row past the limit, to know whether some were left.
+            rows: Some(EXPORT_ROWS + 1),
+            // The header and the line breaks inside cells are lines too.
+            lines: EXPORT_ROWS * 4,
+            bytes: EXPORT_BYTES,
+            timeout_s: 300,
+        };
+        let mut plan =
+            self.sql_plan(project, connection, |_| query.to_owned(), limits, "export")?;
+        plan.limits.rows = Some(EXPORT_ROWS);
+        let output = self.execute(project, &Actor::human(), &plan, "user", &plan.redact)?;
+        Ok((plan, output))
+    }
+
+    /// A query's plan from the database (`EXPLAIN`, SQLite's `EXPLAIN QUERY PLAN`), for the DBA: masked, audited
+    /// `dba`.
+    pub fn explain(&self, project: &str, connection: &str, query: &str) -> Result<Output> {
+        let query = query.trim().trim_end_matches(';').to_owned();
+        let plan = self.sql_plan(
+            project,
+            connection,
+            |kind| match kind {
+                Kind::Sqlite => format!("EXPLAIN QUERY PLAN {query}"),
+                _ => format!("EXPLAIN {query}"),
+            },
+            crate::Limits {
+                rows: Some(500),
+                ..crate::Limits::default()
+            },
+            "dba",
+        )?;
+        self.execute(project, &Actor::human(), &plan, "user", &plan.redact)
     }
 
     /// The user's run. A recipe that writes needs `confirm` = the environment's name, and in prod the master
