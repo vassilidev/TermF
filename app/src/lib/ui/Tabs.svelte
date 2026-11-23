@@ -66,9 +66,9 @@
   .tabs {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 12px;
     flex-shrink: 0;
-    padding: 0 12px;
+    padding: 0 16px;
     overflow-x: auto;
     border-bottom: 1px solid var(--border);
     background: var(--chrome);
@@ -77,8 +77,8 @@
   button {
     position: relative;
     flex-shrink: 0;
-    height: 36px;
-    padding: 0 8px;
+    height: 38px;
+    padding: 0 4px;
     border: 0;
     background: none;
     color: var(--muted);
@@ -94,10 +94,10 @@
   button[aria-selected="true"]::after {
     content: "";
     position: absolute;
-    inset: auto 6px 0;
+    inset: auto 2px 0;
     height: 2px;
     border-radius: 2px;
-    background: var(--accent);
+    background: var(--text);
   }
 
   button:focus-visible {
@@ -107,7 +107,7 @@
   .count {
     margin-left: 6px;
     color: var(--muted);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
   }
 

@@ -53,6 +53,9 @@ export function display(id: string, n?: number): string {
   return logic.display(combo(id), isMac, n === undefined ? "" : String(n));
 }
 
+/** A fixed combination as shown in `<kbd>`, `Mod` being ⌘ on macOS and Ctrl elsewhere: `fixed("Mod+Z")`. */
+export const fixed = (text: string) => logic.display(logic.parse(text.replace("Mod", isMac ? "Cmd" : "Ctrl")), isMac);
+
 export function shortcutOf(id: string): string[] {
   const a = logic.action(id);
   return a ? logic.shortcut(a, current()[id] ?? "", isMac) : [];

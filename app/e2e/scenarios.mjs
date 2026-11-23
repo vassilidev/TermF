@@ -1076,6 +1076,84 @@ h1, h2 { font-family: var(--font-display); }
       await asked("brand/guidelines.html");
     },
   },
+  {
+    name: "components: the design system's page, its list, toast, dialog and side panel at work",
+    views: [],
+    async run(t) {
+      await t.ready();
+      await t.command("ui-components");
+      const page = t.shown("components");
+      await t.s.waitFor(`${page} [data-testid="tabular"]`);
+      await t.clean();
+
+      // The list: the arrows move the selection, a right click opens the row's actions.
+      await t.s.click(`${page} [role=listbox] [role=option]`);
+      await t.s.press("\uE015");
+      await t.s.wait(async () => (await t.s.exec((c) => document.querySelector(`${c} [role=option][aria-selected=true]`)?.dataset.key, page)) === "front", {
+        what: "the second row selected",
+      });
+      await t.s.exec((c) => {
+        const row = document.querySelector(`${c} [role=option][aria-selected=true]`);
+        row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+      }, page);
+      await t.s.waitFor(".popover [role=menuitem]");
+      await t.s.press(Key.escape);
+      await t.s.waitGone(".popover [role=menuitem]");
+
+      // A button inside a row keeps its click and its keys: the selection and the toasts do not move.
+      const picked = () => t.s.exec((c) => document.querySelector(`${c} [role=option][aria-selected=true]`)?.dataset.key, page);
+      await t.s.click(`${page} ${t.sel("data-testid", "ui-row-ask")}`, 2);
+      await t.s.exec((c) => document.querySelectorAll(`${c} [data-testid="ui-row-ask"]`)[0].focus(), page);
+      await t.s.press("");
+      await t.s.press(Key.enter);
+      if ((await picked()) !== "front") throw new Error(`a row's button moved the selection to ${await picked()}`);
+      if (await t.s.exec(() => document.querySelectorAll(".toaster .toast").length)) throw new Error("Enter on a row's button opened the row");
+
+      // A toast and its Undo.
+      await t.s.click(`${page} ${t.sel("data-testid", "ui-toast")}`);
+      await t.s.waitFor(".toaster .toast .btn");
+      await t.s.click(".toaster .toast .btn");
+      await t.s.waitFor(".toaster .toast.info");
+
+      // The dialog says the loss on its button, and Keep closes it.
+      await t.s.click(`${page} ${t.sel("data-testid", "ui-dialog")}`);
+      await t.s.waitFor("dialog.confirm[open]");
+      await t.s.click("dialog.confirm .answers .btn:not(.danger)");
+      await t.s.waitGone("dialog.confirm[open]");
+
+      // The side panel folds away, opens again with its width kept.
+      const width = () => t.s.exec((c) => document.querySelector(`${c} aside.side [role=separator]`)?.getAttribute("aria-valuenow"), page);
+      const before = await width();
+      await t.s.click(`${page} aside.side header .icon-btn`);
+      await t.s.waitGone(`${page} aside.side`);
+      await t.s.click(`${page} ${t.sel("data-testid", "ui-side")}`);
+      await t.s.waitFor(`${page} aside.side`);
+      if ((await width()) !== before) throw new Error("the side panel's width was not kept");
+      // Its edge widens it from the keyboard, and the width is stored for the next launch.
+      await t.s.click(`${page} aside.side [role=separator]`);
+      await t.s.press("\uE012");
+      const wider = String(Number(before) + 16);
+      await t.s.wait(async () => (await width()) === wider, { what: "the panel 16 px wider" });
+      if ((await t.s.exec(() => localStorage.getItem("termf.side.ui-f1-demo"))) !== wider) throw new Error("the side panel's width was not stored");
+      // A drag of its edge cut short (pointercancel) ends there: stored once, the pointer's later moves ignored.
+      const dragged = await t.s.exec((c) => {
+        const grip = document.querySelector(`${c} aside.side [role=separator]`);
+        const x = grip.parentElement.getBoundingClientRect().left;
+        const fire = (type, clientX) => grip.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 7, clientX }));
+        fire("pointerdown", x);
+        fire("pointermove", x - 30);
+        const during = localStorage.getItem("termf.side.ui-f1-demo");
+        fire("pointercancel", x - 30);
+        const after = localStorage.getItem("termf.side.ui-f1-demo");
+        fire("pointermove", x - 100);
+        return { during, after };
+      }, page);
+      const dragWidth = String(Number(wider) + 30);
+      await t.s.wait(async () => (await width()) === dragWidth, { what: "the panel 30 px wider after the drag" });
+      if (dragged.during !== wider || dragged.after !== dragWidth) throw new Error(`the drag's width was not stored once at its end: ${JSON.stringify(dragged)}`);
+      await t.clean();
+    },
+  },
   viewOnly("project", "configuration: the project's page"),
   viewOnly("conversations", "conversations: the list of headless sessions"),
   viewOnly("library", "library: skills, commands and rules of the project"),

@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { t } from "$lib/i18n";
 import { CLEAR_AFTER, digest } from "$lib/ssh.svelte";
 import { app, ui } from "$lib/state.svelte";
+import { toast } from "$lib/ui/toast.svelte";
 import { counts, type ItemInfo, type Merged, type SecretInfo } from "$lib/vault-logic";
 
 export type VaultStatus = {
@@ -33,7 +34,6 @@ export const vault = $state({
   items: [] as ItemInfo[],
   secrets: [] as SecretInfo[],
   error: "",
-  notice: "",
   /** Here rather than in the view: the palette sets it too. */
   selected: { vault: null, vaultAll: null } as Record<VaultView, string | null>,
   methods: null as VaultMethods | null,
@@ -152,12 +152,8 @@ export function openEntry(key: string, project: string | null) {
   else showVaultAll();
 }
 
-let quiet: ReturnType<typeof setTimeout> | undefined;
-
 export function say(text: string) {
-  vault.notice = text;
-  clearTimeout(quiet);
-  quiet = setTimeout(() => (vault.notice = ""), 5000);
+  toast(text);
 }
 
 export async function copy(text: string, secret = true) {
