@@ -4,6 +4,7 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import { t } from "$lib/i18n";
 import { askTitle, stepLabel } from "$lib/run-logic";
 import { app } from "$lib/state.svelte";
+import { tickets } from "$lib/tickets.svelte";
 import { asks, notices, upsert, type Ask, type Notice, type TeamRun } from "$lib/team-run-logic";
 
 export const team = $state({
@@ -27,8 +28,11 @@ export function waitTitle(ask: Ask): string {
 }
 
 /** A gate or a blocked step waits for the user. */
+/** A team left waiting by a run closed before closing stopped its team asks for nothing any more. */
+export const openRun = (r: TeamRun) => tickets.runs.find((t) => t.id === r.run)?.status !== "closed";
+
 export function waitingRuns(): TeamRun[] {
-  return team.runs.filter((r) => asks(r).length);
+  return team.runs.filter((r) => openRun(r) && asks(r).length);
 }
 
 /** False when the list already holds a copy updated later. */
