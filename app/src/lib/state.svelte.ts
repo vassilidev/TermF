@@ -101,7 +101,6 @@ export type ViewId =
   | "run"
   | "review"
   | "settings"
-  | "onboarding"
   | "newProject"
   | "vault"
   | "vaultAll"

@@ -13,8 +13,8 @@ export type Card = {
   stack?: string[] | null;
 };
 export type Filter = "all" | "recent" | "github";
-/** Where a name comes from: the only repository, their GitHub owner, their folder, or the first one. */
-export type NameSource = "repo" | "owner" | "folder" | "first";
+/** Where a name comes from: the only repository, the start of their names, their GitHub owner, their folder, or the first one. */
+export type NameSource = "repo" | "prefix" | "owner" | "folder" | "first";
 
 /** Active in the last two weeks. */
 const RECENT = 14 * 86_400;
@@ -36,13 +36,121 @@ export function shown(card: Card, filter: Filter, query: string, now: number): b
   return words.every((w) => text.includes(w));
 }
 
+const TAGS: Record<string, string> = {
+  nextjs: "Next.js",
+  react: "React",
+  typescript: "TypeScript",
+  javascript: "JavaScript",
+  node: "Node.js",
+  tailwind: "Tailwind",
+  vitest: "Vitest",
+  jest: "Jest",
+  playwright: "Playwright",
+  postgres: "Postgres",
+  mysql: "MySQL",
+  prisma: "Prisma",
+  redis: "Redis",
+  laravel: "Laravel",
+  php: "PHP",
+  phpunit: "PHPUnit",
+  rust: "Rust",
+  go: "Go",
+  python: "Python",
+  django: "Django",
+  svelte: "Svelte",
+  sveltekit: "SvelteKit",
+  vue: "Vue",
+  nuxt: "Nuxt",
+  astro: "Astro",
+  vite: "Vite",
+  tauri: "Tauri",
+  terraform: "Terraform",
+  kubernetes: "Kubernetes",
+  helm: "Helm",
+  aws: "AWS",
+  docker: "Docker",
+  compose: "Docker Compose",
+  github: "GitHub",
+  "github-actions": "GitHub Actions",
+  ios: "iOS",
+  android: "Android",
+};
+
+/** A stack tag as people write it, with its major version: `Next.js 16`; an unknown one keeps its name. */
+export function tagText(tag: { name: string; version?: string | null }): string {
+  const major = tag.version?.match(/^\D*(\d+)/)?.[1];
+  const name = TAGS[tag.name] ?? tag.name;
+  return major ? `${name} ${major}` : name;
+}
+
+/** What one analysis by Claude Code may spend, in USD: `termf_onboarding::BUDGET`. */
+export const ANALYSIS_BUDGET = 2;
+
+type Landed = { chosen: string[]; analysis: unknown; analyzed: string; failed: string; answers: Record<string, string[]>; question: number };
+type Result = { analysis: { questions: { id: string; default: string[] }[] }; error: string | null } | { failure: string };
+
 /**
- * The project's name, from what was chosen: one repository gives its name; several, their GitHub owner when they
- * share one, else the folder they share (never the home folder), else the first one's name.
+ * The draft once the analysis of `repos` came back, or null when it is a draft of other repositories now. A failure
+ * leaves no analysis, never an older one of other repositories that would pass for this one.
+ */
+export function withAnalysis<T extends Landed>(draft: T, repos: string[], result: Result): T | null {
+  const analyzed = repos.join("\n");
+  if (draft.chosen.join("\n") !== analyzed) return null;
+  if ("failure" in result) return { ...draft, analysis: null, analyzed, failed: result.failure, question: 0 };
+  const answers = Object.fromEntries(result.analysis.questions.map((q) => [q.id, q.default]));
+  return { ...draft, analysis: result.analysis, analyzed, failed: result.error ?? "", answers, question: 0 };
+}
+
+/**
+ * The check commands to write: each repository's (`checkOf`), and an empty one for a command the project had and the
+ * owner emptied, which removes it.
+ */
+export function checksToWrite(paths: string[], typed: Record<string, string>, saved: Record<string, string> | undefined, found: Record<string, Scripts | string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const p of paths) {
+    const run = checkOf(p, typed, saved, found[p]).trim();
+    if (run) out[p] = run;
+    else if (saved?.[p]) out[p] = "";
+  }
+  return out;
+}
+
+/**
+ * Whether every chosen repository was read (or failed to be): its test command is the check the team runs before
+ * delivering, so the setup goes on, and creates, only once each one is known.
+ */
+export function detectedAll(paths: string[], found: Record<string, unknown>): boolean {
+  return paths.length > 0 && paths.every((p) => found[p] !== undefined);
+}
+
+type Scripts = { scripts: { kind: string; run: string }[] };
+
+/** A repository's check command: typed by the owner, else the project's, else the test command found in it. */
+export function checkOf(path: string, typed: Record<string, string>, saved: Record<string, string> | undefined, found: Scripts | string | undefined): string {
+  if (path in typed) return typed[path];
+  if (saved?.[path] !== undefined) return saved[path];
+  return typeof found === "object" ? (found.scripts.find((s) => s.kind === "test")?.run ?? "") : "";
+}
+
+/** The words all the names start with: `acme` for `acme-api` and `acme-web`; "" when they share none. */
+export function sharedPrefix(names: string[]): string {
+  const words = names.map((n) => n.split(/[-_.\s]+/).filter(Boolean));
+  const shared: string[] = [];
+  for (let i = 0; words.every((w) => w[i] && w[i].toLowerCase() === words[0][i].toLowerCase()); i++) shared.push(words[0][i]);
+  const prefix = shared.join("-");
+  return prefix.length > 1 ? prefix : "";
+}
+
+/**
+ * The project's name, from what was chosen: one repository gives its name; several, the words their names start
+ * with, else their GitHub owner when they share one, else the folder they share (never the home folder), else the
+ * first one's name.
  */
 export function derive(chosen: Card[], home: string): { name: string; from: NameSource } | null {
   if (!chosen.length) return null;
   if (chosen.length === 1) return { name: chosen[0].name, from: "repo" };
+  const prefix = sharedPrefix(chosen.map((c) => c.name));
+  if (prefix) return { name: prefix, from: "prefix" };
   const owners = new Set(chosen.map(owner));
   const [one] = owners;
   if (owners.size === 1 && one) return { name: one, from: "owner" };
