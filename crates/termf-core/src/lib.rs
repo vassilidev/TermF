@@ -491,6 +491,8 @@ pub struct Project {
     pub repos: Vec<Repo>,
     #[serde(rename = "remoteControl")]
     pub remote: remote::Policy,
+    /// Each repository's `checks` by path: the command the team runs before delivering.
+    pub checks: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -506,6 +508,7 @@ struct ProjectFile {
 struct RepoEntry {
     path: String,
     name: Option<String>,
+    checks: Option<String>,
 }
 
 pub fn default_config_dir() -> Result<PathBuf> {
@@ -689,12 +692,21 @@ pub fn load_projects(config_dir: &Path) -> Result<Vec<Project>> {
         let text = fs::read_to_string(&path)?;
         let file: ProjectFile =
             toml::from_str(&text).with_context(|| format!("invalid {}", path.display()))?;
+        let checks = file
+            .repos
+            .iter()
+            .filter_map(|r| {
+                let path = expand_tilde(&r.path).to_string_lossy().into_owned();
+                Some((path, r.checks.clone()?))
+            })
+            .collect();
         let repos = file
             .repos
             .into_iter()
             .map(|r| Repo::at(expand_tilde(&r.path), r.name))
             .collect();
         projects.push(Project {
+            checks,
             id: path.file_stem().unwrap().to_string_lossy().into_owned(),
             name: file.name,
             repos,
@@ -762,6 +774,35 @@ pub fn save_project(
     fill(&mut doc, name, repos).with_context(|| format!("cannot write {}", file.display()))?;
     write_atomic(&file, &doc.to_string())?;
     Ok(id)
+}
+
+/// Sets the `checks` of the project's repositories named in `checks` (by path); an empty command removes it.
+pub fn save_checks(config_dir: &Path, id: &str, checks: &BTreeMap<String, String>) -> Result<()> {
+    let file = project_file(config_dir, id)?;
+    let mut doc: DocumentMut = fs::read_to_string(&file)?
+        .parse()
+        .with_context(|| format!("invalid {}", file.display()))?;
+    set_checks(&mut doc, checks);
+    write_atomic(&file, &doc.to_string())
+}
+
+/// [`save_checks`] on a project file's text.
+pub fn set_checks(doc: &mut DocumentMut, checks: &BTreeMap<String, String>) {
+    let Some(list) = doc.get_mut("repos").and_then(Item::as_array_of_tables_mut) else {
+        return;
+    };
+    for repo in list.iter_mut() {
+        let Some(path) = repo.get("path").and_then(Item::as_str).map(expand_tilde) else {
+            continue;
+        };
+        match checks.iter().find(|(p, _)| Path::new(p) == path) {
+            Some((_, run)) if run.trim().is_empty() => {
+                repo.remove("checks");
+            }
+            Some((_, run)) => repo["checks"] = value(run.trim()),
+            None => {}
+        }
+    }
 }
 
 /// The file a new project starts with, as `save_project` would write it.
@@ -1632,6 +1673,30 @@ mod tests {
             .map(|p| p.id)
             .collect();
         assert_eq!(ids, ["acme-corp-2"]);
+    }
+
+    #[test]
+    fn saves_each_repository_s_checks_and_reads_them_back() {
+        let dir = temp_dir("save-checks");
+        let (api, web) = (home_path("src/api"), home_path("src/web"));
+        let id = save_project(&dir, None, "Acme", &[api.clone(), web.clone()]).unwrap();
+        let checks = BTreeMap::from([
+            (api.clone(), " npm test ".into()),
+            (web.clone(), "pnpm lint".into()),
+        ]);
+        save_checks(&dir, &id, &checks).unwrap();
+        // Saving the project again (a rename from the Configuration) keeps them.
+        save_project(&dir, Some(&id), "Acme Inc", &[api.clone(), web.clone()]).unwrap();
+        let read = |dir: &Path| load_projects(dir).unwrap().remove(0).checks;
+        assert_eq!(
+            read(&dir),
+            BTreeMap::from([
+                (api.clone(), "npm test".into()),
+                (web.clone(), "pnpm lint".into())
+            ])
+        );
+        save_checks(&dir, &id, &BTreeMap::from([(web, " ".into())])).unwrap();
+        assert_eq!(read(&dir), BTreeMap::from([(api, "npm test".into())]));
     }
 
     #[test]

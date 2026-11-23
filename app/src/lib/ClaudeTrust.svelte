@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import { t } from "$lib/i18n";
   import { library } from "$lib/library.svelte";
   import { trustState, type RepoTrust } from "$lib/onboarding-logic";
-  import { shortPath } from "$lib/state.svelte";
+  import { app, shortPath } from "$lib/state.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
 
@@ -18,7 +17,10 @@
   let error = $state("");
   const status = $derived(repos ? trustState(repos) : "off");
 
-  onMount(() => {
+  // Read again when the project's repositories change: the Configuration keeps this section mounted.
+  const paths = $derived(app.workspace?.projects.find((p) => p.id === project)?.repos.map((r) => r.path).join("\n"));
+  $effect(() => {
+    void paths;
     invoke<RepoTrust[]>("claude_trust", { project }).then(
       (r) => (repos = r),
       (e) => (error = String(e)),

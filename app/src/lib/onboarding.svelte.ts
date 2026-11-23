@@ -1,5 +1,6 @@
 import { untrack } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { Step } from "$lib/onboarding-logic";
 import { app, onScreen, panes, ui, type ViewId } from "$lib/state.svelte";
 // Each module reads the other only inside functions, so the import cycle is safe.
@@ -40,12 +41,24 @@ export function closeSetup() {
   else if (ui.view === "onboarding") ui.view = usable(back);
 }
 
+/** A file Claude Code reads, or a search it makes, during an analysis. */
+export type Read = { tool: string; target: string };
+/** Each project's analysis as it goes: how many reads so far, and the last ones. */
+export const reads = $state<Record<string, { count: number; last: Read[] }>>({});
+let listening: Promise<unknown> | null = null;
+
 /** The project's analysis: the one running, else a new one. */
 export function analyze<T>(project: string, lang: string): Promise<T> {
   let run = analyses.get(project);
   if (!run) {
     analyzing[project] = true;
-    run = invoke<T>("onboarding_analyze", { project, lang }).finally(() => {
+    reads[project] = { count: 0, last: [] };
+    listening ??= listen<Read & { project: string }>("onboarding-progress", ({ payload: { project: id, ...read } }) => {
+      const seen = reads[id] ?? { count: 0, last: [] };
+      reads[id] = { count: seen.count + 1, last: [...seen.last, read].slice(-6) };
+    });
+    // Listening first: the first reads come within a second.
+    run = listening.then(() => invoke<T>("onboarding_analyze", { project, lang })).finally(() => {
       analyses.delete(project);
       delete analyzing[project];
     });

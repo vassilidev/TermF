@@ -244,6 +244,7 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let builder = builder.menu(window::menu);
     // First, so a second launch only focuses this window, before setup touches the socket or the sessions.
+    #[cfg(not(feature = "e2e"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.unminimize();

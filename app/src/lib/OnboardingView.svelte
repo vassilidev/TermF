@@ -26,7 +26,10 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { lang, t } from "$lib/i18n";
   import { library, showLibrary, type RepoStack } from "$lib/library.svelte";
-  import { analyze as runAnalysis, analyzing, closeSetup, running, setup } from "$lib/onboarding.svelte";
+  import { analyze as runAnalysis, analyzing, closeSetup, reads, running, setup } from "$lib/onboarding.svelte";
+  import FileText from "@lucide/svelte/icons/file-text";
+  import Search from "@lucide/svelte/icons/search";
+  import { spans } from "$lib/markdown-logic";
   import {
     byTheme,
     githubIssues,
@@ -306,6 +309,10 @@
   {#if d}<StatusPill status={d} />{/if}
 {/snippet}
 
+{#snippet inline(text: string)}
+  {#each spans(text) as sp, i (i)}{#if sp.kind === "code"}<code>{sp.text}</code>{:else if sp.kind === "strong"}{@render inline(sp.spans.map((s) => ("text" in s ? s.text : "")).join(""))}{:else}{sp.text}{/if}{/each}
+{/snippet}
+
 {#snippet facts(a: Analysis)}
   <div class="facts">
     {#each a.repos as r (r.path)}
@@ -327,7 +334,7 @@
           {/each}
           {#each found as f, i (i)}
             <dt class="found">{f.label}</dt>
-            <dd class="found">{f.value}</dd>
+            <dd class="found">{@render inline(f.value)}</dd>
           {/each}
         </dl>
       </article>
@@ -413,8 +420,27 @@
           <h2><ScanSearch size={16} aria-hidden="true" />{t("obAnalysisTitle")}</h2>
           <p class="lead">{t("obAnalysisIntro", { budget: money.format(2) })}</p>
           {#if inProgress}
-            <p class="notice" role="status"><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("obAnalyzing")}</p>
-          {:else if analysis}
+            {@const live = reads[project?.id ?? ""]}
+            <div class="working" role="status">
+              <p><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("obAnalyzing")}</p>
+              {#if live?.last.length}
+                <ol class="feed">
+                  {#each live.last as r, i (live.count - live.last.length + i)}
+                    <li>
+                      {#if r.tool === "Read"}
+                        <FileText size={12} aria-hidden="true" /><span class="mono">{t("liveRead", { target: shortPath(r.target) })}</span>
+                      {:else}
+                        <Search size={12} aria-hidden="true" /><span class="mono">{t(r.tool === "Grep" ? "liveGrep" : "liveGlob", { target: r.target })}</span>
+                      {/if}
+                    </li>
+                  {/each}
+                </ol>
+              {:else}
+                <p class="muted">{t("scoutStarting")}</p>
+              {/if}
+            </div>
+          {/if}
+          {#if analysis}
             {@render facts(analysis)}
           {/if}
           <footer class="actions">
@@ -791,6 +817,66 @@
   .found ~ .found {
     padding-top: 0;
     border-top: 0;
+  }
+
+  dd.found {
+    display: block;
+  }
+
+  .working {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    background: var(--working-soft);
+    color: var(--working);
+    font-size: var(--text-sm);
+  }
+
+  .working > p {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-weight: 500;
+  }
+
+  .feed {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 0;
+    padding: 0;
+    color: var(--text);
+    list-style: none;
+  }
+
+  .feed li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    animation: enter var(--dur) var(--ease-out);
+  }
+
+  .feed li > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .feed :global(svg) {
+    flex-shrink: 0;
+    color: var(--muted);
+  }
+
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(3px);
+    }
   }
 
   .meta {

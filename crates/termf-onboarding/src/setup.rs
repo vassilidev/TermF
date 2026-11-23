@@ -243,6 +243,17 @@ fn scripts(repo: &Path, recipe: &RepoRecipe) -> Vec<Script> {
             }
         }
     }
+    let composer = fs::read_to_string(repo.join("composer.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+    if let Some(scripts) = composer.as_ref().and_then(|c| c["scripts"].as_object()) {
+        for kind in SCRIPT_KINDS.iter().filter(|k| scripts.contains_key(**k)) {
+            add(kind, format!("composer {kind}"));
+        }
+    }
+    if repo.join("artisan").is_file() {
+        add("test", "php artisan test".into());
+    }
     if let Ok(make) = fs::read_to_string(repo.join("Makefile")) {
         for kind in SCRIPT_KINDS {
             if make.lines().any(|l| {
@@ -391,8 +402,11 @@ pub fn preview(
     repos: &[String],
     team: Option<&Edit>,
     trackers: Option<&termf_tickets::Trackers>,
+    checks: &BTreeMap<String, String>,
 ) -> Result<String> {
-    let mut text = termf_core::project_text(name, repos)?;
+    let mut doc: DocumentMut = termf_core::project_text(name, repos)?.parse()?;
+    termf_core::set_checks(&mut doc, checks);
+    let mut text = doc.to_string();
     if let Some(edit) = team {
         text = team::render(&text, edit)?;
     }
