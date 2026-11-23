@@ -1,8 +1,12 @@
 <script lang="ts">
   import { setContext, type Snippet } from "svelte";
+  import AskBar from "$lib/AskBar.svelte";
   import { panes, ui, type ViewId } from "$lib/state.svelte";
 
   let { view, children }: { view: ViewId; children: Snippet } = $props();
+
+  // A conversation has its own field, and a setup asks for all the attention: no "Ask" bar there.
+  const bar = $derived(!["conversations", "newProject", "onboarding", "components"].includes(view));
 
   // Its view header offers to close the panel.
   setContext("panel", () => view);
@@ -28,13 +32,14 @@
   onpointerdown={enter}
 >
   {@render children()}
+  {#if bar}<AskBar {view} />{/if}
 </div>
 
 <style>
   .pane {
     position: relative;
     display: grid;
-    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+    grid-template: minmax(0, 1fr) auto / minmax(0, 1fr);
     grid-area: 1 / 1;
     min-width: 0;
     min-height: 0;

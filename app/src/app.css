@@ -173,13 +173,6 @@
   }
 }
 
-/* A narrow window folds the navigation to its icons (AppNav). */
-@media (max-width: 1100px) {
-  :root {
-    --nav-width: 52px;
-  }
-}
-
 /* Nothing moves; a component keeps at most a change of opacity. */
 @media (prefers-reduced-motion: reduce) {
   :root {

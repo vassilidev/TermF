@@ -20,7 +20,7 @@
   import { aria, display } from "$lib/keymap.svelte";
   import { shown, tallies } from "$lib/project.svelte";
   import { dividers, rects, resizeAt, type Divider } from "$lib/split-logic";
-  import { currentTab, openLayout, reconcile, tabOf } from "$lib/tabs.svelte";
+  import { currentTab, equalizeAt, openLayout, reconcile, tabOf } from "$lib/tabs.svelte";
   import { app, grid, load, ticked, ui } from "$lib/state.svelte";
 
   let launcher = $state<HTMLButtonElement>();
@@ -160,12 +160,13 @@
         <!-- svelte-ignore a11y_no_static_element_interactions (the keyboard resizes with its shortcuts) -->
         <div
           class="divider {d.dir}"
-          title={t("t6aResizeHandle")}
+          title="{t('t6aResizeHandle')} · {t('wsEqualizeHint')}"
           style:left={d.dir === "row" ? `calc(${pct(d.at)} - 4px)` : `calc(${pct(d.box.x)} + 4px)`}
           style:top={d.dir === "row" ? `calc(${pct(d.box.y)} + 4px)` : `calc(${pct(d.at)} - 4px)`}
           style:width={d.dir === "row" ? "8px" : `calc(${pct(d.box.w)} - 8px)`}
           style:height={d.dir === "row" ? `calc(${pct(d.box.h)} - 8px)` : "8px"}
           onpointerdown={(e) => drag(e, d)}
+          ondblclick={() => tab && equalizeAt(tab, d.path)}
         ></div>
       {/each}
     </div>

@@ -13,7 +13,7 @@
     format,
     groups,
     parse,
-    pressedCombo,
+    recordedCombo,
     refusal,
     setBinding,
     shellKeys,
@@ -117,7 +117,7 @@
     const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
     if (plain && e.key === "Escape") return stop();
     if (plain && e.key === "Backspace") return (stop(), choose(a, ""));
-    const c = pressedCombo(e, a.scope === "global");
+    const c = recordedCombo(e, a);
     if (!c) return;
     const why = refusal(a, c, isMac);
     if (why) {

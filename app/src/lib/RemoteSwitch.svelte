@@ -26,8 +26,17 @@
     locked: "remoteLocked",
     off: "remoteTurnOn",
   } as const;
-  const said = $derived(t(words[now]));
+  /** The session still without a link 20 s after it asked for one: what to check is said, not a spinner forever. */
+  let late = $state<number | null>(null);
+  const slow = $derived(now === "connecting" && late === id);
+  const said = $derived(slow ? t("wsRemoteSlowShort") : t(words[now]));
   let open = $state(false);
+
+  $effect(() => {
+    if (now !== "connecting") return void (late = null);
+    const timer = setTimeout(() => (late = id), 20_000);
+    return () => clearTimeout(timer);
+  });
 
   // Turned on from the tile's actions: the popover opens, to show the link as soon as it comes.
   $effect(() => {
@@ -47,6 +56,7 @@
 <button
   bind:this={trigger}
   class="rc {now}"
+  class:slow
   aria-haspopup="dialog"
   aria-expanded={open}
   aria-label="{t('remoteControl')} · {said}"
@@ -69,6 +79,7 @@
     </header>
     <p class="name">{rc.name}</p>
     {#if now !== "locked"}<p class="help">{t("uxfT3RemoteHint")}</p>{/if}
+    {#if now !== "locked" && !rc.url}<p class="help need">{t("wsRemoteNeeds")}</p>{/if}
     {#if now === "locked"}
       <p class="notice error"><Lock size={14} aria-hidden="true" />{t("remoteLocked")}</p>
       <p class="help">{t("remoteLockedHelp")}</p>
@@ -86,6 +97,8 @@
           <ExternalLink size={14} aria-hidden="true" />{t("remoteOpen")}
         </button>
       </div>
+    {:else if slow}
+      <p class="notice warn" role="status">{t("wsRemoteSlow")}</p>
     {:else if now === "connecting"}
       <p class="help">{t("remoteConnectingHelp")}</p>
     {/if}
@@ -132,6 +145,14 @@
 
   .rc.locked {
     color: var(--danger);
+  }
+
+  .rc.slow {
+    color: var(--warning);
+  }
+
+  .need {
+    color: var(--soft);
   }
 
   .dot {

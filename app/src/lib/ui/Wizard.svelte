@@ -25,6 +25,9 @@
     busy = false,
     continueLabel,
     aside,
+    head,
+    tail,
+    skip,
     children,
   }: {
     title: string;
@@ -37,6 +40,10 @@
     busy?: boolean;
     continueLabel?: string;
     aside?: Snippet;
+    /** Above the steps (a brand), under them at the bottom (how long, how to come back), and before Back (skip). */
+    head?: Snippet;
+    tail?: Snippet;
+    skip?: Snippet;
     children: Snippet;
   } = $props();
 
@@ -52,6 +59,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions (Enter is the keyboard path of Continue) -->
 <div class="wizard" {onkeydown}>
   <nav class="steps" aria-label={title}>
+    {#if head}{@render head()}{/if}
     <ol>
       {#each steps as step, i (step.id)}
         {@const done = i < current}
@@ -73,12 +81,14 @@
         </li>
       {/each}
     </ol>
+    {#if tail}<div class="tail">{@render tail()}</div>{/if}
   </nav>
   <section class="page" aria-label={steps[current]?.label}>
     <div class="content">{@render children()}</div>
     {#if aside}<div class="aside">{@render aside()}</div>{/if}
   </section>
   <footer>
+    {#if skip}{@render skip()}{/if}
     <span class="where">{t("uiF1StepOf", { n: current + 1, total: steps.length })}</span>
     <button class="btn" onclick={onback} disabled={current === 0}>{t("uiF1Back")}</button>
     <button class="btn primary" onclick={oncontinue} disabled={!canContinue || busy} aria-busy={busy || undefined}>
@@ -96,6 +106,9 @@
   }
 
   .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
     grid-row: 1 / 3;
     padding: 24px 12px;
     overflow-y: auto;
@@ -188,6 +201,13 @@
     font-size: var(--text-sm);
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .tail {
+    margin-top: auto;
+    padding: 0 10px;
+    color: var(--muted);
+    font-size: var(--text-sm);
   }
 
   .page {

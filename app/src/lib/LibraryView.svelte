@@ -37,6 +37,7 @@
   import { lang, t } from "$lib/i18n";
   import { claudeView, show, showClaude, type Plugins } from "$lib/claude.svelte";
   import { talkCto } from "$lib/home.svelte";
+  import { provide } from "$lib/ask.svelte";
   import { app, shortPath, ui } from "$lib/state.svelte";
   import { busy, kinds, library, matches, packageLabel, type Item, type Kind } from "$lib/library.svelte";
   import { broughtBy, cost, groupOf, ladder, latestOnly, merge, rolesOf, sorted, switchTo, switchable, why, type Entry, type Rung, type Write } from "$lib/library-logic";
@@ -189,6 +190,15 @@
     return pluginRows[0] ? { plugin: pluginRows[0] } : null;
   });
   const pickedKey = $derived(picked ? ("plugin" in picked ? pluginKey(picked.plugin) : keyOf(picked.entry)) : null);
+
+  // The ⌘I panel: the item open goes with the question; a role answers for itself.
+  $effect(() => {
+    const e = picked && "entry" in picked ? picked.entry : null;
+    return provide("library", {
+      role: e?.kind === "role" ? e.name : undefined,
+      chips: e ? [{ id: "library-item", kind: "object", label: `${e.kind} ${e.name}`, text: e.description ?? "" }] : [],
+    });
+  });
 
   function pick(key: string) {
     selected = key;

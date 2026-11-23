@@ -136,6 +136,7 @@ fn repo_path(project: &Project, repo: Option<&str>) -> Result<PathBuf> {
 ///
 /// `read_prod`: the data folder, when the sender read prod data (the trifecta rule): the session that gets the
 /// message is marked first, and only one behind `termf guard` gets it (a new one has no way out at all).
+/// `direct`: always the direct conversation, never a step at work (a question asked from a screen).
 pub fn address(
     app: &AppHandle,
     id: &str,
@@ -143,6 +144,7 @@ pub fn address(
     text: &str,
     repo: Option<&str>,
     read_prod: Option<&Path>,
+    direct: bool,
 ) -> Result<Addressed> {
     ensure!(!text.trim().is_empty(), "the message is empty");
     let agents = agents(app);
@@ -171,7 +173,11 @@ pub fn address(
             step: None,
         });
     }
-    let at_work = step_at_work(&team::team(app).runs()?, id, role);
+    let at_work = if direct {
+        None
+    } else {
+        step_at_work(&team::team(app).runs()?, id, role)
+    };
     let busy = match route(at_work, |session| {
         mark(session).is_ok() && agents.send(session, text).is_ok()
     }) {
@@ -562,7 +568,7 @@ fn run_tool(
                 json!({ "via": "step", "run": run, "step": key, "conversation": session })
             }
             (None, None, Some(role)) => {
-                let to = address(app, id, &role, &text, repo.as_deref(), read_prod)?;
+                let to = address(app, id, &role, &text, repo.as_deref(), read_prod, false)?;
                 json!({ "via": to.via, "run": to.run, "step": to.step, "conversation": to.session.id })
             }
             _ => bail!("give run and step, or role"),
@@ -758,7 +764,8 @@ pub async fn cto_open(app: AppHandle, project: String) -> CmdResult<AgentSession
     blocking(app, move |app| standing(app, &project, "cto")).await
 }
 
-/// `@role` in the CTO conversation: the message goes to the role, and the CTO hears of it.
+/// `@role` in the CTO conversation, or a question asked from a screen (`direct`): the message goes to the role, and
+/// the CTO hears of it.
 #[tauri::command]
 pub async fn cto_address(
     app: AppHandle,
@@ -766,9 +773,18 @@ pub async fn cto_address(
     role: String,
     text: String,
     repo: Option<String>,
+    direct: Option<bool>,
 ) -> CmdResult<Addressed> {
     blocking(app, move |app| {
-        let to = address(app, &project, &role, &text, repo.as_deref(), None)?;
+        let to = address(
+            app,
+            &project,
+            &role,
+            &text,
+            repo.as_deref(),
+            None,
+            direct.unwrap_or(false),
+        )?;
         if let Err(e) = tell(app, &project, &role, &text, &to) {
             eprintln!("termf: the CTO conversation was not told: {e:#}");
         }

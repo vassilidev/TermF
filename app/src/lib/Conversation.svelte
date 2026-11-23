@@ -22,6 +22,10 @@
   import Undo2 from "@lucide/svelte/icons/undo-2";
   import UserRound from "@lucide/svelte/icons/user-round";
   import Action from "$lib/Action.svelte";
+  import StreamSteps, { type Step } from "$lib/ui/StreamSteps.svelte";
+  import { toast } from "$lib/ui/toast.svelte";
+  import { afterChange, changeOf, diffOf, question, within } from "$lib/ask-logic";
+  import { phrase as actPhrase } from "$lib/live-logic";
   import ContextGauge from "$lib/ContextGauge.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Popover from "$lib/ui/Popover.svelte";
@@ -65,6 +69,9 @@
    * popover. `card` replaces a notice of the thread (`fallback` draws it as usual), `top` goes at its head; `notices`
    * tells the caller which notices the thread has. `examples` false leaves the examples of an empty thread out, for a
    * caller whose `top` already asks something.
+   * `bare`: in the ⌘I panel, with no header; the agent's actions fold into one line, a permission is a proposal
+   * (Apply, Modify, Ignore) and an applied file change can be undone. `chips` goes above the field; `outgoing` turns
+   * what is typed into what is sent, null when it went elsewhere.
    */
   let {
     session,
@@ -74,6 +81,10 @@
     top,
     notices = $bindable([]),
     examples: offerExamples = true,
+    bare = false,
+    chips,
+    outgoing,
+    placeholder,
   }: {
     session: AgentSession;
     embedded?: boolean;
@@ -82,6 +93,10 @@
     top?: Snippet;
     notices?: Notice[];
     examples?: boolean;
+    bare?: boolean;
+    chips?: Snippet;
+    outgoing?: (text: string) => Promise<string | null>;
+    placeholder?: string;
   } = $props();
 
   let events = $state.raw<StoredEvent[]>([]);
@@ -171,7 +186,7 @@
 
   // Back on the view: what came meanwhile is at the bottom.
   $effect(() => {
-    if (onScreen(embedded ? "home" : "conversations")) follow(true);
+    if (bare || onScreen(embedded ? "home" : "conversations")) follow(true);
   });
 
   $effect(() => {
@@ -318,9 +333,17 @@
 
   async function send(e: SubmitEvent) {
     e.preventDefault();
-    const text = draft.trim();
+    let text = draft.trim();
     if (!text || why || busy) return;
-    if (to) {
+    if (outgoing) {
+      const out = await run("send", () => outgoing(text));
+      if (out === undefined) return;
+      if (out === null) {
+        draft = "";
+        return;
+      }
+      text = out;
+    } else if (to) {
       const { role, text } = to;
       const args = { project: session.project, role, text, repo: repo || null };
       const reached = await run("send", () => invoke<{ session: AgentSession }>("cto_address", args));
@@ -339,6 +362,12 @@
   }
 
   function enter(e: KeyboardEvent) {
+    if (e.key === "Escape" && turning && !offered.length) {
+      e.preventDefault();
+      e.stopPropagation();
+      run("interrupt", () => invoke("agent_interrupt", { id: id() }));
+      return;
+    }
     if (offered.length && !e.isComposing) {
       const at = Math.min(picked, offered.length - 1);
       const step = { ArrowDown: 1, ArrowUp: offered.length - 1 }[e.key];
@@ -369,7 +398,67 @@
 
   function answer(ask: Permission, allow: boolean) {
     const message = allow ? null : reasons[ask.request]?.trim() || null;
-    run("answer", () => invoke("agent_answer", { id: id(), request: ask.request, allow, message }));
+    return run("answer", () => invoke("agent_answer", { id: id(), request: ask.request, allow, message }).then(() => true));
+  }
+
+  /**
+   * "Allow". In the ⌘I panel, a change of a project file that existed is read first, so that the toast's Undo (⌘Z)
+   * puts it back as it was; nothing else can be undone, and the thread says it was allowed.
+   */
+  async function allow(ask: Permission) {
+    const change = bare ? changeOf(ask.tool, ask.input) : null;
+    const at = change && within(change.path, repos.map((r) => r.path));
+    let before: string | null = null;
+    if (at) {
+      const read = await invoke<{ kind: string; text?: string }>("files_read", { repo: at.repo, path: at.rel }).catch(() => null);
+      if (read?.kind === "text" && typeof read.text === "string") before = read.text;
+    }
+    if (!(await answer(ask, true)) || !change || !at || before === null) return;
+    const after = afterChange(ask.tool, ask.input, before);
+    const what = shortPath(change.path);
+    const text = before;
+    if (after !== null) toast(t("aigApplied", { what }), { undo: () => restore(at, text, after, what) });
+  }
+
+  /** Puts a file back as it was, only while it is still as the change left it: a later change is never lost. */
+  async function restore(at: { repo: string; rel: string }, before: string, after: string, what: string) {
+    try {
+      const now = await invoke<{ kind: string; text?: string; stamp: unknown }>("files_read", { repo: at.repo, path: at.rel });
+      if (now.kind !== "text" || now.text !== after) return void toast(t("aigUndoChanged", { what }), { kind: "error" });
+      const saved = await invoke<{ kind: string }>("files_write", { repo: at.repo, path: at.rel, text: before, stamp: now.stamp });
+      if (saved.kind === "conflict") return void toast(t("aigUndoChanged", { what }), { kind: "error" });
+      toast(t("aigUndone", { what }), { kind: "info" });
+    } catch (e) {
+      toast(String(e), { kind: "error" });
+    }
+  }
+
+
+  /** The tools of a turn in a row, as one group of steps: the panel folds them into a line. */
+  type Group = { key: string; item: Item } | { key: string; tools: Tool[] };
+  function groups(items: Item[]): Group[] {
+    const out: Group[] = [];
+    for (const item of items) {
+      const last = out.at(-1);
+      if (item.type === "tool" && last && "tools" in last) last.tools.push(item);
+      else if (item.type === "tool") out.push({ key: `g${item.key}`, tools: [item] });
+      else out.push({ key: String(item.key), item });
+    }
+    return out;
+  }
+
+  function stepOf(item: Tool, now: boolean): Step {
+    const state = item.result === null ? (now ? "now" : undefined) : item.result.isError ? "fail" : "ok";
+    if (termfTools[item.name]) return { verb: toolName(item.name), object: phrase(item.input) || undefined, state };
+    const p = actPhrase(item.name, item.input);
+    const verb = t(p.key as Parameters<typeof t>[0], { ...p.vars, target: "" }).replace(/\s+/g, " ").trim();
+    return { verb, object: p.target || undefined, state };
+  }
+
+  function folded(steps: Step[]): string {
+    const first = steps.slice(0, 2).map((s) => [s.verb, s.object].filter(Boolean).join(" "));
+    const list = `${first.join(", ")}${steps.length > 2 ? "…" : ""}`;
+    return steps.length === 1 ? t("aigFoldedOne", { first: list }) : t("aigFolded", { n: steps.length, first: list });
   }
 
   const pretty = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));
@@ -577,7 +666,17 @@
           <pre class="mono code">{pretty(item.input)}</pre>
         </details>
       {:else}
-        <pre class="mono code">{pretty(item.input)}</pre>
+        <!-- What the agent wants, in plain words; a file change shows its lines; the call itself in the details. -->
+        {@const diff = diffOf(item.tool, item.input)}
+        <p class="ask-what"><Action act={{ kind: "tool", name: item.tool, input: item.input }} /></p>
+        {#if diff.length}
+          <pre class="mono code diff">{#each diff as hunk, h (h)}{#each hunk.del as l, i (i)}<span class="del">- {l}</span
+              >{/each}{#each hunk.add as l, i (i)}<span class="add">+ {l}</span>{/each}{/each}</pre>
+        {/if}
+        <details class="raw">
+          <summary><ChevronRight size={14} aria-hidden="true" class="chevron" />{t("ux3t5Details")}</summary>
+          <pre class="mono code">{pretty(item.input)}</pre>
+        </details>
       {/if}
       <div class="answer">
         <input
@@ -589,7 +688,7 @@
         <button class="btn sm" disabled={!!busy} onclick={() => answer(item, false)}>
           <ShieldX size={14} aria-hidden="true" />{t("chatDeny")}
         </button>
-        <button class="btn sm primary" disabled={!!busy} onclick={() => answer(item, true)}>
+        <button class="btn sm primary" disabled={!!busy} onclick={() => allow(item)}>
           <ShieldCheck size={14} aria-hidden="true" />{t("chatAllow")}
         </button>
       </div>
@@ -664,7 +763,9 @@
   </p>
 {/snippet}
 
-{#if embedded}
+{#if bare}
+  <!-- In the panel, which says who answers. -->
+{:else if embedded}
   <header class="bar">
     {@render lead?.()}
     {#if session.state === "working"}<StatusPill status="working" />{/if}
@@ -708,7 +809,7 @@
   </div>
 {/if}
 
-<div class="thread" class:embedded bind:this={scroller} aria-label={t("chatThread")} role="log">
+<div class="thread" class:embedded class:bare bind:this={scroller} aria-label={t("chatThread")} role="log">
   <div class="turns">
     {@render top?.()}
     {#if loadError}
@@ -737,8 +838,18 @@
     {/if}
     {#each drawn as turn (turn.key)}
       {@const now = turning && turn === turns.at(-1) && !turn.end}
-      {#if turn.user !== null}<p class="user">{turn.user}</p>{/if}
-      {#each turn.items as item (item.key)}{@render entry(item, now)}{/each}
+      {#if turn.user !== null}<p class="user">{question(turn.user)}</p>{/if}
+      {#if bare}
+        {@const list = groups(turn.items)}
+        {#each list as g, gi (g.key)}
+          {#if "tools" in g}
+            {@const steps = g.tools.map((tool) => stepOf(tool, now))}
+            <StreamSteps {steps} live={now && gi === list.length - 1} summary={folded(steps)} />
+          {:else}{@render entry(g.item, now)}{/if}
+        {/each}
+      {:else}
+        {#each turn.items as item (item.key)}{@render entry(item, now)}{/each}
+      {/if}
       {#if turn.end}{@render ending(turn.end)}{/if}
     {/each}
     {#if live}<div class="text live">{@render rich(live)}</div>{/if}
@@ -748,7 +859,8 @@
   </div>
 </div>
 
-<form class="composer" class:embedded bind:this={form} onsubmit={send}>
+<form class="composer" class:embedded={embedded || bare} class:bare bind:this={form} onsubmit={send}>
+  {#if chips}<div class="chips">{@render chips()}</div>{/if}
   {#if offered.length}
     <ul class="mentions" id="cto-roles" role="listbox" aria-label={t("ctoRoles")}>
       {#each offered as role, i (role)}
@@ -762,8 +874,8 @@
   <textarea
     class="field"
     rows="2"
-    placeholder={cto ? t("ctoMessage") : expert ? t("expertMessage") : t("chatMessage")}
-    aria-label={cto ? t("ctoMessage") : expert ? t("expertMessage") : t("chatMessage")}
+    placeholder={placeholder ?? (cto ? t("ctoMessage") : expert ? t("expertMessage") : t("chatMessage"))}
+    aria-label={placeholder ?? (cto ? t("ctoMessage") : expert ? t("expertMessage") : t("chatMessage"))}
     aria-describedby={why ? "chat-why" : undefined}
     aria-controls={offered.length ? "cto-roles" : undefined}
     aria-activedescendant={offered.length ? `cto-role-${offered[Math.min(picked, offered.length - 1)]}` : undefined}
@@ -772,12 +884,12 @@
     onkeydown={enter}
   ></textarea>
   <div class="send">
-    {#if to && to.role !== "expert" && repos.length > 1}
+    {#if to && !bare && to.role !== "expert" && repos.length > 1}
       <select class="field" aria-label={t("ctoRepo")} title={t("ctoRepo")} bind:value={repo}>
         {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
       </select>
     {/if}
-    {#if embedded}
+    {#if embedded || bare}
       <!-- On the Home the primary action is the latest decision: sending is an icon in the field. -->
       {@const label = to ? t("ctoSendTo", { role: to.role }) : t("chatSend")}
       <button type="submit" class="icon-send" aria-label={label} title={label} disabled={!!why || !!busy || !draft.trim()}>
@@ -871,6 +983,55 @@
   .composer.embedded .why {
     grid-area: why;
     margin-top: 6px;
+  }
+
+  /* In the ⌘I panel: narrower, the context chips above the field. */
+  .thread.bare {
+    padding: 16px;
+  }
+
+  .composer.bare {
+    grid-template: "chips" auto "mentions" auto "field" auto "why" auto / minmax(0, 1fr);
+    padding: 10px 12px 12px;
+  }
+
+  .composer.bare .chips {
+    grid-area: chips;
+    margin-bottom: 8px;
+  }
+
+  /* A permission says the whole command or path: it wraps rather than being cut. */
+  .ask-what :global(.action) {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* In the narrow panel, the reason for a refusal takes its own line above the answers. */
+  .thread.bare .answer {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .thread.bare .answer .field {
+    flex-basis: 100%;
+  }
+
+  .diff {
+    display: flex;
+    flex-direction: column;
+    max-height: 220px;
+    margin: 0;
+    overflow: auto;
+  }
+
+  .diff .del {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+
+  .diff .add {
+    background: var(--done-soft);
+    color: var(--done);
   }
 
   .icon-send {
