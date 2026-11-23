@@ -1,5 +1,6 @@
 # Retired pages and where they moved: old-path new-path, relative to site/. Each becomes a small page that
 # redirects there, so no shared link breaks. A target without an anchor keeps the old link's own anchor.
+video.html ./#film
 features.html docs/
 how-it-works.html docs/runs.html
 security.html docs/security.html
