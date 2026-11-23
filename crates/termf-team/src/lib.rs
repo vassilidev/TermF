@@ -4988,16 +4988,10 @@ impl Inner {
     /// that only read, the checks of its repository, its typecheck and lint, and the test and lint scripts the
     /// setup finds there; `None` when `[team] read_freely` of the project's file, else of `termf.toml`, is off.
     fn read_freely(&self, run: &TeamRun, i: usize, cwd: &Path) -> Result<Option<Vec<String>>> {
-        let file = termf_core::project_file(&self.config_dir, &run.target.project)?;
-        let on = match route::flag(&file, "read_freely")? {
-            Some(on) => on,
-            None => {
-                route::flag(&self.config_dir.join("termf.toml"), "read_freely")?.unwrap_or(true)
-            }
-        };
-        if !on {
+        if !reads_freely(&self.config_dir, &run.target.project)? {
             return Ok(None);
         }
+        let file = termf_core::project_file(&self.config_dir, &run.target.project)?;
         let name = match run.task(i) {
             Some(task) => task.repo.clone(),
             None => run.steps[i].repo.clone().unwrap_or_default(),
@@ -5749,6 +5743,16 @@ fn login_path() -> std::ffi::OsString {
         .map(|p| p.to_os_string())
         .or_else(|| std::env::var_os("PATH"))
         .unwrap_or_default()
+}
+
+/// Whether project `id`'s team reads and tests without asking (`SessionSpec::read_freely`): `[team]
+/// read_freely` of its file, else of `termf.toml`, else yes.
+pub fn reads_freely(config_dir: &Path, id: &str) -> Result<bool> {
+    let file = termf_core::project_file(config_dir, id)?;
+    Ok(match route::flag(&file, "read_freely")? {
+        Some(on) => on,
+        None => route::flag(&config_dir.join("termf.toml"), "read_freely")?.unwrap_or(true),
+    })
 }
 
 /// The `checks` of repository `repo` in the project's file `table`; empty when it has none.

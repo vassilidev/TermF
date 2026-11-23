@@ -4255,6 +4255,9 @@ const fr = {
     "« Avant » n'a pas pu être capturé, le plus souvent faute de serveur de dev à la base : seul « après » l'est. Valide chaque écran sur l'« après ».",
   practicalVisualAloneWhy: "Pourquoi",
   practicalVisualAfterOnly: "Après seul",
+  practicalTeamReadFreely: "Laisser l'équipe lire et tester sans demander",
+  practicalTeamReadFreelyHelp:
+    "Dans son worktree, un agent lit le dépôt (git status, cat, grep…) et lance ses contrôles, ses tests et son lint sans te demander. Tout le reste demande toujours ton accord.",
 };
 
 type Key = keyof typeof fr;
@@ -8482,6 +8485,9 @@ const en: Record<Key, string> = {
     "The “before” could not be captured, most often because the base has no dev server: only the “after” is. Decide each screen on the “after”.",
   practicalVisualAloneWhy: "Why",
   practicalVisualAfterOnly: "After only",
+  practicalTeamReadFreely: "Let the team read and test without asking",
+  practicalTeamReadFreelyHelp:
+    "In its worktree, an agent reads the repository (git status, cat, grep…) and runs its checks, tests and lint without asking you. Anything else still asks for your approval.",
 };
 
 const messages = { fr, en };

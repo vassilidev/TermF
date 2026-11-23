@@ -605,6 +605,7 @@ pub fn run() {
             team::team_workflows,
             team::team_approve,
             team::team_decisions,
+            team::team_read_freely,
             team::team_revise,
             team::team_stop,
             team::team_rules,

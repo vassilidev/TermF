@@ -291,6 +291,23 @@ pub async fn team_squads(app: AppHandle, project: String) -> CmdResult<termf_tea
     .await
 }
 
+/// Whether the project's team reads and tests without asking; `on` sets it first (`[team] read_freely`).
+#[tauri::command]
+pub async fn team_read_freely(
+    app: AppHandle,
+    project: String,
+    on: Option<bool>,
+) -> CmdResult<bool> {
+    blocking(app, move |app| {
+        let config_dir = &state_of(app).config_dir;
+        if let Some(on) = on {
+            termf_core::set_team_flag(config_dir, &project, "read_freely", on)?;
+        }
+        termf_team::reads_freely(config_dir, &project)
+    })
+    .await
+}
+
 /// Sets a squad of the project (a new one without `from`), then the project's squads as `team_squads` shows them.
 #[tauri::command]
 pub async fn team_squad_save(
