@@ -28,6 +28,7 @@
   import CiChecks from "$lib/CiChecks.svelte";
   import Delivery from "$lib/Delivery.svelte";
   import RunLive from "$lib/RunLive.svelte";
+  import RunTell from "$lib/RunTell.svelte";
   import TeamOptions from "$lib/TeamOptions.svelte";
   import TeamRunDetail, { ticketKey } from "$lib/TeamRunDetail.svelte";
   import WaitCards from "$lib/WaitCards.svelte";
@@ -508,6 +509,7 @@
             {/if}
             <WaitCards run={teamRun} />
             <RunLive run={teamRun} />
+            <RunTell run={teamRun} />
             {#if repos.length}
               {@const prs = repos.filter((r) => r.run.prUrl).length}
               {@const other = repos.find((r) => r.run.id === deliveringRepo)?.run}

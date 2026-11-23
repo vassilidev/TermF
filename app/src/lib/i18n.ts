@@ -4262,6 +4262,16 @@ const fr = {
   practicalTeamReadFreelyHelp:
     "Dans son worktree, un agent lit le dépôt (git status, cat, grep…) et lance ses contrôles, ses tests et son lint sans te demander. Tout le reste demande toujours ton accord.",
   practicalTeamRolesAdded: "Rôles ajoutés pour ce ticket",
+  practicalTeamTell: "Dire quelque chose à l'équipe",
+  practicalTeamTellHelp:
+    "Ta question ou ta consigne part au CTO, qui mène l'équipe, ou à l'agent d'une étape. Sa réponse s'affiche ici, en direct.",
+  practicalTeamTellTo: "À",
+  practicalTeamTellLead: "Le CTO, qui mène le run",
+  practicalTeamTellPlaceholder: "Par exemple : pourquoi la tâche T2 est-elle bloquée ?",
+  practicalTeamTellSend: "Envoyer",
+  practicalTeamTellAbout: "À propos du run {run} ({ticket} · {title}) : {text}",
+  practicalTeamTellWaiting: "Réponse en cours…",
+  practicalTeamTellOpen: "Ouvrir la conversation",
   practicalPrDecisionHelp: "Le CTO propose cette décision : à toi de valider ou de demander une autre option.",
 };
 
@@ -8497,6 +8507,16 @@ const en: Record<Key, string> = {
   practicalTeamReadFreelyHelp:
     "In its worktree, an agent reads the repository (git status, cat, grep…) and runs its checks, tests and lint without asking you. Anything else still asks for your approval.",
   practicalTeamRolesAdded: "Roles added for this ticket",
+  practicalTeamTell: "Tell the team something",
+  practicalTeamTellHelp:
+    "Your question or instruction goes to the CTO, who leads the team, or to the agent of a step. Its answer shows here, live.",
+  practicalTeamTellTo: "To",
+  practicalTeamTellLead: "The CTO, who leads the run",
+  practicalTeamTellPlaceholder: "For example: why is task T2 blocked?",
+  practicalTeamTellSend: "Send",
+  practicalTeamTellAbout: "About run {run} ({ticket} · {title}): {text}",
+  practicalTeamTellWaiting: "Answering…",
+  practicalTeamTellOpen: "Open the conversation",
   practicalPrDecisionHelp: "The CTO proposes this decision: approve it or ask for another option.",
 };
 
