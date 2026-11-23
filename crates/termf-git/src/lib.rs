@@ -10,10 +10,12 @@ use std::process::{Command, Output, Stdio};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
+mod cleanup;
 #[cfg(test)]
 mod tests;
 mod work;
 
+pub use cleanup::*;
 pub use work::*;
 
 /// The most commits one graph reads.

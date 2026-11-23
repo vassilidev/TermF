@@ -4,6 +4,7 @@ use std::process::Command;
 
 use super::*;
 
+mod cleanup;
 mod edge;
 mod work;
 
