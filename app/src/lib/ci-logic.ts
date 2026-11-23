@@ -29,27 +29,29 @@ type JobLike = { id: number; name: string; status: string; conclusion: string | 
 export type Cell<J extends JobLike = JobLike> = { key: string; name: string; needs: string[]; jobs: J[] };
 export type CellState = "running" | "queued" | "passed" | "failed" | "stopped" | "skipped" | "waiting";
 
-/** Whether GitHub's job name is the file's job: its name, a matrix `name (values)`, a reusable `name / job`. */
-export function matches(node: Node, name: string): boolean {
-  return (
-    name === node.name ||
-    name.startsWith(`${node.name} (`) ||
-    name.startsWith(`${node.name} / `) ||
-    (node.partial && name.startsWith(node.name))
-  );
+/**
+ * Whether GitHub's job name is the file's job: its name, a matrix `name (values)`, a reusable `name / job`; `loose`,
+ * for a name that had an expression, its start followed by a separator (`test ubuntu-latest` for `test ${{ … }}`).
+ */
+export function matches(node: Node, name: string, loose = false): boolean {
+  if (name === node.name || name.startsWith(`${node.name} (`) || name.startsWith(`${node.name} / `)) return true;
+  return loose && node.partial && name.startsWith(node.name) && /[\s(\-_:/]/.test(name.charAt(node.name.length));
 }
 
 /**
  * The run's jobs in columns, each one right of what it needs: the file's jobs (those not started yet included), then
- * any job of the run the file does not tell, in the first column.
+ * any job of the run the file does not tell, in the first column. Exact names go first, so that a loose start never
+ * takes another job's (`test` and `test-e2e`).
  */
 export function columns<J extends JobLike>(nodes: Node[], jobs: J[]): Cell<J>[][] {
   const taken = new Set<number>();
-  const cells: Cell<J>[] = nodes.map((n) => {
-    const own = jobs.filter((j) => !taken.has(j.id) && matches(n, j.name));
-    own.forEach((j) => taken.add(j.id));
-    return { key: n.key, name: n.name, needs: n.needs.filter((k) => nodes.some((o) => o.key === k)), jobs: own };
-  });
+  const cells: Cell<J>[] = nodes.map((n) => ({ key: n.key, name: n.name, needs: n.needs.filter((k) => nodes.some((o) => o.key === k)), jobs: [] }));
+  for (const loose of [false, true])
+    nodes.forEach((n, i) => {
+      const own = jobs.filter((j) => !taken.has(j.id) && matches(n, j.name, loose));
+      own.forEach((j) => taken.add(j.id));
+      cells[i].jobs.push(...own);
+    });
   for (const j of jobs) if (!taken.has(j.id)) cells.push({ key: `job:${j.id}`, name: j.name, needs: [], jobs: [j] });
   const level = new Map<string, number>();
   const depth = (cell: Cell<J>, seen: string[]): number => {
@@ -125,9 +127,25 @@ type TicketRunLike = { id: number; branch: string | null; prUrl: string | null }
  * and the TermF run that made that branch or pull request.
  */
 export function origin(d: DeploymentLike, runs: (RunLike & { sha: string })[], tickets: TicketRunLike[]): { pr: number | null; run: number | null } {
-  const ci = runs.find((r) => (d.sha && r.sha.startsWith(d.sha)) ||(d.branch && r.branch === d.branch));
+  const ci = runs.find((r) => (d.sha && r.sha.startsWith(d.sha)) || (d.branch && r.branch === d.branch));
   const pr = d.pr ?? ci?.pullRequests[0] ?? null;
   const branch = d.branch ?? ci?.branch ?? null;
   const run = tickets.find((t) => (branch && t.branch === branch) || (pr !== null && t.prUrl?.endsWith(`/pull/${pr}`)));
   return { pr, run: run?.id ?? null };
+}
+
+/**
+ * `origin` for a target's deployment seen from the repository shown (`repo`, whose CI runs are `runs`): only when the
+ * target deploys that repository, else its pull request numbers and branches are another repository's. `here` false:
+ * the pull request the tool told, without a link.
+ */
+export function originIn(
+  target: { repo?: string | null },
+  repo: string,
+  d: DeploymentLike,
+  runs: (RunLike & { sha: string })[],
+  tickets: (TicketRunLike & { repo: string })[],
+): { pr: number | null; run: number | null; here: boolean } {
+  if (!target.repo || target.repo !== repo) return { pr: d.pr, run: null, here: false };
+  return { ...origin(d, runs, tickets.filter((t) => t.repo === repo)), here: true };
 }

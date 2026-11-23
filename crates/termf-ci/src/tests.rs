@@ -938,6 +938,44 @@ fn says_admin_rights_are_needed_for_webhooks() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn tells_admin_rights_only_from_the_status_of_the_listing() {
+    let sb = Sandbox::new("hooks-not-admin");
+    // An owner whose name holds "admin", a server error, the rate limit, a webhook deleted elsewhere.
+    let repo = sb.repo("api", "https://github.com/sysadmin/api");
+    let ci = sb.ci();
+    sb.answer(
+        "api --include --method GET repos/sysadmin/api/hooks -f per_page=100",
+        1,
+        "gh: Server Error (HTTP 500)",
+        "HTTP/2.0 500 Internal Server Error\r\n\r\n{}",
+    );
+    let error = format!("{:#}", ci.hooks(&repo).unwrap_err());
+    assert!(
+        !error.starts_with(NO_ADMIN) && error.contains("HTTP 500"),
+        "{error}"
+    );
+    sb.answer(
+        "api --include --method GET repos/sysadmin/api/hooks/9/deliveries -f per_page=30",
+        1,
+        "gh: Not Found (HTTP 404)",
+        "HTTP/2.0 404 Not Found\r\n\r\n{}",
+    );
+    let error = format!("{:#}", ci.deliveries(&repo, 9).unwrap_err());
+    assert!(!error.starts_with(NO_ADMIN), "{error}");
+    let limited = Sandbox::new("hooks-rate-limit");
+    let repo = limited.repo("api", "https://github.com/acme/api");
+    limited.answer(
+        "api --include --method GET repos/acme/api/hooks -f per_page=100",
+        1,
+        "gh: API rate limit exceeded for user ID 1. (HTTP 403)",
+        "HTTP/2.0 403 Forbidden\r\n\r\n{}",
+    );
+    let error = format!("{:#}", limited.ci().hooks(&repo).unwrap_err());
+    assert!(!error.starts_with(NO_ADMIN), "{error}");
+}
+
 mod deploys {
     use super::*;
     use crate::deploy::*;
@@ -1042,6 +1080,7 @@ mod deploys {
                 Some("server:switch acme-prod".into())
             )
         );
+        assert_eq!(line(&forge, Action::List), (String::new(), None));
         assert_eq!(
             line(&target(Tool::Netlify), Action::List).0,
             r#"api listSiteDeploys --data {"site_id":"web","per_page":20}"#
@@ -1147,6 +1186,10 @@ mod deploys {
         );
         let mut forge = target(Tool::Forge);
         forge.scope = Some("acme-prod".into());
+        // Listing Forge runs nothing: its server, the CLI's global state, is never switched just to look.
+        assert_eq!(deploy.list(&forge, Some("ftok")).unwrap()[0].id, "latest");
+        let calls = fs::read_to_string(bin.join("calls.log")).unwrap();
+        assert!(!calls.contains("forge"), "{calls}");
         assert_eq!(
             deploy.redeploy(&forge, "latest", Some("ftok")).unwrap(),
             "Deploying…\nDeployment finished"

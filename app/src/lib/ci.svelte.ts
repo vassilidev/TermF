@@ -92,8 +92,8 @@ export const ci = $state({
   loaded: false,
   /** The repository's path, one of the current project's. */
   repo: "",
-  /** The branch whose runs are shown; "" for the most recent one. */
-  branch: "",
+  /** The branch whose runs are shown: null until picked (the most recent one, once read), "" for runs without a branch. */
+  branch: null as string | null,
   tab: "runs" as "runs" | "deploys" | "hooks" | "tools",
   /** Asks the view for the dispatch form. */
   dispatch: false,
@@ -130,6 +130,8 @@ export const deploys = $state({
   targets: null as Target[] | null,
   targetsOf: "",
   targetsError: "",
+  /** The targets with a token were read for this project. */
+  tokensRead: false,
   /** By target name: its deployments, newest first, or why they could not be read. */
   found: {} as Record<string, Deployment[] | { error: string }>,
   tools: null as ToolInfo[] | null,
@@ -146,17 +148,21 @@ export async function loadHooks(repo: string) {
   }
 }
 
-/** The project's targets, then each one's deployments, side by side. */
-export async function loadDeploys(project: string) {
-  if (deploys.targetsOf !== project) [deploys.targets, deploys.found] = [null, {}];
+/**
+ * The project's targets, then each one's deployments, side by side. A target whose token is in the vault is read only
+ * with `tokens` (the Deployments tab open, a target saved): opening the view never asks the vault, nor fills its audit.
+ */
+export async function loadDeploys(project: string, tokens = false) {
+  if (deploys.targetsOf !== project) [deploys.targets, deploys.found, deploys.tokensRead] = [null, {}, false];
   deploys.targetsOf = project;
   deploys.targetsError = "";
+  if (tokens) deploys.tokensRead = true;
   try {
     const targets = await invoke<Target[]>("deploy_targets", { project });
     if (deploys.targetsOf !== project) return;
     deploys.targets = targets;
     await Promise.all(
-      targets.map(async (target) => {
+      targets.filter((target) => tokens || !target.token).map(async (target) => {
         try {
           const found = await invoke<Deployment[]>("deploy_list", { project, name: target.name });
           if (deploys.targetsOf === project) deploys.found[target.name] = found;

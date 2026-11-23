@@ -99,13 +99,13 @@
     error: string;
   } | null>(null);
 
-  const branch = $derived(ci.branch || overview?.[0]?.branch || "");
+  const branch = $derived(ci.branch ?? "");
   const groups = $derived(overview ? branches(overview) : []);
   const shownGroups = $derived.by(() => {
     const q = filter.trim().toLowerCase().replace(/^#/, "");
     const list = q ? groups.filter((g) => g.branch.toLowerCase().includes(q) || g.prs.some((n) => String(n) === q)) : groups;
     // The branch shown stays in the list, even past the first page.
-    return list.some((g) => g.branch === branch) || !branchRuns?.length || q ? list : [{ branch, prs: [...new Set(branchRuns.flatMap((r) => r.pullRequests))], runs: branchRuns }, ...list];
+    return list.some((g) => g.branch === branch) || ci.branch === null || !branchRuns?.length || q ? list : [{ branch, prs: [...new Set(branchRuns.flatMap((r) => r.pullRequests))], runs: branchRuns }, ...list];
   });
   const current = $derived(branchRuns?.find((r) => r.id === selected) ?? branchRuns?.[0]);
   const run = $derived(current && detail?.run.id === current.id ? detail.run : current);
@@ -152,7 +152,7 @@
     void ci.repo;
     untrack(() => {
       if (form && form.repo !== ci.repo) form = null;
-      ci.branch = "";
+      ci.branch = null;
       load();
       if (ci.repo) void loadHooks(ci.repo);
     });
@@ -164,7 +164,12 @@
   });
 
   $effect(() => {
-    void branch;
+    const p = project;
+    if (p && ci.tab === "deploys" && !deploys.tokensRead) untrack(() => loadDeploys(p, true));
+  });
+
+  $effect(() => {
+    void ci.branch;
     untrack(() => loadBranch());
   });
 
@@ -217,6 +222,8 @@
       }
       if (r !== request) return;
       [overview, total, pages, listError, slug] = [found, page?.total ?? 0, count, "", page?.repo ?? slug];
+      // Picked once: a refresh never moves the view to the branch that ran last.
+      if (ci.branch === null && found.length) ci.branch = found[0].branch ?? "";
       if (!found.length && workflowsKnown === null) {
         invoke<Flow[]>("ci_workflows", { repo: ci.repo }).then(
           (w) => r === request && (workflowsKnown = w),
@@ -232,12 +239,14 @@
   }
 
   function load() {
-    [overview, branchRuns, selected, workflowsKnown, graphs, logs] = [null, null, null, null, {}, {}];
+    [overview, branchRuns, selected, workflowsKnown, graphs, logs, slug] = [null, null, null, null, {}, {}, ""];
     return fetchPages(1, "load");
   }
 
   const refresh = () => {
     void loadBranch(true);
+    if (project && ci.tab === "deploys") void loadDeploys(project, true);
+    if (ci.tab === "hooks") void loadHooks(ci.repo);
     return fetchPages(pages, overview === null ? "load" : "refresh");
   };
   const more = () => fetchPages(pages + 1, "more");
@@ -247,7 +256,12 @@
   async function loadBranch(quiet = false) {
     const r = ++branchRequest;
     if (!quiet) [branchRuns, selected, job, logOf] = [null, null, null, null];
-    if (!ci.repo || !branch) return;
+    if (!ci.repo || ci.branch === null) return;
+    // Runs without a branch (a tag, a deleted fork's) are those of the overview: GitHub filters by name only.
+    if (ci.branch === "") {
+      if (r === branchRequest) branchRuns = (overview ?? []).filter((x) => !x.branch);
+      return;
+    }
     try {
       const page = await invoke<RunPage>("ci_runs", { repo: ci.repo, branch });
       if (r === branchRequest) branchRuns = page.runs;
@@ -502,9 +516,9 @@
   {:else}
     <Tabs id="ci" label={t("viewCi")} {tabs} selected={ci.tab} onselect={(id) => (ci.tab = id as typeof ci.tab)}>
       {#if ci.tab === "deploys"}
-        {#if project}<CiDeploys {project} {slug} runs={overview ?? []} onsetup={() => (ci.tab = "tools")} />{/if}
+        {#if project}<CiDeploys {project} repo={ci.repo} {slug} runs={overview ?? []} onsetup={() => (ci.tab = "tools")} />{/if}
       {:else if ci.tab === "hooks"}
-        <CiHooks repo={ci.repo} slug={slug || ci.repo} />
+        <CiHooks repo={ci.repo} {slug} />
       {:else if ci.tab === "tools"}
         {#if project}<CiTools {project} repos={app.workspace?.projects.find((p) => p.id === project)?.repos ?? []} />{/if}
       {:else if listError}
@@ -639,7 +653,10 @@
                     <Button size="sm" variant="primary" icon={Sparkles} onclick={why}>{t("aigAskWhy")}</Button>
                   </div>
                   {#if failedLog && "error" in failedLog}
-                    <p class="notice error pad-s"><CircleAlert size={14} aria-hidden="true" />{failedLog.error}</p>
+                    <div class="log-error">
+                      <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{failedLog.error}</p>
+                      <Button size="sm" icon={RefreshCw} onclick={() => delete logs[failure.job.id]}>{t("ciRetry")}</Button>
+                    </div>
                   {:else if !failedLog}
                     <div class="pad-s"><Skeleton shape="lines" rows={4} label={t("ciLogLoading")} /></div>
                   {:else if lines}
@@ -663,7 +680,9 @@
                   {:else if !deploys.targets.length}
                     <p class="muted small">{t("cvNoTargetsShort")} <button class="lnk" onclick={() => (ci.tab = "tools")}>{t("cvConnectTool")}</button></p>
                   {:else if !deployItems.length}
-                    <p class="muted small">{t("cvNoDeploys")}</p>
+                    <p class="muted small">
+                      {#if deploys.targets.some((x) => !(x.name in deploys.found))}<button class="lnk" onclick={() => (ci.tab = "deploys")}>{t("cvSeeDeploys")}</button>{:else}{t("cvNoDeploys")}{/if}
+                    </p>
                   {:else}
                     {#each deployItems as { target, d } (`${target.name}:${d.id}`)}
                       <button class="mini-row" onclick={() => (ci.tab = "deploys")}>
@@ -724,6 +743,18 @@
   .pad-s {
     margin: 0;
     padding: 12px 14px;
+  }
+
+  .log-error {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 12px 14px;
+  }
+
+  .log-error p {
+    margin: 0;
   }
 
   .inline {

@@ -316,13 +316,23 @@ fn target_and_token(
     Ok((target, Some(token)))
 }
 
-/// What a tool printed, without the vault's values nor the token it was given.
-fn masked(app: &AppHandle, token: Option<&termf_vault::Secret>, text: String) -> String {
+/// Runs a deploy tool for a target with its token; what it printed, and why it failed, come back through `hide`,
+/// which takes out the vault's values and the token.
+fn deploying<T>(
+    app: &AppHandle,
+    project: &str,
+    name: &str,
+    f: impl FnOnce(&Deploy, &Target, Option<&str>, &dyn Fn(String) -> String) -> Result<T>,
+) -> Result<T> {
+    let (target, token) = target_and_token(app, project, name)?;
     let mut masker = crate::vault::masker(app).unwrap_or_else(|| termf_vault::Masker::new([]));
-    if let Some(token) = token {
+    if let Some(token) = &token {
         masker.add(token);
     }
-    masker.mask(&text).text
+    let hide = |text: String| masker.mask(&text).text;
+    let expose = token.as_ref().map(termf_vault::Secret::expose);
+    f(&app.state::<CiState>().deploy, &target, expose, &hide)
+        .map_err(|e| anyhow::anyhow!(hide(format!("{e:#}"))))
 }
 
 #[tauri::command]
@@ -332,9 +342,17 @@ pub async fn deploy_list(
     name: String,
 ) -> CmdResult<Vec<Deployment>> {
     blocking(app, move |app| {
-        let (target, token) = target_and_token(app, &project, &name)?;
-        let expose = token.as_ref().map(termf_vault::Secret::expose);
-        app.state::<CiState>().deploy.list(&target, expose)
+        deploying(app, &project, &name, |deploy, target, token, hide| {
+            let found = deploy.list(target, token)?.into_iter();
+            Ok(found
+                .map(|mut d| {
+                    d.url = d.url.map(hide);
+                    d.description = d.description.map(hide);
+                    d.by = d.by.map(hide);
+                    d
+                })
+                .collect())
+        })
     })
     .await
 }
@@ -347,11 +365,10 @@ pub async fn deploy_logs(
     id: String,
 ) -> CmdResult<Vec<String>> {
     blocking(app, move |app| {
-        let (target, token) = target_and_token(app, &project, &name)?;
-        let expose = token.as_ref().map(termf_vault::Secret::expose);
-        let lines = app.state::<CiState>().deploy.logs(&target, &id, expose)?;
-        let text = masked(app, token.as_ref(), lines.join("\n"));
-        Ok(text.lines().map(str::to_owned).collect())
+        deploying(app, &project, &name, |deploy, target, token, hide| {
+            let text = hide(deploy.logs(target, &id, token)?.join("\n"));
+            Ok(text.lines().map(str::to_owned).collect())
+        })
     })
     .await
 }
@@ -365,13 +382,9 @@ pub async fn deploy_redeploy(
     id: String,
 ) -> CmdResult<String> {
     blocking(app, move |app| {
-        let (target, token) = target_and_token(app, &project, &name)?;
-        let expose = token.as_ref().map(termf_vault::Secret::expose);
-        let out = app
-            .state::<CiState>()
-            .deploy
-            .redeploy(&target, &id, expose)?;
-        Ok(masked(app, token.as_ref(), out))
+        deploying(app, &project, &name, |deploy, target, token, hide| {
+            Ok(hide(deploy.redeploy(target, &id, token)?))
+        })
     })
     .await
 }

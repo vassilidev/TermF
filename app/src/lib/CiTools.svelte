@@ -66,7 +66,7 @@
       deploys.targets = await invoke<Target[]>("deploy_target_save", { project, target, previous: f.previous });
       form = null;
       toast(t("cvTargetSaved", { target: target.name, tool: deployLabel[target.tool] }));
-      void loadDeploys(project);
+      void loadDeploys(project, true);
     } catch (e) {
       error = String(e);
     } finally {
@@ -81,7 +81,7 @@
       toast(t("cvTargetDeleted", { target: target.name }), {
         undo: () =>
           void invoke<Target[]>("deploy_target_save", { project, target, previous: null }).then(
-            (list) => ((deploys.targets = list), void loadDeploys(project)),
+            (list) => ((deploys.targets = list), void loadDeploys(project, true)),
             (e) => toast(String(e), { kind: "error" }),
           ),
       });

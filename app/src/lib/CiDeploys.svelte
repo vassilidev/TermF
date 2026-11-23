@@ -19,11 +19,11 @@
   import { askAI } from "$lib/ask.svelte";
   import { showRun } from "$lib/commands";
   import { openUrl, tickets } from "$lib/tickets.svelte";
-  import { origin } from "$lib/ci-logic";
+  import { originIn } from "$lib/ci-logic";
   import { deployLabel, deployMark, deploys, loadDeploys, type Deployment, type Target, type WorkflowRun } from "$lib/ci.svelte";
 
   /** The project's deployments, every target side by side; `runs`: the CI runs they are matched with. */
-  let { project, slug, runs, onsetup }: { project: string; slug: string; runs: WorkflowRun[]; onsetup: () => void } = $props();
+  let { project, repo, slug, runs, onsetup }: { project: string; repo: string; slug: string; runs: WorkflowRun[]; onsetup: () => void } = $props();
 
   type Item = { key: string; target: Target; d: Deployment };
   const items = $derived.by(() => {
@@ -48,7 +48,25 @@
   let approving = $state(false);
   let busy = $state(false);
 
-  const from = $derived(item ? origin(item.d, runs, tickets.runs) : { pr: null, run: null });
+  const from = $derived(item ? originIn(item.target, repo, item.d, runs, tickets.runs) : { pr: null, run: null, here: false });
+
+  // A token in a locked vault, or a prod one: the master password here, as in Ops, then the targets are read again.
+  const vaultAsk = $derived(failures.find((f) => /the vault is locked|needs the master password again/.test(f.error)));
+  const locked = $derived(/the vault is locked/.test(vaultAsk?.error ?? ""));
+  let password = $state("");
+  let passwordError = $state("");
+
+  async function givePassword() {
+    passwordError = "";
+    try {
+      if (locked) await invoke("vault_unlock", { password });
+      else await invoke("vault_reauth", { password });
+      password = "";
+      await loadDeploys(project, true);
+    } catch (e) {
+      passwordError = /wrong master password/.test(String(e)) ? t("vaultWrongPassword") : String(e);
+    }
+  }
 
   async function showLog(i: Item) {
     log = { key: i.key, lines: null, error: "" };
@@ -65,7 +83,7 @@
     try {
       const said = await invoke<string>("deploy_redeploy", { project, name: i.target.name, id: i.d.id });
       toast(t("cvRedeployed", { target: i.target.name, tool: deployLabel[i.target.tool] }) + (said ? ` ${said.split("\n").pop()}` : ""));
-      await loadDeploys(project);
+      await loadDeploys(project, true);
     } catch (e) {
       toast(String(e), { kind: "error" });
     } finally {
@@ -101,7 +119,7 @@
 {:else if deploys.targetsError}
   <EmptyState>
     <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{deploys.targetsError}</p>
-    <Button icon={RefreshCw} onclick={() => loadDeploys(project)}>{t("ciRetry")}</Button>
+    <Button icon={RefreshCw} onclick={() => loadDeploys(project, true)}>{t("ciRetry")}</Button>
   </EmptyState>
 {:else if !deploys.targets.length}
   <EmptyState
@@ -115,7 +133,15 @@
 {:else}
   <div class="split deploys">
     <div class="list">
-      {#each failures as f (f.target.name)}
+      {#if vaultAsk}
+        <form class="vault" onsubmit={(e) => (e.preventDefault(), givePassword())}>
+          <span>{locked ? t("cvVaultLocked", { target: vaultAsk.target.name }) : t("opsPasswordReauth")}</span>
+          <input class="field" type="password" autocomplete="current-password" placeholder={t("opsPassword")} aria-label={t("opsPassword")} bind:value={password} />
+          {#if passwordError}<span class="bad small">{passwordError}</span>{/if}
+          <Button size="sm" variant="primary" type="submit" disabled={!password}>{t("opsContinue")}</Button>
+        </form>
+      {/if}
+      {#each failures.filter((f) => f !== vaultAsk) as f (f.target.name)}
         <p class="notice error small"><CircleAlert size={13} aria-hidden="true" /><span><b>{f.target.name} · {deployLabel[f.target.tool]}</b> {f.error}</span></p>
       {/each}
       {#if loading && !items.length}
@@ -152,9 +178,9 @@
           {/if}
           <dt>{t("cvDeployFrom")}</dt>
           <dd>
-            {#if from.pr !== null}<button class="lnk" onclick={() => openUrl(`https://github.com/${slug}/pull/${from.pr}`)}>{t("cvPr", { n: from.pr })}</button>{/if}
+            {#if from.pr !== null && from.here && slug}<button class="lnk" onclick={() => openUrl(`https://github.com/${slug}/pull/${from.pr}`)}>{t("cvPr", { n: from.pr })}</button>{:else if from.pr !== null}{t("cvPr", { n: from.pr })}{/if}
             {#if from.run !== null}{from.pr !== null ? " · " : ""}<button class="lnk" onclick={() => from.run !== null && showRun(from.run)}>{t("cvTeamRun", { n: from.run })}</button>{/if}
-            {#if from.pr === null && from.run === null}<span class="muted">{t("cvDeployNoOrigin")}</span>{/if}
+            {#if !from.here}<span class="muted">{from.pr !== null ? " · " : ""}{t(i.target.repo ? "cvDeployOtherRepo" : "cvDeployNoRepo")}</span>{:else if from.pr === null && from.run === null}<span class="muted">{t("cvDeployNoOrigin")}</span>{/if}
           </dd>
           {#if i.d.url}<dt>{t("cvDeployUrl")}</dt><dd><button class="lnk mono" onclick={() => i.d.url && openUrl(i.d.url)}>{i.d.url.replace(/^https?:\/\//, "")}</button></dd>{/if}
         </dl>
@@ -196,6 +222,26 @@
 
   .small {
     font-size: var(--text-sm);
+  }
+
+  .vault {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0 4px 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--waiting-line);
+    border-radius: var(--radius-md);
+    background: var(--waiting-soft);
+    font-size: var(--text-sm);
+  }
+
+  .vault :global(.btn) {
+    align-self: flex-start;
+  }
+
+  .bad {
+    color: var(--danger);
   }
 
   .notice.small {

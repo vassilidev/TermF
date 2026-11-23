@@ -288,9 +288,9 @@ fn valid_slug(slug: &str) -> bool {
 /// GitHub answers 404 to whoever may not see a repository's webhooks.
 fn admin(slug: &str, error: anyhow::Error) -> anyhow::Error {
     let said = format!("{error:#}");
-    if !["HTTP 404", "HTTP 403", "admin"]
-        .iter()
-        .any(|s| said.contains(s))
+    // Only gh's status counts, not the path or the slug it quotes; a 403 for the rate limit is no refusal.
+    if !matches!(http_status(&said), Some(403 | 404))
+        || said.to_ascii_lowercase().contains("rate limit")
     {
         return error;
     }
@@ -298,6 +298,12 @@ fn admin(slug: &str, error: anyhow::Error) -> anyhow::Error {
         "{NO_ADMIN}: only the admins of {slug} see its webhooks, and gh's token needs the admin:repo_hook scope \
          (gh auth refresh -s admin:repo_hook). GitHub answered: {said}"
     )
+}
+
+/// The status gh ends its error with: `gh: Not Found (HTTP 404)`.
+fn http_status(error: &str) -> Option<u16> {
+    let at = error.rfind("(HTTP ")? + "(HTTP ".len();
+    error.get(at..at + 3)?.parse().ok()
 }
 
 fn failure(what: &str, error: &str) -> anyhow::Error {
@@ -673,12 +679,10 @@ impl Ci {
     /// A webhook's last 30 deliveries, newest first.
     pub fn deliveries(&self, repo: &str, hook: u64) -> Result<Vec<Delivery>> {
         let slug = self.slug(repo)?;
-        let found = self
-            .get(
-                &format!("repos/{slug}/hooks/{hook}/deliveries"),
-                &[("per_page", "30".into())],
-            )
-            .map_err(|e| admin(&slug, e))?;
+        let found = self.get(
+            &format!("repos/{slug}/hooks/{hook}/deliveries"),
+            &[("per_page", "30".into())],
+        )?;
         let deliveries = found.as_array().into_iter().flatten();
         Ok(deliveries
             .map(|d| Delivery {
@@ -699,7 +703,6 @@ impl Ci {
         let slug = self.slug(repo)?;
         let path = format!("repos/{slug}/hooks/{hook}/deliveries/{delivery}/attempts");
         self.call(&["api", "--method", "POST", &path], None)
-            .map_err(|e| admin(&slug, e))
             .map(drop)
     }
 
@@ -728,12 +731,10 @@ impl Ci {
             "config": { "url": url, "content_type": "json" },
         });
         let path = format!("repos/{slug}/hooks");
-        let out = self
-            .call(
-                &["api", "--method", "POST", &path, "--input", "-"],
-                Some(&body.to_string()),
-            )
-            .map_err(|e| admin(&slug, e))?;
+        let out = self.call(
+            &["api", "--method", "POST", &path, "--input", "-"],
+            Some(&body.to_string()),
+        )?;
         let h: Value = serde_json::from_str(&out).context("GitHub gave no webhook back")?;
         Ok(Hook {
             id: h["id"].as_u64().unwrap_or_default(),
@@ -756,7 +757,6 @@ impl Ci {
         let slug = self.slug(repo)?;
         let path = format!("repos/{slug}/hooks/{hook}");
         self.call(&["api", "--method", "DELETE", &path], None)
-            .map_err(|e| admin(&slug, e))
             .map(drop)
     }
 

@@ -458,7 +458,8 @@ pub fn args(target: &Target, action: Action) -> Result<(Vec<String>, Option<Vec<
     if let Action::Logs(id) | Action::Redeploy(id, _) = action {
         word("the deployment", id)?;
     }
-    let before = (target.tool == Tool::Forge)
+    // Forge's server is the CLI's global state: switched only to act, never to list (which runs nothing).
+    let before = (target.tool == Tool::Forge && action != Action::List)
         .then(|| {
             target
                 .scope
@@ -632,11 +633,11 @@ impl Deploy {
         timeout: Duration,
     ) -> Result<String> {
         let (args, before) = args(target, action)?;
-        if let Some(before) = before {
-            self.run(target, &before, token, LIST_TIMEOUT)?;
-        }
         if args.is_empty() {
             return Ok(String::new());
+        }
+        if let Some(before) = before {
+            self.run(target, &before, token, LIST_TIMEOUT)?;
         }
         self.run(target, &args, token, timeout)
     }

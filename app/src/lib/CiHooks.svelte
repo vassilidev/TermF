@@ -23,7 +23,7 @@
   import { openUrl } from "$lib/tickets.svelte";
   import { deploys, loadHooks, NO_ADMIN, type Delivery, type Hook } from "$lib/ci.svelte";
 
-  /** The repository's webhooks (`slug`: its `owner/name`, for GitHub's pages), their deliveries, and redelivery. */
+  /** The repository's webhooks (`slug`: its `owner/name` for GitHub's pages, "" until known), their deliveries, and redelivery. */
   let { repo, slug }: { repo: string; slug: string } = $props();
 
   let selected = $state<number | null>(null);
@@ -162,7 +162,7 @@
 {#if hooks === null}
   <div class="pad"><Skeleton shape="list" rows={3} label={t("cvHooksLoading")} /></div>
 {:else if noAdmin}
-  <EmptyState icon={ShieldAlert} title={t("cvNoAdmin")} text={t("cvNoAdminText", { repo: slug })}>
+  <EmptyState icon={ShieldAlert} title={t("cvNoAdmin")} text={t("cvNoAdminText", { repo: slug || (repo.split("/").pop() ?? repo) })}>
     <code class="cmd">{command}</code>
     <div class="row-btns">
       <Button size="sm" icon={Copy} onclick={copy}>{t("cvCopyCommand")}</Button>
@@ -212,7 +212,7 @@
               {#if hook.lastCode !== null} · {t("cvLastDelivery", { code: hook.lastCode, status: hook.lastStatus ?? "" })}{/if}
             </p>
           </div>
-          <Button size="sm" variant="quiet" icon={ExternalLink} onclick={() => openUrl(`https://github.com/${slug}/settings/hooks/${hook.id}`)}>{t("cvOnGithub")}</Button>
+          {#if slug}<Button size="sm" variant="quiet" icon={ExternalLink} onclick={() => openUrl(`https://github.com/${slug}/settings/hooks/${hook.id}`)}>{t("cvOnGithub")}</Button>{/if}
           <Button size="sm" variant="quiet-danger" icon={Trash2} loading={busy === "delete"} onclick={() => (removing = true)}>{t("cvHookDelete")}</Button>
         </header>
         <h3>{t("cvDeliveries")}</h3>

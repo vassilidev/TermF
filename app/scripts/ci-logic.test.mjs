@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { branches, cellState, columns, cycle, excerpt, failedJobs, firstFailure, history, matches, origin, outcome } from "../src/lib/ci-logic.ts";
+import { branches, cellState, columns, cycle, excerpt, failedJobs, firstFailure, history, matches, origin, originIn, outcome } from "../src/lib/ci-logic.ts";
 
 test("going back right after a search starts at the last match", () => {
   assert.equal(cycle(-1, -1, 7), 6);
@@ -46,8 +46,20 @@ test("the graph puts each job right of what it needs, a matrix in one box", () =
   assert.equal(cellState(cols[3][0]), "waiting");
   assert.equal(cellState({ jobs: [j(5, "x", "in_progress", null)] }), "running");
   assert.equal(firstFailure(cols).job.id, 2);
-  assert.ok(matches(node("t", [], "test", true), "test ubuntu-latest"));
+  assert.ok(matches(node("t", [], "test", true), "test ubuntu-latest", true));
+  assert.ok(!matches(node("t", [], "test", true), "test ubuntu-latest"));
+  assert.ok(!matches(node("t", [], "test", true), "tests", true));
   assert.ok(!matches(node("t", [], "test"), "tests"));
+});
+
+test("a loose start never takes another job's: exact names first, then a separator after the start", () => {
+  const nodes = [node("test", [], "test", true), node("e2e", ["test"], "test-e2e"), node("lint", [], "lint", true)];
+  const cols = columns(nodes, [j(1, "test-e2e"), j(2, "test ubuntu-latest"), j(3, "linter"), j(4, "test (macos)")]);
+  const of = (key) => cols.flat().find((c) => c.key === key).jobs.map((x) => x.id);
+  assert.deepEqual(of("test"), [4, 2]);
+  assert.deepEqual(of("e2e"), [1]);
+  assert.deepEqual(of("lint"), []);
+  assert.deepEqual(of("job:3"), [3]);
 });
 
 test("a cycle in a broken file still lays out", () => {
@@ -93,4 +105,17 @@ test("a deployment finds its pull request and the TermF run behind it", () => {
   assert.deepEqual(origin({ sha: "sha7", branch: null, pr: null }, runs, tickets), { pr: 57, run: 12 });
   assert.deepEqual(origin({ sha: null, branch: null, pr: 57 }, [], tickets), { pr: 57, run: 12 });
   assert.deepEqual(origin({ sha: "zzz", branch: "main", pr: null }, runs, tickets), { pr: null, run: null });
+});
+
+test("a deployment is tied to runs only from the repository its target deploys", () => {
+  const runs = [run(7, "success", 1, "termf/42-fix", [57])];
+  const tickets = [
+    { id: 12, repo: "/code/api", branch: "termf/42-fix", prUrl: "https://github.com/acme/api/pull/57" },
+    { id: 13, repo: "/code/web", branch: "termf/42-fix", prUrl: "https://github.com/acme/web/pull/57" },
+  ];
+  const d = { sha: "sha7", branch: null, pr: null };
+  assert.deepEqual(originIn({ repo: "/code/api" }, "/code/api", d, runs, tickets), { pr: 57, run: 12, here: true });
+  // Another repository's target, or one that does not say its repository: only what the tool told, without a link.
+  assert.deepEqual(originIn({ repo: "/code/web" }, "/code/api", { ...d, pr: 9 }, runs, tickets), { pr: 9, run: null, here: false });
+  assert.deepEqual(originIn({}, "/code/api", d, runs, tickets), { pr: null, run: null, here: false });
 });
