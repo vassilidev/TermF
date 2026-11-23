@@ -559,7 +559,7 @@
               <Skeleton shape="block" height="180px" />
             {:else if run}
               <div class="hist">
-                <span>{t("cvLastRuns", { count: strip.squares.length, branch })}</span>
+                <span>{t("cvLastRuns", { branch })}</span>
                 <span class="sq">
                   {#each strip.squares as r (r.id)}
                     <button class="s {outcome(r)}" class:on={r.id === run.id} aria-label={squareLabel(r)} title={squareLabel(r)} aria-pressed={r.id === run.id} onclick={() => (selected = r.id)}></button>

@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use tauri::{AppHandle, Emitter, Manager, State};
 use anyhow::{Context, Result, bail};
+use tauri::{AppHandle, Emitter, Manager, State};
 use termf_ci::deploy::{Deploy, Deployment, Target, ToolInfo};
 use termf_ci::{
     AgentMessage, Ci, Delivery, Filter, Hook, Input, JobLog, Node, RunDetail, RunPage, Watch,
@@ -212,7 +212,12 @@ pub fn ci_notify_set(app: AppHandle, notify: CiNotify) -> CmdResult<CiNotify> {
 }
 
 #[tauri::command]
-pub async fn ci_graph(app: AppHandle, repo: String, path: String, sha: String) -> CmdResult<Vec<Node>> {
+pub async fn ci_graph(
+    app: AppHandle,
+    repo: String,
+    path: String,
+    sha: String,
+) -> CmdResult<Vec<Node>> {
     blocking(app, move |app| ci(app).graph(&repo, &path, &sha)).await
 }
 
@@ -321,7 +326,11 @@ fn masked(app: &AppHandle, token: Option<&termf_vault::Secret>, text: String) ->
 }
 
 #[tauri::command]
-pub async fn deploy_list(app: AppHandle, project: String, name: String) -> CmdResult<Vec<Deployment>> {
+pub async fn deploy_list(
+    app: AppHandle,
+    project: String,
+    name: String,
+) -> CmdResult<Vec<Deployment>> {
     blocking(app, move |app| {
         let (target, token) = target_and_token(app, &project, &name)?;
         let expose = token.as_ref().map(termf_vault::Secret::expose);
@@ -331,7 +340,12 @@ pub async fn deploy_list(app: AppHandle, project: String, name: String) -> CmdRe
 }
 
 #[tauri::command]
-pub async fn deploy_logs(app: AppHandle, project: String, name: String, id: String) -> CmdResult<Vec<String>> {
+pub async fn deploy_logs(
+    app: AppHandle,
+    project: String,
+    name: String,
+    id: String,
+) -> CmdResult<Vec<String>> {
     blocking(app, move |app| {
         let (target, token) = target_and_token(app, &project, &name)?;
         let expose = token.as_ref().map(termf_vault::Secret::expose);
@@ -344,11 +358,19 @@ pub async fn deploy_logs(app: AppHandle, project: String, name: String, id: Stri
 
 /// Approved by the user first, in the UI: a deployment does not come undone.
 #[tauri::command]
-pub async fn deploy_redeploy(app: AppHandle, project: String, name: String, id: String) -> CmdResult<String> {
+pub async fn deploy_redeploy(
+    app: AppHandle,
+    project: String,
+    name: String,
+    id: String,
+) -> CmdResult<String> {
     blocking(app, move |app| {
         let (target, token) = target_and_token(app, &project, &name)?;
         let expose = token.as_ref().map(termf_vault::Secret::expose);
-        let out = app.state::<CiState>().deploy.redeploy(&target, &id, expose)?;
+        let out = app
+            .state::<CiState>()
+            .deploy
+            .redeploy(&target, &id, expose)?;
         Ok(masked(app, token.as_ref(), out))
     })
     .await
