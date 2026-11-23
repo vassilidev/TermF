@@ -230,6 +230,10 @@
     mcp__termf__request_changes: "ctoToolChanges",
     mcp__termf__stop_team_run: "ctoToolStop",
     mcp__termf__send_message: "ctoToolSend",
+    mcp__termf__propose_conventions: "watchToolConventions",
+    mcp__termf__run_scout: "watchToolScout",
+    mcp__termf__start_onboarding: "watchToolOnboarding",
+    mcp__termf__schedule_task: "watchToolSchedule",
   };
 
   /** A wait as the rail lists it: its icon, what it asks, and where. */

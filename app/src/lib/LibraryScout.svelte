@@ -24,6 +24,7 @@
   import { library, lineDiff, matches, type Item, type Kind, type Layer } from "$lib/library.svelte";
   import {
     applyScout,
+    cancelScout,
     decide,
     discardScout,
     loadScout,
@@ -34,6 +35,15 @@
     type Flaw,
     type ItemRef,
   } from "$lib/scout.svelte";
+  import CalendarClock from "@lucide/svelte/icons/calendar-clock";
+  import Users from "@lucide/svelte/icons/users";
+  import Button from "$lib/ui/Button.svelte";
+  import { toast } from "$lib/ui/toast.svelte";
+  import { showScheduler, type TaskEntry } from "$lib/schedule.svelte";
+  import { upsertRun } from "$lib/team.svelte";
+  import type { TeamRun } from "$lib/team-run-logic";
+  import { version, watches } from "$lib/todo-logic";
+  import { scheduleWatch, switchOn, todo } from "$lib/todo.svelte";
 
   type Key = Parameters<typeof t>[0];
 
@@ -135,6 +145,66 @@
   function close() {
     library.panel = null;
   }
+
+  /** Applied by the watch for this project, and off in it: the improved shipped item is an override left off. */
+  const off = $derived.by(() => {
+    if (!project || !data) return [];
+    const seen = new Set<string>();
+    return data.journal.filter((l) => {
+      const k = key(l);
+      if (l.action !== "applied" || seen.has(k) || (l.project !== null && l.project !== project.id)) return false;
+      seen.add(k);
+      return items.some((i) => key(i) === k && !i.active);
+    });
+  });
+
+  /** The scheduled watch of this scope, read again once the to-do changed (a watch scheduled, or undone). */
+  let watch = $state<TaskEntry | null>(null);
+  $effect(() => {
+    const repos = project?.repos.map((r) => r.path) ?? [];
+    const all = (app.workspace?.projects ?? []).flatMap((p) => p.repos.map((r) => r.path));
+    void todo.list;
+    invoke<TaskEntry[]>("schedule_tasks").then(
+      (tasks) => (watch = tasks.find((task) => watches(task, repos, all)) ?? null),
+      () => (watch = null),
+    );
+  });
+
+  let scheduling = $state(false);
+  async function plan() {
+    scheduling = true;
+    await scheduleWatch(data?.budget ?? null);
+    scheduling = false;
+  }
+
+  const claudeSeen = $derived(version(data?.claude ?? null));
+  const claudeNow = $derived(version(todo.claude ?? null));
+
+  /** The whole new file, without a script: what the team can put in a repository's library as it is. */
+  const handable = (e: Entry) => !!project?.repos.length && !!e.content && !e.script;
+
+  async function handOff(e: Entry) {
+    const repo = project?.repos[0];
+    if (!project || !repo) return;
+    const path = e.kind === "skill" ? `skills/${e.name}/SKILL.md` : `${e.kind}s/${e.name}.md`;
+    const info = kindInfo[e.kind];
+    const text = t("watchTeamScoutRequest", {
+      repo: repo.name,
+      name: e.name,
+      kind: info ? t(info.label).toLocaleLowerCase(lang) : e.kind,
+      path,
+      summary: e.summary,
+      sources: e.sources.join(", "),
+      content: e.content.trimEnd(),
+    });
+    try {
+      const run = await invoke<TeamRun>("team_start", { run: null, request: { text, project: project.id, repo: repo.name }, options: {} });
+      upsertRun(run);
+      toast(t("watchTeamStarted", { run: run.run }));
+    } catch (err) {
+      scout.error = String(err);
+    }
+  }
 </script>
 
 {#snippet diffView(before: string, after: string)}
@@ -149,7 +219,12 @@
 
 {#snippet working()}
   <div class="working" role="status">
-    <p><LoaderCircle size={14} aria-hidden="true" class="spin" />{t("scoutRunning", { model: data?.model ?? "", elapsed: elapsed() })}</p>
+    <p>
+      <LoaderCircle size={14} aria-hidden="true" class="spin" /><span class="grow">{t("scoutRunning", { model: data?.model ?? "", elapsed: elapsed() })}</span>
+      {#if running === "run"}
+        <Button variant="quiet" size="sm" disabled={scout.cancelled} onclick={cancelScout}>{t("cancel")}</Button>
+      {/if}
+    </p>
     {#if scout.progress.length}
       <ol class="feed">
         {#each scout.progress.slice(-6) as p, i (i)}
@@ -233,8 +308,18 @@
         </ul>
       </div>
     {/if}
+    {#if claudeSeen && claudeNow && claudeSeen !== claudeNow}
+      <p class="notice update"><CalendarClock size={14} aria-hidden="true" />{t("watchClaudeChanged", { seen: claudeSeen, now: claudeNow })}</p>
+    {/if}
     <div class="row-end">
       {#if draft?.entries.length}<span class="muted small grow">{t("scoutRerunHint")}</span>{/if}
+      {#if watch}
+        <button class="link small" onclick={showScheduler} title={t("watchScheduleOpen")}>
+          <CalendarClock size={13} aria-hidden="true" />{watch.next ? t("watchScheduledNext", { when: ago(watch.next) }) : t("watchModeScout")}
+        </button>
+      {:else}
+        <Button icon={CalendarClock} loading={scheduling} title={t("watchScheduleHint")} onclick={plan}>{t("watchSchedule")}</Button>
+      {/if}
       <button
         class="btn primary"
         onclick={launch}
@@ -286,6 +371,7 @@
           </header>
 
           {#if e.critique.length}
+            <p class="label">{t("watchWhy")}</p>
             <ul class="critique">
               {#each e.critique as f, i (i)}
                 <li>
@@ -302,8 +388,12 @@
 
           {#if proposes(e)}
             <div class="proposal">
-              <p class="summary"><Sparkles size={13} aria-hidden="true" />{e.summary}</p>
-              <p class="muted small">{target(e)}</p>
+              <dl class="what">
+                <dt>{t("watchWhat")}</dt>
+                <dd class="summary"><Sparkles size={13} aria-hidden="true" />{e.summary}</dd>
+                <dt>{t("watchWhere")}</dt>
+                <dd class="muted">{target(e)}</dd>
+              </dl>
               <div class="sources">
                 <span class="muted small">{t("scoutSources")}</span>
                 {#each e.sources as url, i (i)}{@render sourceLine(url)}{/each}
@@ -371,6 +461,11 @@
             >
               <MessageSquareText size={14} aria-hidden="true" />{t("convRequestChange")}
             </button>
+            {#if handable(e)}
+              <button class="btn sm quiet team" disabled={!!scout.running} onclick={() => handOff(e)}>
+                <Users size={14} aria-hidden="true" />{t("watchTeam")}
+              </button>
+            {/if}
           </footer>
           {#if comments[k] !== undefined}
             <div class="comment">
@@ -408,6 +503,24 @@
           {t("scoutApply", { count: decided })}
         </button>
       </footer>
+    </section>
+  {/if}
+
+  {#if off.length && project}
+    <section class="step off" aria-labelledby="scout-off">
+      <div class="step-head">
+        <h3 id="scout-off">{t("watchOff")}</h3>
+      </div>
+      <p class="muted small">{t("watchOffHint", { project: project.name })}</p>
+      <ul class="off-list">
+        {#each off as l (key(l))}
+          <li>
+            {@render kindBadge(l.kind)}
+            <span class="item-name grow">{l.name}</span>
+            <Button size="sm" variant="primary" onclick={() => switchOn(l)}>{t("watchActivate", { project: project.name })}</Button>
+          </li>
+        {/each}
+      </ul>
     </section>
   {/if}
 
@@ -941,5 +1054,86 @@
 
   .action.applied {
     color: var(--done);
+  }
+
+  .label {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .what {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 4px 10px;
+    margin: 0;
+  }
+
+  .what dt {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 22px;
+    text-transform: uppercase;
+  }
+
+  .what dd {
+    margin: 0;
+    font-size: var(--text-sm);
+    line-height: 22px;
+  }
+
+  .card footer .team {
+    margin-left: auto;
+  }
+
+  .off-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+    list-style: none;
+  }
+
+  .off-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .off-list li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  .link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent-ink);
+    cursor: pointer;
+  }
+
+  .link:hover {
+    text-decoration: underline;
+  }
+
+  .update {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
   }
 </style>

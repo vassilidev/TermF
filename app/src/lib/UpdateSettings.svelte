@@ -91,7 +91,7 @@
             <ul>{#each block.items as item, j (j)}<li>{@render line(item)}</li>{/each}</ul>
           {:else if block.kind === "list"}
             <ol start={block.start}>{#each block.items as item, j (j)}<li>{@render line(item)}</li>{/each}</ol>
-          {:else}
+          {:else if block.kind === "paragraph"}
             <p>{@render line(block.spans)}</p>
           {/if}
         {/each}

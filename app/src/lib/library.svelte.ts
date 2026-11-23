@@ -70,7 +70,11 @@ export const library = $state({
   get scope(): string {
     return this.global ? "" : (app.project ?? "");
   },
-  tab: "items" as "items" | "conventions" | "worktrees",
+  tab: "items" as "todo" | "items" | "conventions" | "worktrees",
+  /** The convention the Conventions tab opens on, once. */
+  convention: null as string | null,
+  /** The Conventions tab starts a convention drawn from the code, once. */
+  deduce: false,
   /** The kind the list shows, or all of them. */
   kind: "all" as Kind | "plugin" | "all",
   /** The details' switch acts on every project instead of the current one. */
