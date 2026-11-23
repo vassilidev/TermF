@@ -66,8 +66,9 @@ function tauriDriver() {
 function prepare() {
   if (window.__e2e) return;
   const errors = [];
-  window.__e2e = { errors, clicks: [], synthetic: 0 };
-  document.addEventListener("click", (e) => window.__e2e.clicks.push(e.target), true);
+  window.__e2e = { errors, aim: null, hit: false, synthetic: 0 };
+  // Checked as the click comes in: once the page has handled it, what was clicked may be gone or replaced.
+  document.addEventListener("click", (e) => window.__e2e.aim?.contains(e.target) && (window.__e2e.hit = true), true);
   const push = (m) => errors.push(String(m).slice(0, 600));
   const error = console.error.bind(console);
   console.error = (...a) => (push(a.map((x) => x?.stack ?? x).join(" ")), error(...a));

@@ -91,11 +91,10 @@
 
 <main id="main">
 <div class="rail">
+  <!-- On a computer the words sit beside the film, so both fit the first screen; on a phone the film follows the buttons -->
   <section class="hero" aria-labelledby="hero-h">
-    <img class="appicon" src="icon.svg" alt="" width="76" height="76">
     <h1 id="hero-h">Stop using Claude&nbsp;Code <span class="alone"><span>(alone).</span></span></h1>
     <p class="sub"><strong>Tickets in. <span>Reviewed pull requests out.</span></strong> A CTO and a team of Claude Code agents, working live on your machine. You approve.</p>
-    <div class="cmd" id="install"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code><button class="copy" type="button" aria-label="Copy the install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
     <div class="ctas">
       <a class="btn" id="get" href="download.html">Download for macOS</a>
       <a class="btn ghost" href="docs/">Read the docs</a>
@@ -108,13 +107,12 @@
           : p.includes('win') ? 'Windows' : p.includes('linux') || /linux|x11|cros/i.test(ua) ? 'Linux' : 'macOS';
       })();
       document.getElementById('get').textContent = os ? 'Download for ' + os : 'Download TermF';
-      if (os === 'Windows') document.querySelector('#install code').textContent = 'irm https://vassilidev.github.io/TermF/install.ps1 | iex';
     </script>
-    <p class="meta">Free and open source, for macOS, Windows and Linux.</p>
     <figure class="win" id="film" data-video>
       <div class="win-bar"><i></i><i></i><i></i><span aria-hidden="true">TermF</span></div>
       <div class="screen"><video playsinline preload="none" poster="media/termf-film-poster.webp" width="1600" height="900" aria-label="The TermF film, 68 seconds, with sound"><source src="media/termf-launch.mp4" type="video/mp4"></video><button class="play" type="button" aria-label="Play the film, 68 seconds, with sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/></svg></button></div>
     </figure>
+    <p class="meta">Free and open source, for macOS, Windows and Linux.</p>
   </section>
 
   <section class="row" aria-labelledby="how-h">
@@ -259,9 +257,53 @@
     <div class="roster-foot"><p>Change a role, add your own, or run a role on Codex or Gemini.</p><a class="more" href="docs/team.html#roles"><span>Meet every role</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div>
   </section>
 
+  <section class="row" id="proof" aria-labelledby="proof-h">
+    <div class="head">
+      <h2 id="proof-h">Numbers, not promises.</h2>
+      <p>How good the work is, how fast the app is, and what stays on your machine. Each figure comes with how it was measured.</p>
+    </div>
+    <ul class="steps proof">
+      <li>
+        <div class="vis" aria-hidden="true">
+          <div class="bars">
+            <p class="bar team"><span>The team</span><b>90 %</b><i class="meter" style="--v:90%"></i></p>
+            <p class="bar"><span>One session</span><b>72 %</b><i class="meter" style="--v:72%"></i></p>
+          </div>
+        </div>
+        <h3>Better work on hard tickets</h3>
+        <p>Same tickets, same model, hidden tests and a blind judge. On complex tickets the team got 90 % of what the ticket left unsaid right, one session 72 %, for 4.8 times the cost.</p>
+      </li>
+      <li>
+        <div class="vis" aria-hidden="true">
+          <dl class="stats">
+            <div><dt>Opens in</dt><dd>0.42 s</dd></div>
+            <div><dt>A keystroke on screen</dt><dd>7 ms</dd></div>
+            <div><dt>CPU at rest</dt><dd>0.1 %</dd></div>
+          </dl>
+        </div>
+        <h3>Quick to open, quick to type</h3>
+        <p>TermF opens in under half a second, puts a keystroke on screen in 7 ms and sits at 0.1 % CPU at rest. The release build, measured by our CI.</p>
+      </li>
+      <li>
+        <div class="vis" aria-hidden="true">
+          <ul class="checks">
+            <li><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Runs on your machine</li>
+            <li><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Open source, MIT</li>
+            <li><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>No TermF account</li>
+            <li><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Secrets hidden from agents</li>
+            <li><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Nothing ships without your OK</li>
+          </ul>
+        </div>
+        <h3>Your code stays yours</h3>
+        <p>Everything runs on your computer: no TermF server, account or telemetry. Open source under MIT, agents never read your secrets, and nothing ships without your OK.</p>
+      </li>
+    </ul>
+    <div class="roster-foot"><p>Every figure, how it was measured, and its limits.</p><a class="more" href="benchmarks.html"><span>See the benchmarks</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div>
+  </section>
+
   <section class="row last" aria-labelledby="last-h">
     <h2 id="last-h">Install in <span class="grad">one command.</span></h2>
-    <div class="cmd" id="install-2"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code><button class="copy" type="button" aria-label="Copy the install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+    <div class="cmd" id="install"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code><button class="copy" type="button" aria-label="Copy the install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
     <div class="ctas">
       <a class="btn" href="download.html">Every download</a>
       <a class="btn ghost" href="docs/installation.html">Installation guide</a>
@@ -274,7 +316,7 @@
 <footer class="foot">
   <div class="foot-in">
     <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="24" height="24"><span>TermF</span></a>
-    <nav aria-label="Footer"><a href="docs/">Docs</a><a href="download.html">Download</a><a href="https://github.com/vassilidev/TermF">GitHub</a><a href="https://github.com/vassilidev/TermF/releases">Releases</a><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></nav>
+    <nav aria-label="Footer"><a href="docs/">Docs</a><a href="download.html">Download</a><a href="benchmarks.html">Benchmarks</a><a href="https://github.com/vassilidev/TermF">GitHub</a><a href="https://github.com/vassilidev/TermF/releases">Releases</a><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></nav>
     <p>© 2026 TermF contributors</p>
   </div>
 </footer>
@@ -297,7 +339,7 @@ for (const b of document.querySelectorAll('.cmd .copy')) b.addEventListener('cli
   b.classList.add('ok'); b.lastChild.textContent = 'Copied';
   setTimeout(() => { b.classList.remove('ok'); b.lastChild.textContent = 'Copy'; }, 1600);
 });
-if (os === 'Windows') document.querySelector('#install-2 code').textContent = document.querySelector('#install code').textContent;
+if (os === 'Windows') document.querySelector('#install code').textContent = 'irm https://vassilidev.github.io/TermF/install.ps1 | iex';
 // The install scripts refuse a release without SHA256SUMS: when GitHub says the latest one has none, the command
 // gives way to the download page
 fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=20')

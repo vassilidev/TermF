@@ -150,23 +150,23 @@ p{margin:0 0 1em;text-wrap:pretty}
 
 /* ------------------------------------------------------------------------------------------- front page */
 /* The hero: the same grid, crosses and halos as the film, which plays in an app window */
-.hero{position:relative;padding:clamp(40px,6vh,72px) var(--gut) clamp(48px,6vw,88px);text-align:center;isolation:isolate}
+.hero{position:relative;padding:clamp(36px,6vh,64px) var(--gut) clamp(48px,6vw,88px);text-align:center;isolation:isolate}
 .hero::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--grid) 50% 0/160px 160px;-webkit-mask:radial-gradient(70% 70% at 50% 30%,#000 30%,transparent 90%);mask:radial-gradient(70% 70% at 50% 30%,#000 30%,transparent 90%)}
 .hero::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(460px 320px at 50% 18%,var(--glow-i),transparent),radial-gradient(400px 280px at 94% 70%,var(--glow-g),transparent),radial-gradient(400px 280px at 6% 70%,var(--glow-a),transparent)}
 .appicon{display:block;width:76px;height:76px;margin:0 auto;filter:drop-shadow(0 1px 1px rgb(13 13 20/.12)) drop-shadow(0 16px 22px rgb(63 63 198/.34))}
-.hero h1{max-width:13em;margin:28px auto 0;font-size:clamp(2.6rem,6.3vw,5.4rem);line-height:1.02;font-weight:700;letter-spacing:-.035em}
+.hero h1{max-width:13em;margin:0 auto;font-size:clamp(2.6rem,6.3vw,5.4rem);line-height:1.02;font-weight:700;letter-spacing:-.035em}
 .alone{display:block;overflow:hidden;padding:.02em 0 .12em;margin-bottom:-.12em}
 .alone span{display:inline-block;padding:0 .05em;background:var(--title);-webkit-background-clip:text;background-clip:text;color:transparent;animation:rise .75s var(--ease) .5s both}
 @keyframes rise{from{transform:translateY(108%)}}
 .hero .sub{max-width:32em;margin:22px auto 0;color:var(--soft);font-size:clamp(1.06rem,1.5vw,1.25rem);line-height:1.5;text-wrap:balance}
 .sub strong{display:block;margin-bottom:6px;color:var(--ink);font-size:clamp(1.3rem,2.2vw,1.7rem);font-weight:600;letter-spacing:-.02em;line-height:1.25}
 .sub strong span{display:inline-block}
-.hero .cmd{width:min(100%,620px);margin:32px auto 0}
 .ctas{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:14px}
-.hero .meta{margin:16px 0 0;color:var(--mute);font-size:.86rem}
+.hero .ctas{margin-top:28px}
+.hero .meta{margin:18px 0 0;color:var(--mute);font-size:.86rem}
 
-/* The film's window: wider than the rail on a computer, edge to edge on a phone */
-.win{--w:min(1280px,92vw);position:relative;width:var(--w);margin:clamp(36px,5vh,56px) calc((100% - var(--w))/2) 0;border-radius:14px;background:var(--win-bg);box-shadow:0 0 0 1px var(--ring),var(--lift);text-align:left;scroll-margin-top:calc(var(--nav) + 24px)}
+/* The film's window: wider than the rail on a tablet, edge to edge on a phone, beside the words on a computer */
+.win{--w:min(1280px,92vw);position:relative;width:var(--w);margin:clamp(32px,4.5vh,48px) calc((100% - var(--w))/2) 0;border-radius:14px;background:var(--win-bg);box-shadow:0 0 0 1px var(--ring),var(--lift);text-align:left;scroll-margin-top:calc(var(--nav) + 24px)}
 .win::before{content:"";position:absolute;inset:6% -3% -5%;z-index:-1;border-radius:40%;background:linear-gradient(95deg,#5d5fea,#8b7cf6 50%,#62cf8e);filter:blur(70px);opacity:var(--glow-win);pointer-events:none}
 .win-bar{position:relative;display:flex;align-items:center;gap:8px;height:46px;padding:0 8px 0 16px;border-radius:14px 14px 0 0;background:var(--win-bar);box-shadow:inset 0 -1px var(--win-bar-line)}
 .win-bar>i{width:12px;height:12px;border-radius:50%;background:#ff5f57}
@@ -184,7 +184,7 @@ p{margin:0 0 1em;text-wrap:pretty}
 
 /* How it works: three steps, each with a fragment of the app */
 .steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin:0;padding:0;list-style:none;background:var(--line);border-top:1px solid var(--line)}
-.steps li{display:flex;flex-direction:column;padding:clamp(20px,2.6vw,32px) clamp(20px,2.6vw,32px) clamp(28px,3.4vw,40px);background:var(--paper)}
+.steps>li{display:flex;flex-direction:column;padding:clamp(20px,2.6vw,32px) clamp(20px,2.6vw,32px) clamp(28px,3.4vw,40px);background:var(--paper)}
 .steps .vis{display:grid;place-items:center;height:184px;margin-bottom:26px;padding:16px;border-radius:16px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line)}
 .steps h3{display:flex;align-items:center;gap:10px;font-size:1.2rem;line-height:1.25;font-weight:650}
 .steps p{margin:8px 0 0;color:var(--soft);font-size:.99rem;max-width:34em}
@@ -222,6 +222,25 @@ p{margin:0 0 1em;text-wrap:pretty}
 .pr small{padding-left:24px;color:var(--mute);font-size:.8rem}
 .pr small b{color:var(--done);font-weight:600}
 .pr div{display:flex;align-items:center;justify-content:space-between;margin-top:12px}
+
+/* Numbers, not promises: a bar per side, a few measures, what stays yours. The team is indigo wherever it is compared */
+.bars,.stats,.checks{background:var(--sheet);box-shadow:inset 0 0 0 1px var(--line2),0 1px 2px rgb(13 13 20/.04)}
+.bars{display:grid;gap:14px;width:min(100%,300px);padding:16px 18px;border-radius:14px}
+.bars .bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;max-width:none;margin:0;color:var(--ink);font-size:.86rem;font-weight:600;line-height:1.3}
+.bar b{font-weight:650;font-variant-numeric:tabular-nums}
+.bar .meter{grid-column:1/-1}
+.bars .bar:not(.team){color:var(--soft)}
+.meter{display:block;height:8px;border-radius:99px;background:var(--hover)}
+.meter::before{content:"";display:block;width:var(--v);height:100%;border-radius:inherit;background:color-mix(in srgb,var(--mute) 55%,transparent)}
+.team .meter::before,.key .team::before{background:linear-gradient(90deg,#5d5fea,#8b7cf6)}
+.stats{display:grid;width:min(100%,300px);margin:0;padding:4px 16px;border-radius:14px}
+.stats div{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.stats div:last-child{border-bottom:0}
+.stats dt{color:var(--soft);font-size:.86rem}
+.stats dd{margin:0;font-weight:650;font-size:1.06rem;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.checks{display:grid;gap:4px;width:min(100%,300px);margin:0;padding:12px 16px;border-radius:14px;list-style:none}
+.checks li{display:flex;align-items:center;gap:9px;font-size:.86rem;font-weight:550;line-height:1.5}
+.checks .i{width:15px;height:15px;color:var(--done);stroke-width:2.4}
 
 /* The features: cards that stack as the page scrolls, like the deck of the film */
 .deck{display:grid;gap:clamp(16px,2vw,24px);padding:0 clamp(12px,2.4vw,32px) clamp(56px,7vw,96px)}
@@ -342,6 +361,48 @@ p{margin:0 0 1em;text-wrap:pretty}
 .releases li{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;min-height:44px;font-size:.95rem}
 .releases a{display:inline-flex;align-items:center;min-height:44px}
 .releases span{color:var(--mute)}
+
+/* The benchmarks page: each side of a comparison keeps its colour, the team indigo, one session grey */
+.head .key{display:flex;flex-wrap:wrap;gap:6px 20px;margin:20px 0 0;color:var(--soft);font-size:.9rem;font-weight:600}
+.key span{display:inline-flex;align-items:center;gap:8px}
+.key span::before{content:"";width:18px;height:8px;border-radius:99px;background:color-mix(in srgb,var(--mute) 55%,transparent)}
+.versus{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border-top:1px solid var(--line)}
+.versus>section{display:flex;flex-direction:column;padding:clamp(24px,3.4vw,44px);background:var(--paper)}
+.versus h3{font-size:clamp(1.3rem,2vw,1.55rem);line-height:1.15;font-weight:650;letter-spacing:-.022em}
+.versus .what{margin:8px 0 0;color:var(--mute);font-size:.93rem}
+.metric{margin-top:28px}
+.metric h4{margin:0 0 10px;font-size:.95rem;font-weight:650;letter-spacing:-.005em}
+.duel{display:grid;gap:9px;margin:0}
+.duel div{display:grid;grid-template-columns:6.5em minmax(0,1fr) 6em;align-items:center;gap:14px;font-size:.92rem}
+.duel dt{color:var(--soft)}
+.duel .team dt{color:var(--ink);font-weight:600}
+.duel dd{display:contents}
+.duel .meter{height:10px}
+.duel b{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.verdict{margin:auto 0 0;padding-top:28px;color:var(--ink);font-weight:550;line-height:1.5}
+.verdict::before{content:"";display:block;margin-bottom:18px;border-top:1px solid var(--line)}
+.method{border-top:1px solid var(--line)}
+.method h3{margin:0 0 10px;font-size:1.3rem;letter-spacing:-.02em}
+.method .links{display:grid;justify-items:start;margin:4px 0 0}
+.method .reqs div{grid-template-columns:84px minmax(0,1fr)}
+.perf{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;background:var(--line);border-top:1px solid var(--line)}
+.perf>div{padding:clamp(22px,2.4vw,30px);background:var(--paper)}
+.perf .v{margin:0;font-size:clamp(2.1rem,3.2vw,2.6rem);font-weight:700;line-height:1;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+.perf .v small{margin-left:5px;color:var(--soft);font-size:.46em;font-weight:600;letter-spacing:0}
+.perf h3{margin:16px 0 6px;font-size:1rem;font-weight:650;letter-spacing:-.01em}
+.perf p:not(.v){margin:0;color:var(--soft);font-size:.92rem;line-height:1.5}
+.frame{display:grid;gap:10px;margin-top:16px}
+.frame .bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;font-size:.8rem;font-weight:600}
+.frame .bar:not(.team){color:var(--soft)}
+.cond{margin:0;padding:18px clamp(20px,5vw,72px);border-top:1px solid var(--line);color:var(--mute);font-size:.88rem}
+.cond a{color:var(--soft)}
+.facts{margin:0;padding:0;list-style:none;border-top:1px solid var(--line)}
+.facts li{display:grid;grid-template-columns:44px minmax(0,15rem) minmax(0,1fr);gap:4px 24px;padding:24px clamp(20px,5vw,72px);border-top:1px solid var(--line)}
+.facts li:first-child{border-top:0}
+.facts .ico{display:grid;place-items:center;width:44px;height:44px;border-radius:12px;background:var(--ini-bg);box-shadow:inset 0 0 0 1px var(--line2);color:var(--accent)}
+.facts h3{padding-top:9px;font-size:1.1rem;line-height:1.3;font-weight:650;letter-spacing:-.015em}
+.facts p{margin:0;padding-top:9px;color:var(--soft);max-width:40em}
+.facts .more{margin-top:2px}
 
 .lost{position:relative;padding:clamp(72px,12vw,150px) var(--gut) clamp(80px,12vw,150px);text-align:center;isolation:isolate}
 .lost::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--grid) 50% 0/160px 160px;-webkit-mask:radial-gradient(60% 70% at 50% 40%,#000 30%,transparent 90%);mask:radial-gradient(60% 70% at 50% 40%,#000 30%,transparent 90%)}
@@ -479,6 +540,18 @@ p{margin:0 0 1em;text-wrap:pretty}
 #search .none{margin:0;padding:20px;color:var(--mute)}
 
 /* --------------------------------------------------------------------------------------------- responsive */
+/* A computer: the words on the left, the film on the right, reaching past the rail; the empty rows above and below
+   the words take what the film is taller by, so the words stay centred beside it */
+@media (min-width:1080px){
+  .hero{--pad:clamp(24px,3.5vw,56px);--bleed:clamp(0px,(100vw - 1200px)/2 - 24px,96px);display:grid;grid-template-columns:minmax(0,26rem) minmax(0,1fr);grid-template-rows:1fr repeat(4,auto) 1fr;grid-template-areas:". film" "h1 film" "sub film" "ctas film" "meta film" ". film";column-gap:clamp(40px,4vw,64px);padding:clamp(40px,7vh,80px) var(--pad);text-align:left}
+  .hero::before{-webkit-mask:radial-gradient(60% 80% at 30% 45%,#000 30%,transparent 90%);mask:radial-gradient(60% 80% at 30% 45%,#000 30%,transparent 90%)}
+  .hero::after{background:radial-gradient(440px 320px at 16% 30%,var(--glow-i),transparent),radial-gradient(420px 300px at 88% 88%,var(--glow-g),transparent),radial-gradient(360px 260px at 2% 92%,var(--glow-a),transparent)}
+  .hero h1{grid-area:h1;max-width:none;margin:0;font-size:clamp(2.75rem,4.6vw,4.4rem)}
+  .hero .sub{grid-area:sub;max-width:none;margin:24px 0 0;text-wrap:pretty}
+  .hero .ctas{grid-area:ctas;justify-content:flex-start}
+  .hero .meta{grid-area:meta}
+  .hero .win{grid-area:film;align-self:center;width:auto;margin:0 calc(-1 * (var(--pad) + var(--bleed))) 0 0}
+}
 /* The deck stacks only where a card fits the screen and motion is welcome; elsewhere the cards simply follow */
 @media (min-width:900px) and (min-height:680px) and (prefers-reduced-motion:no-preference){
   .deck .card{position:sticky;top:calc(var(--nav) + 24px + var(--i) * 14px);height:min(560px,100vh - var(--nav) - 120px);min-height:0;transform:scale(calc(1 - var(--p) * .035))}
@@ -491,13 +564,15 @@ p{margin:0 0 1em;text-wrap:pretty}
 /* Three steps side by side need a wide screen; below, each step is a row, its picture beside its words */
 @media (max-width:1099px){
   .steps{grid-template-columns:minmax(0,1fr)}
-  .steps li{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:clamp(24px,4vw,48px);align-items:center}
+  .steps>li{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:clamp(24px,4vw,48px);align-items:center}
   .steps .vis{grid-row:span 2;margin:0}
   .steps h3{align-self:end}
   .steps p{align-self:start}
+  .perf{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .perf>div:last-child{grid-column:1/-1}
 }
 @media (max-width:980px){
-  .split,.dl{grid-template-columns:minmax(0,1fr)}
+  .split,.dl,.versus{grid-template-columns:minmax(0,1fr)}
   .oses{grid-template-columns:minmax(0,1fr)}
   .docs{display:block;padding:0 var(--gut)}
   /* The drawer opens under the top bar, so its button stays there to close it */
@@ -544,12 +619,12 @@ p{margin:0 0 1em;text-wrap:pretty}
 @keyframes drop{from{opacity:0;transform:translateY(-8px)}}
 @supports not selector(:popover-open){.nav .menu-btn{display:none}}
 @media (max-width:560px){
-  .steps li{display:flex}
+  .steps>li{display:flex;align-items:stretch}
   .steps .vis{margin-bottom:24px}
   .steps h3,.steps p{align-self:auto}
-  .hero{padding-top:40px}
+  .hero{padding-top:32px}
   .appicon{width:64px;height:64px}
-  .hero h1{margin-top:22px;font-size:clamp(2.5rem,12.4vw,3.4rem)}
+  .hero h1{font-size:clamp(2.5rem,12.4vw,3.4rem)}
   .hero .ctas{display:grid;grid-template-columns:minmax(0,1fr)}
   .hero .ctas .btn{width:100%}
   .win{--w:100vw;border-radius:0}
@@ -579,6 +654,14 @@ p{margin:0 0 1em;text-wrap:pretty}
   .roster h3{padding-inline:20px}
   .roster ul{flex-wrap:nowrap;overflow-x:auto;padding:2px 20px;scroll-padding-inline:20px;scroll-snap-type:x proximity;scrollbar-width:none}
   .roster li{flex:none;scroll-snap-align:start}
+  .perf{grid-template-columns:minmax(0,1fr)}
+  .duel div{grid-template-columns:minmax(0,1fr) auto;gap:6px 12px}
+  .duel b{grid-row:1;grid-column:2}
+  .duel .meter{grid-column:1/-1}
+  .facts li{grid-template-columns:44px minmax(0,1fr);column-gap:16px}
+  .facts li>div{grid-column:2}
+  .facts h3{padding-top:10px}
+  .facts p{padding-top:4px}
 }
 @media (pointer:coarse){
   .btn.small,.find{min-height:44px}
