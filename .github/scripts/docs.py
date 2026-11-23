@@ -494,7 +494,7 @@ def footer(prefix):
     return f"""<footer class="foot">
   <div class="wrap foot-in">
     <a class="brand" href="{prefix}"><img src="{prefix}icon.svg" alt="" width="24" height="24"><span>TermF</span></a>
-    <nav aria-label="Footer"><a href="{prefix}docs/">Docs</a><a href="{prefix}download.html">Download</a><a href="{REPO}">GitHub</a><a href="{REPO}/releases">Releases</a><a href="{REPO}/issues">Report an issue</a><a href="{REPO}/blob/main/LICENSE">MIT license</a></nav>
+    <nav aria-label="Footer"><a href="{prefix}docs/">Docs</a><a href="{prefix}download.html">Download</a><a href="{prefix}benchmarks.html">Benchmarks</a><a href="{REPO}">GitHub</a><a href="{REPO}/releases">Releases</a><a href="{REPO}/issues">Report an issue</a><a href="{REPO}/blob/main/LICENSE">MIT license</a></nav>
     <p>Free and open source. Runs on your machine.</p>
   </div>
 </footer>"""
@@ -635,7 +635,7 @@ if filled != source:
     open(path, "w", encoding="utf-8").write(filled)
     print("index.html refreshed")
 
-urls = ["", "download.html", "docs/"] + [f"docs/{p.slug}.html" for p in pages]
+urls = ["", "download.html", "benchmarks.html", "docs/"] + [f"docs/{p.slug}.html" for p in pages]
 open(os.path.join(SITE, "sitemap.xml"), "w", encoding="utf-8").write(
     '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
     + "".join(f"  <url>\n    <loc>{BASE}{u}</loc>\n  </url>\n" for u in urls) + "</urlset>\n")
