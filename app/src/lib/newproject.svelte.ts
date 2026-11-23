@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Card } from "$lib/setup-logic";
+import { withAnalysis, type Card } from "$lib/setup-logic";
 import type { Detected } from "$lib/RepoDetection.svelte";
 import type { Analysis, TeamChoices } from "$lib/onboarding-logic";
 import { app, onScreen, panes, ui, type ViewId } from "$lib/state.svelte";
@@ -9,7 +9,7 @@ import { closePanel } from "$lib/panes.svelte";
 
 export type Mode = "repos" | "scratch";
 /** What the last step sets up, each kept unless switched off. */
-export type Row = "team" | "tickets" | "worktree" | "checks" | "ci";
+export type Row = "team" | "tickets" | "worktree" | "checks" | "ci" | "mcp" | "databases" | "visual";
 export type Notify = "mine" | "all" | "off";
 
 /** Everything decided in the setup, kept between visits and launches until the project is created. */
@@ -40,6 +40,16 @@ export type Draft = {
   notify: Notify | null;
   /** Skills the stack switches on that the owner switched off. */
   skillsOff: string[];
+  /** MCP servers of the stack switched off, by name; on, those that run the project's code. */
+  mcpOff: string[];
+  mcpOn: string[];
+  /** Declared databases left out, by where they are declared. */
+  dbOff: string[];
+  /** Dev servers typed by the owner, by repository path, and the pages the visual review captures. */
+  dev: Record<string, string>;
+  routes: string | null;
+  /** Replace the project's convention though it was edited in the Library. */
+  replace: boolean;
   /** The selection trusted in Claude Code, one path per line: another selection is trusted only once seen. */
   trusted: string;
 };
@@ -63,6 +73,12 @@ const fresh = (): Draft => ({
   checks: {},
   notify: null,
   skillsOff: [],
+  mcpOff: [],
+  mcpOn: [],
+  dbOff: [],
+  dev: {},
+  routes: null,
+  replace: false,
   trusted: "",
 });
 
@@ -206,22 +222,37 @@ export function analyze(project: string | null, repos: string[], lang: string): 
   if (run) return run;
   run = follow(project ?? "", () => invoke<Found>("setup_analyze", { repos, lang, project })).finally(() => analyses.delete(key));
   analyses.set(key, run);
-  const land = (patch: Partial<Draft>) => {
-    const analyzed = repos.join("\n");
-    if (creating.project === project && draft.chosen.join("\n") === analyzed) return Object.assign(draft, patch);
-    const kept = stored(project);
-    if (kept.chosen.join("\n") === analyzed) keep(project, { ...kept, ...patch });
+  // Kept as soon as it lands, open or not: reopening the setup never pays for it again.
+  const land = (result: Parameters<typeof withAnalysis>[2]) => {
+    const live = creating.open && creating.project === project ? withAnalysis($state.snapshot(draft) as Draft, repos, result) : null;
+    if (live) Object.assign(draft, live);
+    const next = live ?? withAnalysis(stored(project), repos, result);
+    if (next) keep(project, next);
   };
   run.then(
-    ({ analysis, error }) =>
-      land({
-        analysis,
-        analyzed: repos.join("\n"),
-        failed: error ?? "",
-        answers: Object.fromEntries(analysis.questions.map((q) => [q.id, q.default])),
-        question: 0,
-      }),
-    (e) => land({ failed: String(e), analyzed: repos.join("\n") }),
+    (found) => land(found),
+    (e) => land({ failure: String(e) }),
   );
   return run;
+}
+
+/** What goes on in the background once a project is set up, by project: the Home follows it. */
+export type Job = { id: "analysis" | "conventions" | "memory"; state: "running" | "done" | "failed"; detail?: string };
+export const jobs = $state<Record<string, Job[]>>({});
+
+function mark(project: string, job: Job) {
+  const list = jobs[project] ?? [];
+  jobs[project] = list.some((j) => j.id === job.id) ? list.map((j) => (j.id === job.id ? job : j)) : [...list, job];
+}
+
+/** Runs `work` for `project`, its state shown on the Home as it goes; a failure is said there, never thrown. */
+export async function track<T>(project: string, id: Job["id"], work: () => Promise<T>): Promise<T | undefined> {
+  mark(project, { id, state: "running" });
+  try {
+    const done = await work();
+    mark(project, { id, state: "done" });
+    return done;
+  } catch (e) {
+    mark(project, { id, state: "failed", detail: String(e) });
+  }
 }

@@ -81,6 +81,38 @@ export function tagText(tag: { name: string; version?: string | null }): string 
   return major ? `${name} ${major}` : name;
 }
 
+/** What one analysis by Claude Code may spend, in USD: `termf_onboarding::BUDGET`. */
+export const ANALYSIS_BUDGET = 2;
+
+type Landed = { chosen: string[]; analysis: unknown; analyzed: string; failed: string; answers: Record<string, string[]>; question: number };
+type Result = { analysis: { questions: { id: string; default: string[] }[] }; error: string | null } | { failure: string };
+
+/**
+ * The draft once the analysis of `repos` came back, or null when it is a draft of other repositories now. A failure
+ * leaves no analysis, never an older one of other repositories that would pass for this one.
+ */
+export function withAnalysis<T extends Landed>(draft: T, repos: string[], result: Result): T | null {
+  const analyzed = repos.join("\n");
+  if (draft.chosen.join("\n") !== analyzed) return null;
+  if ("failure" in result) return { ...draft, analysis: null, analyzed, failed: result.failure, question: 0 };
+  const answers = Object.fromEntries(result.analysis.questions.map((q) => [q.id, q.default]));
+  return { ...draft, analysis: result.analysis, analyzed, failed: result.error ?? "", answers, question: 0 };
+}
+
+/**
+ * The check commands to write: each repository's (`checkOf`), and an empty one for a command the project had and the
+ * owner emptied, which removes it.
+ */
+export function checksToWrite(paths: string[], typed: Record<string, string>, saved: Record<string, string> | undefined, found: Record<string, Scripts | string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const p of paths) {
+    const run = checkOf(p, typed, saved, found[p]).trim();
+    if (run) out[p] = run;
+    else if (saved?.[p]) out[p] = "";
+  }
+  return out;
+}
+
 /**
  * Whether every chosen repository was read (or failed to be): its test command is the check the team runs before
  * delivering, so the setup goes on, and creates, only once each one is known.

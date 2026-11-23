@@ -10,14 +10,20 @@
   import Ticket from "@lucide/svelte/icons/ticket";
   import Users from "@lucide/svelte/icons/users";
   import Workflow from "@lucide/svelte/icons/workflow";
+  import BookOpen from "@lucide/svelte/icons/book-open";
+  import Bot from "@lucide/svelte/icons/bot";
+  import Database from "@lucide/svelte/icons/database";
+  import Eye from "@lucide/svelte/icons/eye";
+  import Plug from "@lucide/svelte/icons/plug";
   import { untrack, type Component, type Snippet } from "svelte";
   import type { Detected } from "$lib/RepoDetection.svelte";
   import Segments from "$lib/ui/Segments.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import Switch from "$lib/ui/Switch.svelte";
   import { toast } from "$lib/ui/toast.svelte";
-  import { lang, t } from "$lib/i18n";
-  import { analyze, draft, endNewProject, found, runningFor, type Notify, type Row } from "$lib/newproject.svelte";
+  import { known, lang, t } from "$lib/i18n";
+  import { analyze, draft, endNewProject, found, runningFor, track, type Notify, type Row } from "$lib/newproject.svelte";
+  import { passwordName } from "$lib/ops-logic";
   import {
     githubIssues,
     members,
@@ -33,7 +39,7 @@
     type TeamStatus,
     type Trackers,
   } from "$lib/onboarding-logic";
-  import { checkOf as commandOf, detectedAll, githubSlugs, gitlabRepos, projectId, type Card } from "$lib/setup-logic";
+  import { checkOf as commandOf, checksToWrite, detectedAll, githubSlugs, gitlabRepos, projectId, tagText, type Card } from "$lib/setup-logic";
   import { app, load, setProject, shortPath, ui, type Project } from "$lib/state.svelte";
   import { added } from "$lib/team-logic";
 
@@ -47,7 +53,9 @@
   }: { project: Project | null; chosen: Card[]; name: string; busy?: boolean; ready?: boolean } = $props();
 
   type RoleChoice = { role: string; keep: boolean; why: string; detail: string[] };
-  type Skill = { name: string; by: string[]; package: string | null };
+  type Skill = { name: string; by: string[]; package: string | null; description: string };
+  type Mcp = { name: string; for: string; server: Record<string, unknown>; docs: string; runsCode: boolean; repos: string[] };
+  type Db = { id: number; source: string; connection: { name: string; env: string } | null; refused: string | null; hasPassword: boolean; scheme: string };
   type Proposal = {
     choices: TeamChoices;
     splittable: boolean;
@@ -55,9 +63,10 @@
     steps: string[];
     team: TeamEdit;
     skills: Skill[];
+    mcp: Mcp[];
     trust: RepoTrust[];
   };
-  type Team = Omit<Proposal, "team" | "skills" | "trust"> & { proposal: TeamEdit; status: Record<string, TeamStatus> };
+  type Team = Omit<Proposal, "team" | "skills" | "mcp" | "trust"> & { proposal: TeamEdit; status: Record<string, TeamStatus> };
   type Sources = { trackers: Trackers; githubRepos: string[] };
   type RecipeView = { saved: boolean; detected: unknown };
 
@@ -69,6 +78,10 @@
   let preview = $state("");
   let error = $state("");
   let open = $state<Record<string, boolean>>({});
+  let dbs = $state<Db[]>([]);
+  let vaultReady = $state(false);
+  /** The project's onboarding convention was edited in the Library since the assistant wrote it. */
+  let edited = $state(false);
 
   const paths = $derived(chosen.map((c) => c.path));
   const selection = $derived(paths.join("\n"));
@@ -77,6 +90,20 @@
   const toggle = (row: Row, value: boolean) => (draft.off = value ? draft.off.filter((r) => r !== row) : [...draft.off, row]);
 
   invoke<Notify>("ci_notify").then((n) => (notifyNow = n), () => {});
+  invoke<{ initialized: boolean; unlocked: boolean }>("vault_status").then((v) => (vaultReady = v.initialized && v.unlocked), () => {});
+
+  // The databases the repositories declare: their passwords stay in the backend until a connection is saved.
+  $effect(() => {
+    const repos = [...paths];
+    invoke<Db[]>("ops_declared", { repos }).then((list) => {
+      if (repos.join("\n") === untrack(() => selection)) dbs = list;
+    }, () => (dbs = []));
+  });
+
+  $effect(() => {
+    const id = project?.id;
+    if (id) invoke<{ edited: boolean }>("onboarding_state", { project: id }).then((s) => (edited = s.edited), () => {});
+  });
   const notify = $derived(draft.notify ?? notifyNow);
 
   // The proposal follows the repositories and the team's choices, a moment after the last change.
@@ -158,9 +185,78 @@
   const workflowCount = $derived(chosen.reduce((n, c) => n + (typeof found[c.path] === "object" ? (found[c.path] as Detected).facts.workflows.length : 0), 0));
 
   const checkOf = (c: Card) => commandOf(c.path, draft.checks, project?.checks, found[c.path]);
-  const checks = $derived(on("checks") ? Object.fromEntries(chosen.flatMap((c) => (checkOf(c).trim() ? [[c.path, checkOf(c).trim()]] : []))) : {});
+  // An emptied command of a project that exists is written empty, which removes it.
+  const checks = $derived(on("checks") ? checksToWrite(paths, draft.checks, project?.checks, found) : {});
+  const checksSet = $derived(Object.fromEntries(Object.entries(checks).filter(([, run]) => run)));
   // Switched off for a project that exists: its checks are left as they are, not removed.
-  const checksChanged = $derived(!!project && on("checks") && JSON.stringify(checks) !== JSON.stringify(project.checks ?? {}));
+  const checksChanged = $derived(
+    !!project && on("checks") && Object.entries(checks).some(([p, run]) => (project.checks?.[p] ?? "") !== run),
+  );
+
+  /** A role as people say it: `front` is a front-end developer. */
+  const roleName = (role: string) => {
+    const key = `cpRole-${role}`;
+    return known(key) ? t(key) : role;
+  };
+  /** Where a tag was found: `Next.js 16 found in web-dashboard`. */
+  function foundIn(tag: string): string {
+    const repos = chosen.filter((c) => {
+      const d = found[c.path];
+      return typeof d === "object" && d.tags.some((x) => x.name === tag);
+    });
+    const one = repos.map((c) => (found[c.path] as Detected).tags.find((x) => x.name === tag)!)[0];
+    return t("cpSkillFound", { tag: tagText(one ?? { name: tag }), repos: repos.map((c) => c.name).join(", ") || "—" });
+  }
+  const skillWhy = (s: Skill) => (s.package ? t("cpSkillPackage", { package: s.package }) : s.by.map(foundIn).join(" · "));
+
+  const mcpKept = $derived(
+    (proposal?.mcp ?? []).filter((m) => (m.runsCode ? draft.mcpOn.includes(m.name) : !draft.mcpOff.includes(m.name))),
+  );
+  const keepMcp = (m: Mcp, keep: boolean) => {
+    if (m.runsCode) draft.mcpOn = keep ? [...draft.mcpOn, m.name] : draft.mcpOn.filter((n) => n !== m.name);
+    else draft.mcpOff = keep ? draft.mcpOff.filter((n) => n !== m.name) : [...draft.mcpOff, m.name];
+  };
+
+  /** The databases worth a connection: one per name, those TermF takes. */
+  const usable = $derived(dbs.filter((d, i) => d.connection && dbs.findIndex((o) => o.connection?.name === d.connection!.name) === i));
+  const dbKept = $derived(usable.filter((d) => !draft.dbOff.includes(d.source)));
+
+  /** The repositories with a web interface and a dev script: the visual review starts them. */
+  const webRepos = $derived(
+    chosen.flatMap((c) => {
+      const d = found[c.path];
+      if (typeof d !== "object") return [];
+      const web = d.facts.parts.some((p) => p.role === "front" || p.web);
+      const dev = d.scripts.find((x) => x.kind === "dev")?.run;
+      return web && dev ? [{ card: c, dev: draft.dev[c.path] ?? dev }] : [];
+    }),
+  );
+  const routes = $derived(
+    (draft.routes ?? "/")
+      .split(",")
+      .map((r) => r.trim())
+      .filter((r) => r.startsWith("/")),
+  );
+  const extras = $derived({
+    mcp: on("mcp") ? Object.fromEntries(mcpKept.map((m) => [m.name, m.server])) : {},
+    dev: on("visual") ? Object.fromEntries(webRepos.filter((w) => w.dev.trim()).map((w) => [w.card.path, w.dev.trim()])) : {},
+    routes: on("visual") && webRepos.length ? routes : [],
+  });
+
+  /** The Claude Code config the repositories bring, in words: the CLAUDE.md of api, the commands of web. */
+  const claudeConfig = $derived(
+    chosen.flatMap((c) => {
+      const d = found[c.path];
+      if (typeof d !== "object") return [];
+      const words: Record<string, string> = {
+        ".claude/skills": t("cpClaudeSkills"),
+        ".claude/commands": t("cpClaudeCommands"),
+        ".claude/agents": t("cpClaudeAgents"),
+        ".claude/settings.json": t("cpClaudeSettings"),
+      };
+      return [...d.facts.instructions, ...d.facts.claude].map((f) => t("cpClaudeOf", { what: words[f] ?? f, repo: c.name }));
+    }),
+  );
 
   const trusted = $derived(draft.trusted === selection);
   const allTrusted = $derived(!!proposal && trustState(proposal.trust) === "on");
@@ -168,7 +264,7 @@
 
   $effect(() => {
     if (project || !name) return;
-    const args = { name, repos: [...paths], team: teamWrite, trackers: on("tickets") ? trackers : null, checks };
+    const args = { name, repos: [...paths], team: teamWrite, trackers: on("tickets") ? trackers : null, checks: checksSet, extras };
     invoke<string>("setup_preview", args).then(
       (text) => (preview = text),
       (e) => (preview = String(e)),
@@ -186,9 +282,16 @@
     const staff = edit.team?.staff ?? [];
     const head =
       squads.length === 1
-        ? t("cpTeamOne", { list: members(squads[0].roles).join(", ") })
-        : t("cpTeamSquads", { count: squads.length, list: squads.map((s) => `${s.id} (${members(s.roles).join(", ")})`).join(", ") });
-    return staff.length ? `${head} ${t("cpTeamStaff", { list: staff.join(", ") })}` : head;
+        ? t("cpTeamOne", { list: people(squads[0].roles) })
+        : t("cpTeamSquads", { count: squads.length, list: squads.map((s) => `${s.id} (${people(s.roles)})`).join(", ") });
+    return staff.length ? `${head} ${t("cpTeamStaff", { list: staff.map(roleName).join(", ") })}` : head;
+  }
+
+  /** A squad's roles as people: `2 × Front-end developer, QA engineer`. */
+  function people(roles: Record<string, number>): string {
+    return Object.entries(roles)
+      .map(([role, n]) => (n > 1 ? `${n} × ${roleName(role)}` : roleName(role)))
+      .join(", ");
   }
 
   const sizes = [1, 2, 3].map((n) => ({ id: String(n), label: String(n) }));
@@ -217,7 +320,7 @@
     if (!id) {
       try {
         const before = app.workspace!.projects;
-        const after = await invoke<Project[]>("project_save", { id: null, name, repos: paths, checks });
+        const after = await invoke<Project[]>("project_save", { id: null, name, repos: paths, checks: checksSet });
         app.workspace!.projects = after;
         id = added(before, after);
       } catch (e) {
@@ -270,25 +373,47 @@
         await decide("skills", "rejected", `-${skill}`);
       });
     if (trusted && !allTrusted) await attempt(() => invoke("claude_trust_set", { project: projectId, on: true }));
+    const kept = $state.snapshot(extras);
+    if (Object.keys(kept.mcp).length || Object.keys(kept.dev).length || kept.routes.length)
+      await attempt(async () => {
+        await invoke("setup_extras", { project: projectId, extras: kept });
+        if (Object.keys(kept.mcp).length) await decide("mcp", "accepted", Object.keys(kept.mcp).join(", "));
+      });
+    if (on("databases"))
+      for (const db of dbKept)
+        await attempt(async () => {
+          const connection = { ...db.connection, secrets: db.hasPassword ? { password: passwordName(db.connection!.name) } : {} };
+          const save = (found: number | null) => invoke("ops_connection_save", { project: projectId, connection, found });
+          // Without a vault open (or for a prod one it asks for), the connection still comes, its password later.
+          if (db.hasPassword && vaultReady) await save(db.id).catch(() => save(null));
+          else await save(null);
+        });
 
     const choices = proposal.choices;
     // The draft is gone once the project exists: an analysis still running answers with what was chosen.
     const given = $state.snapshot(draft.answers);
+    // A convention edited by hand in the Library is replaced only on the owner's choice.
+    const write = !edited || draft.replace;
     const settle = async (analysis: Analysis) => {
       await invoke("onboarding_adopt", { project: projectId, analysis });
       const own = Object.fromEntries(analysis.questions.filter((q) => !ownTeam(q)).map((q) => [q.id, given[q.id] ?? q.default]));
       const answers = { ...own, ...teamAnswers(analysis.questions, choices) };
-      const edited = !!project && (await invoke<{ edited: boolean }>("onboarding_state", { project: projectId })).edited;
-      await invoke("onboarding_answer", { project: projectId, answers, replace: edited });
+      if (write) await invoke("onboarding_answer", { project: projectId, answers, replace: edited });
       await invoke("onboarding_step", { project: projectId, step: "done" });
-      // The rules and scripts the answers call for come in the Library, to review one by one.
-      invoke("conventions_propose", { project: projectId, slug: "onboarding", answers: [] }).catch(() => {});
+      // The rules and scripts the answers call for come in the Library, to review one by one, followed on the Home.
+      if (write) void track(projectId, "conventions", () => invoke("conventions_propose", { project: projectId, slug: "onboarding", answers: [] }));
     };
     if (draft.analysis && draft.analyzed === selection) await attempt(() => settle($state.snapshot(draft.analysis!)));
     else if (runningFor(project?.id ?? null, paths))
-      // Still reading: it lands on the project once done, even after the setup is left.
-      analyze(project?.id ?? null, paths, lang).then(({ analysis }) => settle(analysis)).catch((e) => (app.error = String(e)));
+      // Still reading: it lands on the project once done, followed on the Home, even after the setup is left.
+      void track(projectId, "analysis", async () => {
+        const { analysis, error } = await analyze(project?.id ?? null, paths, lang);
+        await settle(analysis);
+        if (error) throw new Error(error);
+      });
     await attempt(() => invoke("onboarding_step", { project: projectId, step: "done" }));
+    // The expert answers about the code once its memory is indexed.
+    void track(projectId, "memory", () => invoke("memory_reindex", { project: projectId }));
 
     if (!project) await load();
     if (failed.length) app.error = t("setupPartial", { error: failed.join(" · ") });
@@ -296,7 +421,7 @@
     setProject(projectId);
     ui.view = "home";
     busy = false;
-    toast(t(project ? "cpApplied" : "cpCreated", { name: title }), { kind: "ok" });
+    toast(t(project ? "cpApplied" : "cpReady", { name: title }), { kind: "ok" });
   }
 
   const id = $derived(project?.id ?? projectId(name, (app.workspace?.projects ?? []).map((p) => p.id)));
@@ -358,14 +483,14 @@
         <li>
           <Switch
             checked={r.keep}
-            label={r.role}
+            label={roleName(r.role)}
             hint={why(r)}
             onchange={(keep) => (draft.choices = { ...draft.choices, keep: { ...draft.choices.keep, [r.role]: keep } })}
           />
         </li>
       {/each}
     </ul>
-    {#if proposal.steps.length}<p class="note">{t("obTeamSteps", { roles: proposal.steps.join(", ") })}</p>{/if}
+    {#if proposal.steps.length}<p class="note">{t("obTeamSteps", { roles: proposal.steps.map(roleName).join(", ") })}</p>{/if}
   {/if}
 {/snippet}
 
@@ -414,13 +539,74 @@
       <li>
         <Switch
           checked={!draft.skillsOff.includes(s.name)}
-          label={s.name}
-          hint={s.package ?? s.by.join(", ")}
+          label={s.description || s.name}
+          hint={skillWhy(s)}
           onchange={(keep) => (draft.skillsOff = keep ? draft.skillsOff.filter((x) => x !== s.name) : [...draft.skillsOff, s.name])}
         />
       </li>
     {/each}
   </ul>
+{/snippet}
+
+{#snippet mcpDetails()}
+  <ul class="roles">
+    {#each proposal?.mcp ?? [] as m (m.name)}
+      <li>
+        <Switch
+          checked={mcpKept.includes(m)}
+          label={m.name}
+          hint={[t("cpMcpFor", { tag: tagText({ name: m.for }), repos: m.repos.join(", ") }), m.runsCode ? t("cpMcpRunsCode") : ""].filter(Boolean).join(" · ")}
+          onchange={(keep) => keepMcp(m, keep)}
+        />
+      </li>
+    {/each}
+  </ul>
+{/snippet}
+
+{#snippet dbDetails()}
+  <ul class="roles">
+    {#each usable as d (d.source)}
+      <li>
+        <Switch
+          checked={!draft.dbOff.includes(d.source)}
+          label={`${d.connection!.name} (${d.connection!.env})`}
+          hint={d.source}
+          onchange={(keep) => (draft.dbOff = keep ? draft.dbOff.filter((x) => x !== d.source) : [...draft.dbOff, d.source])}
+        />
+      </li>
+    {/each}
+  </ul>
+  {#each dbs.filter((d) => !d.connection) as d (d.source)}
+    <p class="note">{t("cpDbRefused", { source: d.source, scheme: d.scheme })}</p>
+  {/each}
+{/snippet}
+
+{#snippet visualDetails()}
+  <div class="fields">
+    {#each webRepos as w (w.card.path)}
+      <label class="check">
+        <span>{t("cpVisualDev", { repo: w.card.name })}</span>
+        <input
+          class="field mono"
+          value={w.dev}
+          spellcheck="false"
+          autocomplete="off"
+          oninput={(e) => (draft.dev = { ...draft.dev, [w.card.path]: e.currentTarget.value })}
+        />
+      </label>
+    {/each}
+    <label class="check">
+      <span>{t("cpVisualRoutes")}</span>
+      <input
+        class="field mono"
+        value={draft.routes ?? "/"}
+        spellcheck="false"
+        autocomplete="off"
+        oninput={(e) => (draft.routes = e.currentTarget.value)}
+      />
+    </label>
+    <p class="note">{t("cpVisualRoutesHint")}</p>
+  </div>
 {/snippet}
 
 {#snippet trustDetails()}
@@ -497,13 +683,57 @@
         "skills",
         Layers,
         t("stackSkillsTitle"),
-        t("cpSkillsSentence", { count: skillsKept.length, list: skillsKept.slice(0, 5).map((s) => s.name).join(", ") + (skillsKept.length > 5 ? "…" : "") }),
+        t("cpSkillsTags", { count: skillsKept.length, list: [...new Set(skillsKept.flatMap((s) => (s.package ? [s.package] : s.by.map((tag) => tagText({ name: tag })))))].slice(0, 6).join(", ") }),
         undefined,
         skillsDetails,
       )}
     {/if}
+    {#if proposal.mcp.length}
+      {@render row(
+        "mcp",
+        Plug,
+        t("cpMcpTitle"),
+        mcpKept.length ? t("cpMcpSentence", { list: mcpKept.map((m) => m.name).join(", ") }) : t("cpMcpNone"),
+        "mcp",
+        mcpDetails,
+      )}
+    {/if}
+    {#if dbs.length}
+      {@const list = dbKept.map((d) => `${d.connection!.name} (${d.connection!.env})`).join(", ")}
+      {@render row(
+        "databases",
+        Database,
+        t("cpDbTitle"),
+        !dbKept.length ? t("cpDbNone") : vaultReady || !dbKept.some((d) => d.hasPassword) ? t("cpDbSentence", { list }) : t("cpDbNoVault", { list }),
+        usable.length ? "databases" : undefined,
+        dbDetails,
+      )}
+    {/if}
+    {#if webRepos.length}
+      {@render row(
+        "visual",
+        Eye,
+        t("cpVisualTitle"),
+        t("cpVisualSentence", { list: webRepos.map((w) => t("cpCheckIn", { command: w.dev, repo: w.card.name })).join(", "), routes: routes.join(", ") || "/" }),
+        "visual",
+        visualDetails,
+      )}
+    {/if}
+    {#if claudeConfig.length}
+      {@render row("claude", Bot, t("cpClaudeTitle"), t("cpClaudeSentence", { list: claudeConfig.join(", ") }))}
+    {/if}
+    {@render row("expert", BookOpen, t("cpExpertTitle"), t("cpExpertSentence"))}
     {@render row("conventions", LibraryBig, t("setupConvTitle"), t("cpConvSentence"))}
   </ul>
+  {#if edited}
+    <div class="edited" role="status">
+      <p>{t("cpEdited")}</p>
+      <label class="agree">
+        <input type="checkbox" checked={draft.replace} onchange={(e) => (draft.replace = e.currentTarget.checked)} />
+        <span><b>{t("cpReplace")}</b></span>
+      </label>
+    </div>
+  {/if}
 
   <section class="trust" aria-labelledby="trust-title">
     <h3 id="trust-title"><ShieldCheck size={16} aria-hidden="true" />{t("obTrustTitle")}</h3>
@@ -698,6 +928,22 @@
     margin: 0;
     color: var(--muted);
     font-size: var(--text-sm);
+  }
+
+  .edited {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--waiting-line);
+    border-radius: var(--radius-lg);
+    background: var(--waiting-soft);
+    color: var(--waiting-text);
+  }
+
+  .edited p {
+    margin: 0;
   }
 
   .trust {

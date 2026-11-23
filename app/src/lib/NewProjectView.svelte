@@ -233,7 +233,7 @@
     column.with = "cto";
     ui.view = "home";
     busy = false;
-    toast(t("cpCreated", { name: asked.name }), { kind: "ok" });
+    toast(t("cpReady", { name: asked.name }), { kind: "ok" });
     const cto = await ensure(project, "cto");
     if (cto) {
       const text = t("greenfieldSeed", { name: asked.name, path: made.path, idea: asked.idea });
@@ -243,7 +243,8 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (ui.view !== "newProject" || ui.palette || ui.help || e.isComposing) return;
+    // Enter already taken by the wizard (⌘Enter included) moves one screen, not two.
+    if (ui.view !== "newProject" || ui.palette || ui.help || e.isComposing || e.defaultPrevented) return;
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       next();
@@ -360,6 +361,7 @@
       title={t("setupSteps")}
       {steps}
       current={at}
+      reached={Math.min(draft.reached, ids.length - 1)}
       onstep={go}
       onback={back}
       oncontinue={next}

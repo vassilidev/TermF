@@ -25,6 +25,7 @@
   import { initial } from "$lib/ProjectSwitcher.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
   import OpsRequest from "$lib/OpsRequest.svelte";
+  import SetupJobs from "$lib/SetupJobs.svelte";
   import AgentEnvRequest from "$lib/AgentEnvRequest.svelte";
   import WaitCards from "$lib/WaitCards.svelte";
   import Banner from "$lib/ui/Banner.svelte";
@@ -441,6 +442,7 @@
 
 {#snippet top()}
   {@const ob = project ? onboarding[project.id] : undefined}
+  {#if project}<SetupJobs project={project.id} />{/if}
   {#if project && ob && setupSteps.includes(ob.step)}
     {@const at = setupSteps.indexOf(ob.step)}
     <article class="setup" aria-labelledby="home-setup">

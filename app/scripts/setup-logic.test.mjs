@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { byActivity, checkOf, derive, detectedAll, forge, githubSlugs, gitlabRepos, groups, projectId, sharedPrefix, shown, tagText, unique } from "../src/lib/setup-logic.ts";
+import { byActivity, checkOf, checksToWrite, derive, detectedAll, withAnalysis, forge, githubSlugs, gitlabRepos, groups, projectId, sharedPrefix, shown, tagText, unique } from "../src/lib/setup-logic.ts";
 
 const H = "/Users/alex";
 const gh = (slug) => ({ host: "github.com", slug });
@@ -97,4 +97,24 @@ test("the setup goes on, and creates, only once every chosen repository is read:
   assert.equal(checkOf("/a", {}, undefined, undefined), "", "nothing known yet");
   assert.equal(checkOf("/a", {}, { "/a": "make check" }, node), "make check", "the project's own wins over the detected one");
   assert.equal(checkOf("/a", { "/a": "" }, { "/a": "make check" }, node), "", "emptied by the owner");
+});
+
+test("an analysis lands on the draft of its repositories, and a failure never leaves an older one in place", () => {
+  const old = { questions: [{ id: "old", default: ["a"] }] };
+  const draft = { chosen: ["/a", "/b"], analysis: old, analyzed: "/a", failed: "", answers: { old: ["a"] }, question: 2, step: 3 };
+  const fresh = { questions: [{ id: "tests", default: ["yes"] }] };
+  const landed = withAnalysis(draft, ["/a", "/b"], { analysis: fresh, error: null });
+  assert.deepEqual(landed, { ...draft, analysis: fresh, analyzed: "/a\n/b", failed: "", answers: { tests: ["yes"] }, question: 0 });
+  const failed = withAnalysis(draft, ["/a", "/b"], { failure: "Claude Code: error_max_budget_usd" });
+  assert.equal(failed.analysis, null, "not the analysis of /a alone");
+  assert.equal(failed.analyzed, "/a\n/b");
+  assert.equal(failed.failed, "Claude Code: error_max_budget_usd");
+  assert.equal(withAnalysis(draft, ["/a"], { analysis: fresh, error: null }), null, "the draft is of other repositories now");
+});
+
+test("a check command the owner empties is written empty, which removes it", () => {
+  const node = { scripts: [{ kind: "test", run: "npm test" }] };
+  const found = { "/a": node, "/b": node, "/c": { scripts: [] } };
+  assert.deepEqual(checksToWrite(["/a", "/b", "/c"], { "/b": " " }, { "/b": "make check" }, found), { "/a": "npm test", "/b": "" });
+  assert.deepEqual(checksToWrite(["/c"], {}, undefined, found), {}, "nothing to remove in a new project");
 });

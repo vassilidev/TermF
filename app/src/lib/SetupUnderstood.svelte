@@ -10,7 +10,7 @@
   import { analyze, draft, found } from "$lib/newproject.svelte";
   import { analyzing, readText, reads } from "$lib/onboarding.svelte";
   import { codeSpans, ownTeam } from "$lib/onboarding-logic";
-  import { tagText, type Card } from "$lib/setup-logic";
+  import { ANALYSIS_BUDGET, tagText, type Card } from "$lib/setup-logic";
   import { approxUsd } from "$lib/usage.svelte";
 
   /** What TermF understood of each repository in two or three sentences, the details a click away; Claude Code live. */
@@ -66,7 +66,7 @@
     {/if}
   </header>
   {#if running || !current}
-    <p class="muted">{t("cpClaudeReading", { budget: budget.format(2) })}</p>
+    <p class="muted">{t("cpClaudeReading", { budget: budget.format(ANALYSIS_BUDGET) })}</p>
     {#if live?.last.length}
       <StreamSteps live steps={live.last.map((r, i) => ({ verb: readText(r), state: i === live.last.length - 1 ? "now" : "ok" }))} />
     {:else}

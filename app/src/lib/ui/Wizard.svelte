@@ -23,6 +23,7 @@
     title,
     steps,
     current,
+    reached = 0,
     onstep,
     onback,
     oncontinue,
@@ -39,6 +40,8 @@
     title: string;
     steps: WizardStep[];
     current: number;
+    /** The furthest step reached: after going back to change an answer, the steps up to it open again. */
+    reached?: number;
     onstep: (index: number) => void;
     onback: () => void;
     oncontinue: () => void;
@@ -88,7 +91,7 @@
             class:done
             class:current={i === current}
             aria-current={i === current ? "step" : undefined}
-            disabled={i > current}
+            disabled={i > Math.max(current, reached)}
             onclick={() => onstep(i)}
           >
             <span class="n" aria-hidden="true">{#if done}<Check size={12} strokeWidth={2.5} />{:else}{i + 1}{/if}</span>
