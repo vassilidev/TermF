@@ -49,6 +49,9 @@ pub struct Rule {
     /// A shipped check (`scope`, `text-changes`, `ui-changed`), `script` for a rule's own, or none.
     pub check: Option<String>,
     pub applies_to: Vec<String>,
+    /// Built into TermF, not a rule of the user's.
+    #[serde(default)]
+    pub shipped: bool,
 }
 
 impl Rule {
@@ -130,6 +133,7 @@ pub fn resolve(
             level,
             check,
             applies_to: item.applies_to,
+            shipped: item.layer == Layer::Shipped,
         });
     }
     Ok(rules)
@@ -347,14 +351,15 @@ fn extension(file: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Whether the file holds the interface: components, styles, templates, translations.
+/// Whether the file holds the interface: components, styles, templates, translations; never a test of them.
 pub fn ui_file(file: &str) -> bool {
     let ext = extension(file);
-    [
-        "tsx", "jsx", "vue", "svelte", "css", "scss", "sass", "less", "html", "hbs",
-    ]
-    .contains(&ext.as_str())
-        || translations(file)
+    !excluded(file)
+        && ([
+            "tsx", "jsx", "vue", "svelte", "css", "scss", "sass", "less", "html", "hbs",
+        ]
+        .contains(&ext.as_str())
+            || translations(file))
 }
 
 fn translations(file: &str) -> bool {
@@ -722,7 +727,10 @@ diff --git a/README.md b/README.md
         assert!(flagged.contains("Toutes les factures") && flagged.contains("Loads the invoices"));
         assert!(found.iter().all(|f| f.2));
         assert!(
-            ui_file("src/Invoices.tsx") && ui_file("locales/fr.json") && !ui_file("src/api.ts")
+            ui_file("src/Invoices.tsx")
+                && ui_file("locales/fr.json")
+                && !ui_file("src/api.ts")
+                && !ui_file("src/Invoices.test.tsx")
         );
     }
 

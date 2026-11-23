@@ -25,3 +25,15 @@ args = ["{query}"]
 [[run]]
 kind = "mysql"
 args = ["{query}"]
+
+[[run]]
+kind = "mariadb"
+args = ["{query}"]
+
+[[run]]
+kind = "sqlite"
+args = ["{query}"]
+
+[[run]]
+kind = "clickhouse"
+args = ["{query}"]

@@ -2,8 +2,20 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import {
+  asked,
+  openBlock,
   bounded,
   clean,
+  completions,
+  copyName,
+  engineRefused,
+  exportedQuery,
+  secretClash,
+  firstTable,
+  passwordName,
+  prose,
+  savedGroups,
+  sqlBlock,
   historyRow,
   level,
   missing,
@@ -198,4 +210,105 @@ test("a history row says what was done with a .env's value", () => {
   });
   assert.deepEqual([row.event, row.key, row.run], ["write", "STRIPE_KEY", 42]);
   assert.equal(historyRow({ id: 1, at: 0, actor: { kind: "human" }, detail: "{}" }).event, null);
+});
+
+test("the DBA's answer gives its query and its explanation apart, even while it streams", () => {
+  const answer = "Voici :\n\n```sql\nSELECT id, total\nFROM orders\nORDER BY total DESC\n```\n\nLes 10 plus grosses **commandes**.";
+  assert.equal(sqlBlock(answer), "SELECT id, total\nFROM orders\nORDER BY total DESC");
+  assert.equal(prose(answer), "Voici :\n\nLes 10 plus grosses **commandes**.");
+  assert.equal(sqlBlock("```sql\nSELECT 1"), null, "a block still streaming has no end yet");
+  assert.equal(prose("Je lis\n```sql\nSELECT"), "Je lis");
+  assert.equal(sqlBlock("```sql\nSELECT 1\n```\nthen\n```sql\nSELECT 2\n```"), "SELECT 2", "the last one");
+  assert.equal(sqlBlock("no query"), null);
+  assert.equal(openBlock("Voici :\n```sql\nSELECT id\nFROM"), "SELECT id\nFROM");
+  assert.equal(openBlock("```sql\nSELECT 1\n```"), null);
+});
+
+test("what the user asked is read back from the message the DBA got", () => {
+  assert.deepEqual(asked("You are the DBA…\nSchema…\nRequest: les 10 dernières commandes"), {
+    kind: "write",
+    text: "les 10 dernières commandes",
+  });
+  assert.deepEqual(asked("Explain this query in plain words, step by step:\n```sql\nSELECT 1\n```"), {
+    kind: "explain",
+    text: "SELECT 1",
+  });
+  assert.deepEqual(asked("This query is slow. The database's plan for it:\n```\nSeq Scan\n```\n…\n```sql\nSELECT 2\n```"), {
+    kind: "optimize",
+    text: "SELECT 2",
+  });
+});
+
+test("saved queries are searched everywhere and grouped by folder, the unfiled last", () => {
+  const q = [
+    { name: "Top clients", folder: "Ventes", sql: "SELECT * FROM customers", tags: ["daily"] },
+    { name: "Errors", sql: "SELECT * FROM logs" },
+    { name: "Abandoned carts", folder: "Ventes", sql: "SELECT * FROM carts", description: "Paniers" },
+  ];
+  assert.deepEqual(
+    savedGroups(q, "").map((g) => [g.folder, g.queries.map((x) => x.name)]),
+    [
+      ["Ventes", ["Abandoned carts", "Top clients"]],
+      ["", ["Errors"]],
+    ],
+  );
+  assert.deepEqual(savedGroups(q, "daily")[0].queries.map((x) => x.name), ["Top clients"]);
+  assert.deepEqual(savedGroups(q, "paniers ventes")[0].queries.map((x) => x.name), ["Abandoned carts"]);
+  assert.equal(savedGroups(q, "logs")[0].queries[0].name, "Errors");
+  assert.deepEqual(savedGroups(q, "nothing"), []);
+  assert.equal(copyName("Top", ["Top", "Top (copie)"], "copie"), "Top (copie 2)");
+});
+
+test("the editor completes the schema's tables and columns, an export names its first table", () => {
+  const schema = [
+    { schema: "", name: "orders", columns: [{ name: "id", type: "bigint", nullable: false, key: "pk" }], indexes: [] },
+    { schema: "billing", name: "invoices", columns: [{ name: "id", type: "bigint", nullable: false, key: "pk" }], indexes: [] },
+  ];
+  assert.deepEqual(
+    completions(schema).map((c) => [c.label, c.type]),
+    [
+      ["orders", "class"],
+      ["billing.invoices", "class"],
+      ["id", "property"],
+    ],
+  );
+  assert.equal(firstTable("select * from public.orders o join users u"), "orders");
+  assert.equal(firstTable("SELECT 1"), "results");
+  assert.equal(passwordName("acme-prod.db"), "ACME_PROD_DB_PASSWORD");
+});
+
+test("a SQLite database is a file: no host to ask for", () => {
+  assert.deepEqual(missing({ name: "lite", kind: "sqlite", env: "dev" }), ["database"]);
+  assert.deepEqual(missing({ name: "lite", kind: "sqlite", env: "dev", database: "/srv/a.db" }), []);
+  assert.deepEqual(missing({ name: "ch", kind: "clickhouse", env: "dev", database: "events", user: "default" }), ["host"]);
+  assert.equal(target({ name: "lite", kind: "sqlite", env: "dev", database: "/srv/a.db" }, []), "/srv/a.db");
+  const kept = clean({ name: "x", kind: "mariadb", env: "dev", database: "d", user: "u", host: "h", sslmode: "require" });
+  assert.equal(kept.sslmode, "require");
+});
+
+test("an engine TermF refuses is said in the interface's words", () => {
+  assert.equal(engineRefused("redis"), "Redis");
+  assert.equal(engineRefused("rediss"), "Redis");
+  assert.equal(engineRefused("mongodb+srv"), "Mongodb");
+  assert.equal(engineRefused("MSSQL"), "Sqlserver");
+  assert.equal(engineRefused("cassandra"), "Other");
+  for (const taken of ["postgres", "mysql", "mariadb", "sqlite", "clickhouse"]) assert.equal(engineRefused(taken), null);
+});
+
+test("a secret the save would replace is asked for, with its owner", () => {
+  assert.deepEqual(
+    secretClash("the secret SHOP_DB_PASSWORD already holds the password of shop-db: name another secret, or replace it"),
+    { name: "SHOP_DB_PASSWORD", owner: "shop-db" },
+  );
+  assert.deepEqual(secretClash("the vault already has the secret OTHER_PASSWORD (prod): name another secret, or replace it"), {
+    name: "OTHER_PASSWORD",
+    owner: null,
+  });
+  assert.equal(secretClash("the vault is locked"), null);
+});
+
+test("a full export runs the query as it was launched, not the console's limited one", () => {
+  const plan = { params: { query: "SELECT * FROM orders LIMIT 500" } };
+  assert.equal(exportedQuery({ id: 1, plan, output: {}, query: "SELECT * FROM orders" }, "query"), "SELECT * FROM orders");
+  assert.equal(exportedQuery({ id: 1, plan, output: {} }, "query"), "SELECT * FROM orders LIMIT 500");
 });
