@@ -45,8 +45,7 @@
   // svelte-ignore state_referenced_locally (the stored width wins over the default once)
   let size = $state(clamp(stored() ?? width));
 
-  function resize(to: number) {
-    size = clamp(to);
+  function store() {
     try {
       localStorage.setItem(storeKey(), String(size));
     } catch {
@@ -54,17 +53,28 @@
     }
   }
 
+  function resize(to: number) {
+    size = clamp(to);
+    store();
+  }
+
+  /** The width follows the pointer, and is stored once the drag ends, however it ends. */
   function drag(e: PointerEvent) {
     const grip = e.currentTarget as HTMLElement;
     const right = grip.parentElement!.getBoundingClientRect().right;
-    grip.setPointerCapture(e.pointerId);
-    const move = (m: PointerEvent) => resize(right - m.clientX);
-    const up = () => {
+    try {
+      grip.setPointerCapture(e.pointerId);
+    } catch {
+      // A pointer the system no longer tracks: the drag still follows it over the grip.
+    }
+    const move = (m: PointerEvent) => (size = clamp(right - m.clientX));
+    const end = () => {
       grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", up);
+      for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) grip.removeEventListener(type, end);
+      store();
     };
     grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", up);
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) grip.addEventListener(type, end);
   }
 
   function onkeydown(e: KeyboardEvent) {

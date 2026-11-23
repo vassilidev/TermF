@@ -50,7 +50,7 @@
           {:else if shape === "form"}
             <div class="pair">
               <span class="bone line thin" style:width={width(i, 0.22)}></span>
-              <span class="bone field"></span>
+              <span class="bone input"></span>
             </div>
           {:else if shape === "cards"}
             <div class="card">
@@ -115,7 +115,7 @@
     padding: 10px 0;
   }
 
-  .field {
+  .input {
     width: 100%;
     max-width: 420px;
     height: var(--h);

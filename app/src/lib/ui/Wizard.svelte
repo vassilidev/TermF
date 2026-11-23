@@ -7,6 +7,7 @@
   import type { Snippet } from "svelte";
   import Check from "@lucide/svelte/icons/check";
   import { t } from "$lib/i18n";
+  import { fixed } from "$lib/keymap.svelte";
 
   /**
    * Several decisions before anything is written, one per screen. On the left the steps with the answers already given
@@ -81,7 +82,7 @@
     <span class="where">{t("uiF1StepOf", { n: current + 1, total: steps.length })}</span>
     <button class="btn" onclick={onback} disabled={current === 0}>{t("uiF1Back")}</button>
     <button class="btn primary" onclick={oncontinue} disabled={!canContinue || busy} aria-busy={busy || undefined}>
-      {continueLabel ?? t("uiF1Continue")}<kbd>⏎</kbd>
+      {continueLabel ?? t("uiF1Continue")}<kbd>{fixed("Enter")}</kbd>
     </button>
   </footer>
 </div>

@@ -5,7 +5,8 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Webhook from "@lucide/svelte/icons/webhook";
-  import { t } from "$lib/i18n";
+  import { lang, t } from "$lib/i18n";
+  import { fixed } from "$lib/keymap.svelte";
   import Avatar from "$lib/ui/Avatar.svelte";
   import Button from "$lib/ui/Button.svelte";
   import Card from "$lib/ui/Card.svelte";
@@ -33,6 +34,11 @@
   // The reference page of the design system (palette: "Components (dev)"): every component and its states, for the
   // screenshots and for the slices that rebuild the screens on them. Its data is made up.
 
+  const minutes = new Intl.NumberFormat(lang, { style: "unit", unit: "minute" }).format;
+  const hours = new Intl.NumberFormat(lang, { style: "unit", unit: "hour" }).format;
+  const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD" }).format;
+  const enter = fixed("Enter");
+
   const tokens = ["bg", "chrome", "panel", "well", "border", "text", "soft", "muted", "accent", "working", "waiting", "done", "danger"];
   const families = ["cto", "product", "build", "quality", "creative", "specialists"];
 
@@ -49,16 +55,16 @@
 
   type Agent = { role: string; task: string; repo: string; age: string; status: Status };
   const agents: Agent[] = [
-    { role: "back", task: t("uiF1RowExport"), repo: "billing-service", age: "6 min", status: "working" },
-    { role: "front", task: t("uiF1RowButton"), repo: "web-dashboard", age: "12 min", status: "waiting" },
-    { role: "qa", task: t("uiF1RowNotes"), repo: "api", age: "1 h", status: "done" },
+    { role: "back", task: t("uiF1RowExport"), repo: "billing-service", age: minutes(6), status: "working" },
+    { role: "front", task: t("uiF1RowButton"), repo: "web-dashboard", age: minutes(12), status: "waiting" },
+    { role: "qa", task: t("uiF1RowNotes"), repo: "api", age: hours(1), status: "done" },
   ];
 
   type RunRow = { id: string; title: string; status: Status; time: string; cost: string };
   const runs: RunRow[] = [
-    { id: "57", title: "#57 Export CSV", status: "running", time: "25 min", cost: "1,84 $" },
-    { id: "479", title: "#479 Rate limit", status: "delivered", time: "1 h 12", cost: "4,10 $" },
-    { id: "481", title: "#481 Login button", status: "failed", time: "8 min", cost: "0,36 $" },
+    { id: "57", title: "#57 Export CSV", status: "running", time: minutes(25), cost: money(1.84) },
+    { id: "479", title: `#479 ${t("uiF1RowButton")}`, status: "delivered", time: t("ciHours", { h: 1, m: 12 }), cost: money(4.1) },
+    { id: "481", title: `#481 ${t("uiF1RowNotes")}`, status: "failed", time: minutes(8), cost: money(0.36) },
   ];
 </script>
 
@@ -82,9 +88,9 @@
           {#each ["12px", "13px"] as size (size)}
             <div class="num" style:font-size={size}>
               <span class="meta">{t("uiF1Tabular")} · {size}</span>
-              <span>1 111,11 $</span>
-              <span>8 888,88 $</span>
-              <span>0 470,05 $</span>
+              <span>{money(1111.11)}</span>
+              <span>{money(8888.88)}</span>
+              <span>{money(470.05)}</span>
             </div>
           {/each}
         </div>
@@ -107,7 +113,7 @@
         <h2>{t("uiF1Buttons")}</h2>
         <p class="rule">{t("uiF1ButtonsRule")}</p>
         <div class="row">
-          <Button variant="primary" kbd="⏎">{t("uiF1Continue")}</Button>
+          <Button variant="primary" kbd={enter}>{t("uiF1Continue")}</Button>
           <Button>{t("uiF1Secondary")}</Button>
           <Button variant="quiet">{t("uiF1Quiet")}</Button>
           <Button variant="danger">{t("delete")}</Button>
@@ -118,8 +124,8 @@
         </div>
         <div class="row">
           <Button size="sm" icon={Plus}>{t("uiF1EmptyAction")}</Button>
-          <Button size="sm" variant="quiet" icon={Sparkles} kbd="⌘I">{t("uiF1AskAi")}</Button>
-          <Button size="lg" variant="primary" kbd="⏎">{t("uiF1Continue")}</Button>
+          <Button size="sm" variant="quiet" icon={Sparkles} kbd={fixed("Mod+I")}>{t("uiF1AskAi")}</Button>
+          <Button size="lg" variant="primary" kbd={enter}>{t("uiF1Continue")}</Button>
           <Button size="lg">{t("uiF1Back")}</Button>
         </div>
       </section>
@@ -207,15 +213,24 @@
           onselect={(agent) => (picked = agent.role)}
           onopen={(agent) => toast(t("uiF1Opened", { name: agent.role }), { kind: "info" })}
           menu={(agent) => [
-            { label: t("uiF1MenuOpen"), icon: ArrowUpRight, kbd: "⏎", run: () => toast(t("uiF1Opened", { name: agent.role }), { kind: "info" }) },
-            { label: t("uiF1AskAi"), icon: Sparkles, kbd: "⌘I", run: () => (sideOpen = true) },
+            { label: t("uiF1MenuOpen"), icon: ArrowUpRight, kbd: enter, run: () => toast(t("uiF1Opened", { name: agent.role }), { kind: "info" }) },
+            { label: t("uiF1AskAi"), icon: Sparkles, kbd: fixed("Mod+I"), run: () => (sideOpen = true) },
             { label: t("uiF1MenuStop"), icon: CircleStop, danger: true, run: () => (confirming = true) },
           ]}
         >
           {#snippet row(agent)}
             <Row title="{agent.role} · {agent.task}" sub="{agent.repo} · {agent.age}">
               {#snippet lead()}<Avatar role={agent.role} status={agent.status} />{/snippet}
-              {#snippet trail()}<StatusPill status={agent.status} />{/snippet}
+              {#snippet trail()}
+                <StatusPill status={agent.status} />
+                <button
+                  class="icon-btn sm"
+                  data-testid="ui-row-ask"
+                  aria-label={t("uiF1AskAi")}
+                  title={t("uiF1AskAi")}
+                  onclick={() => (sideOpen = true)}><Sparkles size={14} aria-hidden="true" /></button
+                >
+              {/snippet}
             </Row>
           {/snippet}
         </List>
@@ -291,7 +306,7 @@
         </div>
         <div class="toast-card toast-still" aria-hidden="true">
           <span>{t("uiF1ToastText")}</span>
-          <span class="btn sm">{t("uiF1Undo")}<kbd>⌘Z</kbd></span>
+          <span class="btn sm">{t("uiF1Undo")}<kbd>{fixed("Mod+Z")}</kbd></span>
         </div>
         <ConfirmDialog
           bind:open={confirming}
@@ -400,7 +415,7 @@
         <h2>{t("uiF1Guides")}</h2>
         <p class="rule">{t("uiF1GuidesRule")}</p>
         <div class="stack">
-          <WaitCard title={t("uiF1WaitTitle")} meta="Run #57 · 12 min" action={{ label: t("uiF1WaitAnswer"), kbd: "⌘J", run: () => {} }} />
+          <WaitCard title={t("uiF1WaitTitle")} meta="{t("uiF1ColRun")} #57 · {minutes(12)}" action={{ label: t("uiF1WaitAnswer"), kbd: fixed("Mod+J"), run: () => {} }} />
           <NextStep text={t("uiF1NextText")} action={{ label: t("uiF1NextAction"), run: () => {} }} />
           <div class="grid two">
             <Checklist

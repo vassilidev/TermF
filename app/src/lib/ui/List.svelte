@@ -41,6 +41,10 @@
 
   const rowOf = (id: string) => list?.querySelector<HTMLElement>(`[data-key="${CSS.escape(id)}"]`);
 
+  /** A button, a link or a field inside the row keeps its own clicks. */
+  const inside = (e: Event) =>
+    (e.target as HTMLElement).closest("button, a, input, select, textarea, [contenteditable], [role=button]") !== null;
+
   function openMenu(item: T, trigger: HTMLElement) {
     const actions = menu?.(item) ?? [];
     if (!actions.length) return;
@@ -50,6 +54,8 @@
   }
 
   function onkeydown(e: KeyboardEvent, item: T, index: number) {
+    // Keys typed in a control of the row are that control's.
+    if (e.target !== e.currentTarget) return;
     if (e.key === "Enter") {
       e.preventDefault();
       onopen?.(item);
@@ -83,10 +89,10 @@
       data-key={id}
       aria-selected={id === selected}
       tabindex={id === focusable ? 0 : -1}
-      onclick={() => onselect?.(item)}
-      ondblclick={() => onopen?.(item)}
+      onclick={(e) => inside(e) || onselect?.(item)}
+      ondblclick={(e) => inside(e) || onopen?.(item)}
       oncontextmenu={(e) => {
-        if (!menu) return;
+        if (!menu || inside(e)) return;
         e.preventDefault();
         openMenu(item, e.currentTarget);
       }}

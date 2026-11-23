@@ -5,11 +5,12 @@
   import X from "@lucide/svelte/icons/x";
   import { isMac } from "$lib/files.svelte";
   import { t } from "$lib/i18n";
-  import { dismiss, hold, toasts, undo } from "$lib/ui/toast.svelte";
+  import { fixed } from "$lib/keymap.svelte";
+  import { dismiss, hold, release, toasts, undo } from "$lib/ui/toast.svelte";
 
   /** Mounted once: the toasts at the bottom of the window. ⌘Z (Ctrl+Z) undoes the newest one, outside a field or a terminal. */
   const icons = { ok: Check, error: CircleAlert, info: Info };
-  const undoKey = isMac ? "⌘Z" : "Ctrl+Z";
+  const undoKey = fixed("Mod+Z");
 
   function onkeydown(e: KeyboardEvent) {
     if (e.key.toLowerCase() !== "z" || e.shiftKey || e.altKey || !(isMac ? e.metaKey : e.ctrlKey)) return;
@@ -24,11 +25,16 @@
 
 <svelte:window {onkeydown} />
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions (hovering only pauses the timers) -->
-<ol class="toaster" aria-live="polite" onpointerenter={() => hold(true)} onpointerleave={() => hold(false)}>
+<ol class="toaster" aria-live="polite">
   {#each toasts as item (item.id)}
     {@const Icon = icons[item.kind]}
-    <li class="toast toast-card {item.kind}" role={item.kind === "error" ? "alert" : "status"}>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions (hovering only pauses the timers) -->
+    <li
+      class="toast toast-card {item.kind}"
+      role={item.kind === "error" ? "alert" : "status"}
+      onpointerenter={() => hold(item.id)}
+      onpointerleave={() => release(item.id)}
+    >
       <Icon size={15} aria-hidden="true" />
       <span>{item.text}</span>
       {#if item.undo}

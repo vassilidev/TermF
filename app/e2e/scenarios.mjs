@@ -1070,6 +1070,15 @@ h1, h2 { font-family: var(--font-display); }
       await t.s.press(Key.escape);
       await t.s.waitGone(".popover [role=menuitem]");
 
+      // A button inside a row keeps its click and its keys: the selection and the toasts do not move.
+      const picked = () => t.s.exec((c) => document.querySelector(`${c} [role=option][aria-selected=true]`)?.dataset.key, page);
+      await t.s.click(`${page} ${t.sel("data-testid", "ui-row-ask")}`, 2);
+      await t.s.exec((c) => document.querySelectorAll(`${c} [data-testid="ui-row-ask"]`)[0].focus(), page);
+      await t.s.press("");
+      await t.s.press(Key.enter);
+      if ((await picked()) !== "front") throw new Error(`a row's button moved the selection to ${await picked()}`);
+      if (await t.s.exec(() => document.querySelectorAll(".toaster .toast").length)) throw new Error("Enter on a row's button opened the row");
+
       // A toast and its Undo.
       await t.s.click(`${page} ${t.sel("data-testid", "ui-toast")}`);
       await t.s.waitFor(".toaster .toast .btn");
@@ -1096,6 +1105,22 @@ h1, h2 { font-family: var(--font-display); }
       const wider = String(Number(before) + 16);
       await t.s.wait(async () => (await width()) === wider, { what: "the panel 16 px wider" });
       if ((await t.s.exec(() => localStorage.getItem("termf.side.ui-f1-demo"))) !== wider) throw new Error("the side panel's width was not stored");
+      // A drag of its edge cut short (pointercancel) ends there: stored once, the pointer's later moves ignored.
+      const dragged = await t.s.exec((c) => {
+        const grip = document.querySelector(`${c} aside.side [role=separator]`);
+        const x = grip.parentElement.getBoundingClientRect().left;
+        const fire = (type, clientX) => grip.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 7, clientX }));
+        fire("pointerdown", x);
+        fire("pointermove", x - 30);
+        const during = localStorage.getItem("termf.side.ui-f1-demo");
+        fire("pointercancel", x - 30);
+        const after = localStorage.getItem("termf.side.ui-f1-demo");
+        fire("pointermove", x - 100);
+        return { during, after };
+      }, page);
+      const dragWidth = String(Number(wider) + 30);
+      await t.s.wait(async () => (await width()) === dragWidth, { what: "the panel 30 px wider after the drag" });
+      if (dragged.during !== wider || dragged.after !== dragWidth) throw new Error(`the drag's width was not stored once at its end: ${JSON.stringify(dragged)}`);
       await t.clean();
     },
   },

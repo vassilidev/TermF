@@ -25,6 +25,10 @@
     cell: Snippet<[T, Column]>;
     onrow?: (row: T) => void;
   } = $props();
+
+  /** A button, a link or a field inside the row keeps its own clicks. */
+  const inside = (e: Event) =>
+    (e.target as HTMLElement).closest("button, a, input, select, textarea, [contenteditable], [role=button]") !== null;
 </script>
 
 <table class="table" aria-label={label}>
@@ -40,9 +44,9 @@
       <tr
         class:open={!!onrow}
         tabindex={onrow ? 0 : undefined}
-        onclick={() => onrow?.(row)}
+        onclick={(e) => inside(e) || onrow?.(row)}
         onkeydown={(e) => {
-          if (onrow && e.key === "Enter") onrow(row);
+          if (onrow && e.key === "Enter" && e.target === e.currentTarget) onrow(row);
         }}
       >
         {#each columns as column (column.id)}

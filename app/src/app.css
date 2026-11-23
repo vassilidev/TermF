@@ -314,8 +314,10 @@ kbd {
 }
 
 /* Pressed: the button heard the click. */
-.btn:active:not(:disabled) {
-  transform: scale(0.97);
+@media (prefers-reduced-motion: no-preference) {
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
 }
 
 .btn.primary {
@@ -389,6 +391,7 @@ kbd {
 
 .btn.quiet.danger:hover:not(:disabled) {
   background: var(--danger-soft);
+  color: var(--danger);
 }
 
 /* A button that reads as a link, inline in text or at a section's edge. */
@@ -449,15 +452,26 @@ kbd {
     box-shadow var(--dur-fast) ease;
 }
 
+/* A solid ring in the focus color (it reads against the ground), then a soft halo. */
 .field:focus-visible {
   border-color: var(--focus);
   outline: none;
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow:
+    0 0 0 1px var(--focus),
+    0 0 0 4px var(--accent-soft);
 }
 
 .field[aria-invalid="true"] {
   border-color: var(--danger);
   box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+/* In error and focused: the red edge stays, the focus ring goes around it. */
+.field[aria-invalid="true"]:focus-visible {
+  box-shadow:
+    0 0 0 1px var(--danger),
+    0 0 0 3px var(--panel),
+    0 0 0 5px var(--focus);
 }
 
 .segmented {

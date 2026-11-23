@@ -42,6 +42,9 @@
   } satisfies Record<string, [Parameters<typeof t>[0], Component, Tone]>;
 
   export type Status = keyof typeof statuses;
+
+  /** The state's family of color: "working", "waiting", "done", "failed", or "" for a neutral one. */
+  export const toneOf = (status: Status): Tone => statuses[status][2];
 </script>
 
 <script lang="ts">

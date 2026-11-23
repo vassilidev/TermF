@@ -49,7 +49,7 @@
 </script>
 
 <script lang="ts">
-  import type { Status } from "$lib/ui/StatusPill.svelte";
+  import { toneOf, type Status } from "$lib/ui/StatusPill.svelte";
 
   /** A role's mark in its family's color; `status` adds the state's dot (`label` names the role and the state for a screen reader). */
   let {
@@ -59,17 +59,6 @@
     label,
     size = "md",
   }: { role: string; family?: Family; status?: Status; label?: string; size?: "sm" | "md" | "lg" } = $props();
-
-  const tones: Partial<Record<Status, string>> = {
-    working: "working",
-    running: "working",
-    waiting: "waiting",
-    done: "done",
-    delivered: "done",
-    succeeded: "done",
-    failed: "failed",
-    error: "failed",
-  };
 </script>
 
 <span
@@ -80,7 +69,7 @@
   title={label}
 >
   {markOf(role)}
-  {#if status}<span class="dot {tones[status] ?? ''}" data-status={status}></span>{/if}
+  {#if status}<span class="dot {toneOf(status)}" data-status={status}></span>{/if}
 </span>
 
 <style>
