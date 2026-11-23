@@ -66,16 +66,25 @@ function watchStream(css) {
 
 export const scenarios = [
   {
-    name: "first launch: the guided tour, then the home",
+    name: "first launch: the introduction checks Claude Code live, then the home",
     views: ["home"],
     sandbox: { project: false },
     async run(t) {
       const { s } = t;
-      await t.ready({ keepTour: true });
+      await t.ready({ keepIntro: true });
       await t.clean();
-      for (let step = 0; step < 4; step++) await s.click('[aria-labelledby="tour-title"] footer .primary');
-      await s.waitGone('[aria-labelledby="tour-title"]');
-      check((await s.exec(() => localStorage.getItem("termf.tour"))) === "1", "the tour is not remembered as seen");
+      const next = () => s.click("dialog.intro footer .primary:not([disabled])");
+      await next();
+      // Installed, signed in, its agents followed: each line ends checked or says why, the fake Claude Code found.
+      await s.wait(() => s.exec(() => document.querySelectorAll("dialog.intro .ck:is(.ok, .warn, .fail)").length === 3), {
+        what: "the three checks of Claude Code",
+        timeout: 30_000,
+      });
+      check(await s.exec(() => document.querySelector("dialog.intro .ck").classList.contains("ok")), "the fake Claude Code is not found");
+      check(/~\/\.claude/.test(await s.text("dialog.intro .note")), "nothing says ~/.claude is left alone");
+      for (let step = 1; step < 5; step++) await next();
+      await s.waitGone("dialog.intro");
+      check((await s.exec(() => localStorage.getItem("termf.tour"))) === "1", "the introduction is not remembered as seen");
       await t.view("home");
     },
   },
@@ -371,10 +380,8 @@ export const scenarios = [
       await t.command(`repo-shell-${box.acme}`);
       const first = await t.tile();
       await t.prompt(first);
+      // One gesture: the same shell in the same folder, beside it, without the launcher.
       await t.command("split-right");
-      await s.click("section.launcher .segmented.agents:not(.place) label:last-child span");
-      await s.click(`section.launcher label.row[title=${JSON.stringify(box.acme)}] input`);
-      await s.click("section.launcher button.open:not([disabled])");
       const ids = await s.wait(async () => {
         const list = await s.exec(() => [...document.querySelectorAll(".tile[data-session]")].filter((e) => e.getClientRects().length).map((e) => e.dataset.session));
         return list.length === 2 && list;
@@ -392,6 +399,158 @@ export const scenarios = [
       const line = t.windows ? '"b-" + (2+3)' : "echo b-$((2+3))";
       await s.type("form.broadcast input.field", line + Key.enter);
       for (const id of [first, second]) await showsLine(t, id, "b-5");
+      await t.clean();
+    },
+  },
+  {
+    name: "workspace: the navigation sized and folded, the view and its width back when the page starts again",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      const width = () => s.exec(() => Math.round(document.querySelector(".nav").getBoundingClientRect().width));
+      await t.ready();
+      await t.project();
+      // Its edge, by the keyboard as by the pointer: two steps wider.
+      await s.exec(() => document.querySelector(".nav .edge").focus());
+      await s.press("");
+      await s.press("");
+      await s.wait(async () => (await width()) === 264, { what: "the navigation 264 px wide" });
+      // Folded to its icons, then back (the command, ⌘B, and View > Fold of the native menu run the same).
+      await t.command("toggle-nav");
+      await s.wait(async () => (await width()) === 52 && (await s.exec(() => document.querySelector(".nav").classList.contains("rail"))), {
+        what: "the navigation folded to its icons",
+      });
+      await t.emit("menu", "toggle_nav");
+      await s.wait(async () => (await width()) === 264, { what: "the navigation unfolded by the menu" });
+      // Hidden on option: a toast says how to bring it back, and its Undo does.
+      // Found by typing, as the palette keeps it out of the first list.
+      await t.palette();
+      await s.keys("Hide the navigation");
+      await s.click(t.sel("data-testid", "command-hide-nav"));
+      await s.wait(() => s.exec(() => document.querySelector(".nav").hidden && !!document.querySelector(".reveal")), { what: "the navigation hidden" });
+      await s.click(".toast-card button");
+      await s.waitFor(".nav");
+      await t.view("terminals");
+      // The page started again, as at a launch: the e2e window is private, so its storage lives only that long.
+      await s.exec(() => ((window.__e2e.before = true), setTimeout(() => location.reload(), 50)));
+      await s.wait(() => s.exec(() => !window.__e2e?.before && !!document.querySelector(".nav .project")).catch(() => false), {
+        what: "the page started again",
+        timeout: 30_000,
+      });
+      await s.waitFor(t.shown("terminals"));
+      check((await width()) === 264, "the navigation's width is not kept");
+      await t.clean();
+    },
+  },
+  {
+    name: "splits: in one gesture, from a tab's menu, a border evened out, a tab dropped on an edge, a closed split reopened",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const tiles = () =>
+        s.exec(() => [...document.querySelectorAll(".tile[data-session]")].filter((e) => e.getClientRects().length).map((e) => e.dataset.session));
+      const count = (n, what) => s.wait(async () => (await tiles()).length === n, { what });
+      const rightClick = (css) =>
+        s.exec((c) => {
+          const el = document.querySelector(c);
+          const r = el.getBoundingClientRect();
+          const at = { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + r.height / 2, button: 2 };
+          el.dispatchEvent(new MouseEvent("contextmenu", at));
+        }, css);
+      const item = async (label) => {
+        await s.waitFor('.popover [role="menu"]');
+        const i = await s.exec((l) => [...document.querySelectorAll('.popover [role="menuitem"]')].findIndex((b) => b.textContent.trim().startsWith(l)), label);
+        check(i >= 0, `no "${label}" in the context menu`);
+        await s.click('.popover [role="menuitem"]', i);
+      };
+      await t.ready();
+      await t.project();
+      await t.command(`repo-shell-${box.acme}`);
+      const first = await t.tile();
+      await t.prompt(first);
+      // ⌘D: the same shell in the same folder beside it, at once.
+      await t.command("split-right");
+      await count(2, "two splits");
+      check(!(await s.exec(() => !!document.querySelector("section.launcher"))), "the launcher opened for a split in one gesture");
+      // A tab's context menu: split down.
+      await rightClick('[role="tab"]');
+      await item("Split down");
+      await count(3, "three splits");
+      // A border dragged, then double-clicked: its split even again.
+      const widths = () => s.exec((id) => {
+        const tile = document.querySelector(`.tile[data-session="${id}"]`).getBoundingClientRect().width;
+        return Math.round(tile);
+      }, first);
+      const before = await widths();
+      await s.exec(() => {
+        const d = document.querySelector(".divider.row");
+        const r = d.getBoundingClientRect();
+        const at = (x) => ({ bubbles: true, cancelable: true, clientX: x, clientY: r.top + r.height / 2, button: 0, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true });
+        d.dispatchEvent(new PointerEvent("pointerdown", at(r.left + 4)));
+        d.dispatchEvent(new PointerEvent("pointermove", at(r.left + 124)));
+        d.dispatchEvent(new PointerEvent("pointerup", at(r.left + 124)));
+      });
+      await s.wait(async () => (await widths()) > before + 60, { what: "the border dragged" });
+      await s.exec(() => document.querySelector(".divider.row").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      await s.wait(async () => Math.abs((await widths()) - before) < 3, { what: "the split even again after a double click" });
+      // The last split closed from its own menu, then reopened (⌘⇧T).
+      const ids = await tiles();
+      const last = ids.find((id) => id !== first && id !== ids[0]) ?? ids.at(-1);
+      await rightClick(`.tile[data-session="${last}"] header`);
+      await item("Close");
+      await s.click(`.tile[data-session="${last}"] .ask .primary`);
+      await count(2, "a split closed");
+      // Reopened in a tab of its own, as a browser reopens a tab.
+      await t.command("reopen-0");
+      await s.wait(() => s.exec(() => document.querySelectorAll('[role="tab"]').length === 2), { what: "the closed split reopened in a tab" });
+      await count(1, "the reopened tab shown");
+      // That tab, dragged below the bar onto the right half of a split of the first: the two tabs become one.
+      await s.click('[role="tab"]', 0);
+      await count(2, "the first tab shown");
+      const pointer = (type, id) =>
+        s.exec(
+          (kind, sid) => {
+            const tab = document.querySelectorAll('[role="tab"]')[1];
+            const target = document.querySelector(`.tile[data-session="${sid}"]`).getBoundingClientRect();
+            const r = tab.getBoundingClientRect();
+            const at = (x, y) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true });
+            const over = at(target.right - 20, target.top + target.height / 2);
+            if (kind === "down") {
+              tab.dispatchEvent(new PointerEvent("pointerdown", at(r.left + 10, r.top + 10)));
+              tab.dispatchEvent(new PointerEvent("pointermove", at(r.left + 10, r.top + 40)));
+              tab.dispatchEvent(new PointerEvent("pointermove", over));
+            } else tab.dispatchEvent(new PointerEvent("pointerup", over));
+          },
+          type,
+          id,
+        );
+      await pointer("down", first);
+      await s.wait(async () => (await s.exec(() => document.querySelector(".zone")?.textContent.trim())) === "Split right", {
+        what: "the drop zone on the right half of the split",
+      });
+      await pointer("up", first);
+      await s.wait(() => s.exec(() => document.querySelectorAll('[role="tab"]').length === 1), { what: "the two tabs made one" });
+      await count(3, "three splits in one tab");
+      // A file from the Finder dropped on a terminal: its path typed there, escaped.
+      const center = await s.exec((id) => {
+        const r = document.querySelector(`.tile[data-session="${id}"] .xterm-screen`).getBoundingClientRect();
+        return { x: (r.left + r.width / 2) * devicePixelRatio, y: (r.top + r.height / 2) * devicePixelRatio };
+      }, first);
+      await t.emit("tauri://drag-drop", { paths: ["/tmp/My Files/notes (1).txt"], position: center });
+      await s.wait(async () => (await t.terminal(first)).includes("/tmp/My\\ Files/notes\\ \\(1\\).txt"), { what: "the dropped path typed in the terminal" });
+      // ⌘+ in a terminal: its text only; elsewhere, the whole interface; ⌘0 back to the real size.
+      const toast = (text) => s.wait(async () => (await s.exec(() => [...document.querySelectorAll(".toast-card")].map((e) => e.textContent).join("|"))).includes(text), { what: text });
+      await s.exec((id) => document.querySelector(`.tile[data-session="${id}"] .xterm-helper-textarea`).focus(), first);
+      await s.press(Key.mod, "=");
+      await toast("Terminal text: 108%");
+      check((await s.exec((id) => getComputedStyle(document.querySelector(`.tile[data-session="${id}"] .xterm-rows`)).fontSize, first)) === "14px", "the terminal's text is not bigger");
+      await s.press(Key.mod, "0");
+      await toast("Terminal text: 100%");
+      await s.exec(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+      await s.press(Key.mod, "=");
+      await toast("Interface: 110%");
+      await s.press(Key.mod, "0");
+      await toast("Interface: 100%");
       await t.clean();
     },
   },
@@ -418,7 +577,7 @@ export const scenarios = [
     },
   },
   {
-    name: "help and guided tour: both open from the palette, Escape closes the help",
+    name: "help and introduction: both open again, Escape closes them and gives the focus back",
     views: [],
     async run(t) {
       const { s } = t;
@@ -430,10 +589,20 @@ export const scenarios = [
       await s.press(Key.escape);
       // Gone from the page, not only closed: the app itself let go of the help.
       await s.wait(() => s.exec(() => !document.querySelector("dialog.help")), { what: "the help to go away" });
-      await t.command("tour");
-      await s.waitFor('[aria-labelledby="tour-title"]');
-      for (let step = 0; step < 4; step++) await s.click('[aria-labelledby="tour-title"] footer .primary');
-      await s.waitGone('[aria-labelledby="tour-title"]');
+      // ? from the navigation, Escape: the focus is back where it was.
+      await s.exec(() => document.querySelector('.nav [data-view="home"]').focus());
+      await s.keys("?");
+      await s.waitFor("dialog.help[open]");
+      await s.press(Key.escape);
+      await s.wait(() => s.exec(() => !document.querySelector("dialog.help") && document.activeElement?.matches('.nav [data-view="home"]')), {
+        what: "the focus back on the navigation after the help",
+      });
+      // From the help, the introduction again; Escape skips it.
+      await t.command("help");
+      await s.click("dialog.help footer .btn:first-child");
+      await s.waitFor("dialog.intro[open]");
+      await s.press(Key.escape);
+      await s.waitGone("dialog.intro");
       await t.clean();
     },
   },

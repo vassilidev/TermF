@@ -260,16 +260,21 @@ export function helpers(box, port, signal) {
       return t.start(options);
     },
 
-    /** The tour shows once the workspace is read, at the first launch only. */
-    async ready({ keepTour = false } = {}) {
+    /** The introduction shows once the workspace is read, at the first launch only; later, the view last shown. */
+    async ready({ keepIntro = false } = {}) {
       const s = t.s;
       await s.waitFor(".nav", { timeout: 60_000 });
-      if (await s.exec(() => localStorage.getItem("termf.tour"))) return s.waitFor(t.shown("home"));
-      await s.waitFor('[aria-labelledby="tour-title"]', { timeout: 60_000 });
-      if (!keepTour) {
-        await s.click('[aria-labelledby="tour-title"] footer .quiet');
-        await s.waitGone('[aria-labelledby="tour-title"]');
+      if (await s.exec(() => localStorage.getItem("termf.tour"))) return s.waitFor("[data-panel]:not([hidden])");
+      await s.waitFor("dialog.intro[open]", { timeout: 60_000 });
+      if (!keepIntro) {
+        await s.click("dialog.intro .skip");
+        await s.waitGone("dialog.intro");
       }
+    },
+
+    /** A Tauri event, as the backend sends it (the native menu, a file dropped from the Finder). */
+    emit(event, payload) {
+      return t.s.exec((e, p) => window.__TAURI_INTERNALS__.invoke("plugin:event|emit", { event: e, payload: p }), event, payload);
     },
 
     /** Ctrl+K; a chord WebKitGTK drops under xvfb is sent by script, counted like the clicks. */

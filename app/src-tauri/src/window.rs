@@ -237,9 +237,7 @@ fn accelerator<'a>(
     default: &'a str,
     keys: Option<&'a HashMap<String, String>>,
 ) -> Option<&'a str> {
-    let combo = keys
-        .and_then(|k| k.get(id))
-        .map_or(default, String::as_str);
+    let combo = keys.and_then(|k| k.get(id)).map_or(default, String::as_str);
     (!combo.is_empty()).then_some(combo)
 }
 
@@ -290,10 +288,7 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R
     let separator = || Item::separator(app);
     let keys = KEYS.lock().unwrap().clone();
     let item = |id: &'static str| -> tauri::Result<MenuItem<R>> {
-        let (_, word, default) = ITEMS
-            .iter()
-            .find(|(i, _, _)| *i == id)
-            .expect("menu item");
+        let (_, word, default) = ITEMS.iter().find(|(i, _, _)| *i == id).expect("menu item");
         let text = w(word);
         // A shortcut written by hand that the menu cannot show leaves the item without one.
         MenuItem::with_id(app, id, text, true, accelerator(id, default, keys.as_ref()))
@@ -508,7 +503,8 @@ mod tests {
         assert_eq!(MENU[0].len(), MENU[1].len());
         for (_, word, _) in ITEMS {
             assert!(
-                MENU.iter().all(|words| words.iter().any(|(k, _)| *k == word)),
+                MENU.iter()
+                    .all(|words| words.iter().any(|(k, _)| *k == word)),
                 "{word} in both languages"
             );
         }
@@ -524,7 +520,11 @@ mod tests {
             accelerator("toggle_nav", "Cmd+B", Some(&keys)),
             Some("Cmd+Shift+B")
         );
-        assert_eq!(accelerator("zoom_in", "Cmd+=", Some(&keys)), None, "removed");
+        assert_eq!(
+            accelerator("zoom_in", "Cmd+=", Some(&keys)),
+            None,
+            "removed"
+        );
         assert_eq!(accelerator("zoom_out", "Cmd+-", Some(&keys)), Some("Cmd+-"));
         assert_eq!(accelerator("hide_nav", "", None), None);
     }

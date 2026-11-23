@@ -27,7 +27,8 @@ if (missing.length) {
   process.exit(1);
 }
 
-let nextPort = 4444;
+// E2E_PORT: another base, so that two runs on one machine (two worktrees) never take each other's ports.
+let nextPort = Number(process.env.E2E_PORT) || 4444;
 const port = () => ((nextPort += 2), nextPort);
 const slug = (name) => name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 60);
 
