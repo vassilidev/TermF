@@ -38,8 +38,8 @@ function flat(dir: Dir, sizes: number[], children: Pane[]): Pane {
   return { dir, sizes: s.map((size) => size / total), children: c };
 }
 
-/** `p` with `id` next to `at`, on `side`; the new pane takes half of `at`'s room. */
-export function insert(p: Pane, at: number, id: number, side: Side): Pane {
+/** `p` with `id` (a session, or a whole tree) next to `at`, on `side`; it takes half of `at`'s room. */
+export function insert(p: Pane, at: number, id: Pane, side: Side): Pane {
   const dir = dirOf(side);
   if (typeof p === "number") {
     if (p !== at) return p;
@@ -162,6 +162,14 @@ export function resize(p: Pane, id: number, side: Side, step: number): Pane {
   if (!at) return p;
   const border = grow ? (sign > 0 ? at.i : at.i - 1) : sign > 0 ? at.i - 1 : at.i;
   return resizeAt(p, at.path, border, (sign * step) / at.extent);
+}
+
+/** A tab's tree dropped beside `at`, merged so that each split still alternates direction. */
+export const attach = (p: Pane, at: number, tree: Pane, side: Side): Pane => relabel(insert(p, at, tree, side), (id) => id) ?? p;
+
+/** Evens out the split at `path` (a double click on one of its borders), leaving the splits inside it alone. */
+export function equalizeAt(p: Pane, path: number[]): Pane {
+  return update(p, path, (s) => ({ ...s, sizes: even(s.children.length) }));
 }
 
 export function equalize(p: Pane): Pane {
