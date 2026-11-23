@@ -426,6 +426,46 @@ export const scenarios = [
     },
   },
   {
+    name: "settings: the configuration exported, the archive's path shown where it was written",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("settings");
+      const file = join(box.root, "termf-config.tar.gz");
+      await t.ready();
+      await t.view("settings");
+      await s.click(`${pane} [data-testid="section-config"]`);
+      await s.exec((path) => {
+        const real = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = (cmd, args, options) => (cmd === "plugin:dialog|save" ? Promise.resolve(path) : real(cmd, args, options));
+      }, file);
+      await s.click(`${pane} [data-testid="config-export"]:not([disabled])`);
+      await s.wait(() => existsSync(file), { what: "the archive written" });
+      await s.waitFor(`${pane} .archive code`);
+      const shown = await s.exec((css) => document.querySelector(css)?.title, `${pane} .archive code`);
+      check(shown === file, `the page shows ${shown} as the archive`);
+      await t.clean();
+    },
+  },
+  {
+    name: "configuration: the project deleted from its danger zone after one confirmation, its repository untouched",
+    views: ["project"],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("project");
+      await t.ready();
+      await t.project();
+      await t.view("project");
+      await s.click(`${pane} .danger-zone button`);
+      await s.waitFor("dialog.confirm[open]");
+      check((await s.text("dialog.confirm .btn.danger"))?.includes("acme"), "the button does not say what is deleted");
+      await s.click("dialog.confirm .btn.danger");
+      await s.wait(() => !existsSync(join(box.configDir, "projects", "acme.toml")), { what: "acme.toml removed" });
+      check(existsSync(join(box.acme, "README.md")), "the repository was touched");
+      await t.clean();
+    },
+  },
+  {
     name: "language: with a French system the interface is in French",
     views: [],
     ...french,

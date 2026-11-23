@@ -287,7 +287,7 @@
                 <button class="btn sm" onclick={load}>
                   <RefreshCw size={14} aria-hidden="true" />{t("reload")}
                 </button>
-                <button class="btn sm" onclick={exportConfig} disabled={settings.busy}>
+                <button class="btn sm" data-testid="config-export" onclick={exportConfig} disabled={settings.busy}>
                   <FileDown size={14} aria-hidden="true" />{t("configExportLong")}
                 </button>
                 <button class="btn sm" onclick={importConfig} disabled={settings.busy}>

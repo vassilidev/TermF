@@ -4656,8 +4656,6 @@ const fr = {
   lib2CopyWhereGlobal: "ta bibliothèque",
   lib2PluginManage: "Gérer dans la vue Claude",
   lib2PluginScope: "Portée Claude Code : {scope}",
-  // ui/rest: the remaining screens on the design system
-  // rest:vault
   restVaultNewSecret: "Nouveau secret",
   restVaultEditSecret: "Remplacer {name}",
   restVaultReplace: "Remplacer",
@@ -4729,7 +4727,6 @@ const fr = {
     "Touch ID n'est pas disponible sur ce Mac (pas de capteur, ou aucune empreinte dans les Réglages Système) : le coffre s'ouvre avec ton mot de passe et ta clé de sécurité.",
   restVaultBiometryNoneWindows: "Windows Hello n'est pas configuré sur ce PC : le coffre s'ouvre avec ton mot de passe et ta clé de sécurité.",
   restVaultNothingNew: "Rien de neuf : chaque élément est déjà dans le coffre.",
-  // rest:claude
   restClaudeWriteDraft:
     "Aide-moi à écrire « {name} » ({kind} de Claude Code) dans {dir}. Propose d'abord le contenu à relire, avant de créer le fichier. Ce qu'il doit faire : {description}",
   restClaudeWriteHelp: "Décris ce qu'il doit faire : Claude propose le contenu dans le panneau, à relire avant d'écrire.",
@@ -4750,11 +4747,9 @@ const fr = {
   restConfigDeleteKept: "Tes dépôts, leurs fichiers et leurs branches ne sont pas touchés.",
   restConfigDeleteConfirm: "Supprimer {name} et sa configuration",
   restConfigDeleted: "Projet {name} supprimé",
-  // rest:term
   restTermAskDraft: "Explique ce que montre cette sortie, et ce que je devrais faire ensuite.",
   restFilesAskDraft: "Explique ces lignes : ce qu'elles font et pourquoi elles sont écrites ainsi.",
   restFilesLines: "Lignes sélectionnées : {count}",
-  // rest:design
   restDesignGroupContrast: "Contrastes insuffisants",
   restDesignGroupHardcoded: "Valeurs écrites en dur",
   restDesignGroupOffScale: "Hors de l'échelle",
@@ -4790,7 +4785,6 @@ const fr = {
   restOpsTestFailedBadge: "Test en échec",
   restOpsWhyDraft: "Le test de la connexion {name} échoue. Pourquoi, et que dois-je changer ?",
   restOpsSeeRecipes: "Voir les recettes",
-  // rest:main
   restAskCto: "Demander au CTO…",
   restAskExpert: "Demander à l'expert…",
   restAskRole: "Demander à {role}…",
@@ -9435,8 +9429,6 @@ const en: Record<Key, string> = {
   lib2CopyWhereGlobal: "your library",
   lib2PluginManage: "Manage in the Claude view",
   lib2PluginScope: "Claude Code scope: {scope}",
-  // ui/rest: the remaining screens on the design system
-  // rest:vault
   restVaultNewSecret: "New secret",
   restVaultEditSecret: "Replace {name}",
   restVaultReplace: "Replace",
@@ -9507,7 +9499,6 @@ const en: Record<Key, string> = {
     "Touch ID is not available on this Mac (no sensor, or no fingerprint in System Settings): the vault opens with your password and your security key.",
   restVaultBiometryNoneWindows: "Windows Hello is not set up on this PC: the vault opens with your password and your security key.",
   restVaultNothingNew: "Nothing new: every item is already in the vault.",
-  // rest:claude
   restClaudeWriteDraft:
     "Help me write “{name}” ({kind} of Claude Code) in {dir}. First propose the content for me to read, before creating the file. What it must do: {description}",
   restClaudeWriteHelp: "Say what it must do: Claude proposes the content in the panel, to read before anything is written.",
@@ -9528,11 +9519,9 @@ const en: Record<Key, string> = {
   restConfigDeleteKept: "Your repositories, their files and their branches are left untouched.",
   restConfigDeleteConfirm: "Delete {name} and its configuration",
   restConfigDeleted: "Project {name} deleted",
-  // rest:term
   restTermAskDraft: "Explain what this output shows, and what I should do next.",
   restFilesAskDraft: "Explain these lines: what they do and why they are written this way.",
   restFilesLines: "Lines selected: {count}",
-  // rest:design
   restDesignGroupContrast: "Low contrast",
   restDesignGroupHardcoded: "Hard-coded values",
   restDesignGroupOffScale: "Off the scale",
@@ -9568,7 +9557,6 @@ const en: Record<Key, string> = {
   restOpsTestFailedBadge: "Test failed",
   restOpsWhyDraft: "The test of the {name} connection fails. Why, and what should I change?",
   restOpsSeeRecipes: "See the recipes",
-  // rest:main
   restAskCto: "Ask the CTO…",
   restAskExpert: "Ask the expert…",
   restAskRole: "Ask {role}…",
