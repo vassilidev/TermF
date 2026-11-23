@@ -133,8 +133,10 @@
   const stage = $derived(picked?.run === id ? picked.stage : "tasks");
   const pickStage = (s: string) => (picked = { run: id, stage: s === stage ? "tasks" : s });
   const tasks = $derived(teamRun?.steps.filter((s) => s.kind === "task") ?? []);
+  /** The lanes: what waits and what works while the team is at work, the delivery once it is done. */
   const live = $derived(
-    !!teamRun && active ? waits.length + teamRun.steps.filter((s) => s.state === "running" && s.kind !== "foreach").length : 0,
+    (!!teamRun && active ? waits.length + teamRun.steps.filter((s) => s.state === "running" && s.kind !== "foreach").length : 0) +
+      (wants === "deliver" ? 1 : 0),
   );
 
   /** What answering the first wait sets going: the step again, then the next stage of the timeline. */

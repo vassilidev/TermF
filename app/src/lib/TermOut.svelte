@@ -13,6 +13,8 @@
     margin: 0;
     padding: 10px 12px;
     overflow: auto;
+    /* In the dark theme the terminal and the page are close: its edge keeps it a block. */
+    border: 1px solid var(--border);
     border-radius: var(--radius-md);
     background: var(--term-bg);
     color: #e4e4ea;
