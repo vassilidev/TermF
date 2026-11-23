@@ -69,6 +69,8 @@ const TAGS: Record<string, string> = {
   helm: "Helm",
   aws: "AWS",
   docker: "Docker",
+  compose: "Docker Compose",
+  github: "GitHub",
   "github-actions": "GitHub Actions",
   ios: "iOS",
   android: "Android",
