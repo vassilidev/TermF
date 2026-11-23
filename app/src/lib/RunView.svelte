@@ -509,7 +509,7 @@
             {/if}
             <WaitCards run={teamRun} />
             <RunLive run={teamRun} />
-            <RunTell run={teamRun} />
+            <RunTell run={teamRun} open={run.status !== "closed"} />
             {#if repos.length}
               {@const prs = repos.filter((r) => r.run.prUrl).length}
               {@const other = repos.find((r) => r.run.id === deliveringRepo)?.run}

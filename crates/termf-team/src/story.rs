@@ -4,8 +4,23 @@
 use crate::{StepKind, StepState, TRIAGE, TeamRun};
 
 /// What GitHub and GitLab read in a pull request's text: each one closes an issue it names once merged.
-const CLOSING: [&str; 9] = [
-    "close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved",
+const CLOSING: [&str; 16] = [
+    "close",
+    "closes",
+    "closed",
+    "closing",
+    "fix",
+    "fixes",
+    "fixed",
+    "fixing",
+    "resolve",
+    "resolves",
+    "resolved",
+    "resolving",
+    "implement",
+    "implements",
+    "implemented",
+    "implementing",
 ];
 const ZWSP: char = '\u{200b}';
 /// A step's summary in the list, at most.
@@ -36,7 +51,11 @@ pub fn story(
                 .iter()
                 .map(|c| {
                     let mark = if covered.contains(&&c.id) { "x" } else { " " };
-                    format!("- [{mark}] {}: {}", c.id, defuse(&one_line(&c.text)))
+                    format!(
+                        "- [{mark}] {}: {}",
+                        defuse(&c.id),
+                        defuse(&one_line(&c.text))
+                    )
                 })
                 .collect();
             parts.push(format!("## Acceptance criteria\n\n{}", lines.join("\n")));
@@ -60,8 +79,9 @@ pub fn story(
             };
             let who = s.task.as_deref().unwrap_or(&s.key);
             format!(
-                "- {who} ({}): {}",
-                s.role.as_deref().unwrap_or_default(),
+                "- {} ({}): {}",
+                defuse(who),
+                defuse(s.role.as_deref().unwrap_or_default()),
                 defuse(&summary)
             )
         })
@@ -114,10 +134,12 @@ fn one_line(text: &str) -> String {
 }
 
 /// `text` as it reads, but inert in a pull request: no mention notifies anyone, no reference links or closes an
-/// issue (a zero-width space after `@` and `#`, and inside each closing keyword).
+/// issue (a zero-width space after `@` and `#`, inside each closing keyword, and after the scheme of a URL, which
+/// could name an issue whole).
 fn defuse(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
-    for word in text.split_inclusive(char::is_whitespace) {
+    let unlinked = text.replace("://", &format!(":{ZWSP}//"));
+    for word in unlinked.split_inclusive(char::is_whitespace) {
         let bare = word.trim_matches(|c: char| !c.is_alphanumeric());
         let mut split = CLOSING.iter().any(|k| bare.eq_ignore_ascii_case(k));
         for c in word.chars() {
@@ -148,5 +170,23 @@ mod tests {
             "Fixes #12 and (closes acme/api#3), cc @alex; see https://x/issues/4. Resolved: yes"
         );
         assert_eq!(defuse("Adds the export"), "Adds the export");
+        // GitLab's keywords too, and an issue's whole URL (the review of PR #135).
+        let gitlab = "Closing #5, fixing #6; Resolving #7. Implements #8 and implemented #9, implementing #10, \
+                      implement #11; see https://gitlab.com/acme/api/-/issues/4 and https://github.com/acme/api/issues/5";
+        let text = defuse(gitlab);
+        for live in [
+            "Closing",
+            "fixing",
+            "Resolving",
+            "Implements",
+            "implemented",
+            "implementing",
+            "implement #",
+            "https://gitlab.com/acme/api/-/issues/4",
+            "https://github.com/acme/api/issues/5",
+        ] {
+            assert!(!text.contains(live), "{live} in {text}");
+        }
+        assert_eq!(text.replace(ZWSP, ""), gitlab);
     }
 }

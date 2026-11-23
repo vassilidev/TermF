@@ -4406,6 +4406,7 @@ const fr = {
   practicalTeamTellHelp:
     "Ta question ou ta consigne part au CTO, qui mène l'équipe, ou à l'agent d'une étape. Sa réponse s'affiche ici, en direct.",
   practicalTeamTellTo: "À",
+  practicalTeamTellMessage: "Ton message",
   practicalTeamTellLead: "Le CTO, qui mène le run",
   practicalTeamTellPlaceholder: "Par exemple : pourquoi la tâche T2 est-elle bloquée ?",
   practicalTeamTellSend: "Envoyer",
@@ -4413,6 +4414,7 @@ const fr = {
   practicalTeamTellWaiting: "Réponse en cours…",
   practicalTeamTellOpen: "Ouvrir la conversation",
   practicalPrDecisionHelp: "Le CTO propose cette décision : à toi de valider ou de demander une autre option.",
+  practicalPrReversed: "Ces implications semblent inversées : vérifie laquelle va avec « oui ».",
 };
 
 type Key = keyof typeof fr;
@@ -8790,6 +8792,7 @@ const en: Record<Key, string> = {
   practicalTeamTellHelp:
     "Your question or instruction goes to the CTO, who leads the team, or to the agent of a step. Its answer shows here, live.",
   practicalTeamTellTo: "To",
+  practicalTeamTellMessage: "Your message",
   practicalTeamTellLead: "The CTO, who leads the run",
   practicalTeamTellPlaceholder: "For example: why is task T2 blocked?",
   practicalTeamTellSend: "Send",
@@ -8797,6 +8800,7 @@ const en: Record<Key, string> = {
   practicalTeamTellWaiting: "Answering…",
   practicalTeamTellOpen: "Open the conversation",
   practicalPrDecisionHelp: "The CTO proposes this decision: approve it or ask for another option.",
+  practicalPrReversed: "These implications seem the wrong way round: check which one goes with “yes”.",
 };
 
 const messages = { fr, en };

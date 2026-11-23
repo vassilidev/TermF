@@ -23,6 +23,7 @@ import {
   taskRoles,
   tally,
   unanswered,
+  reversed,
   swapped,
   withOthers,
   upsert,
@@ -220,17 +221,26 @@ test("implications: one per option for a choice, yes then no, a free text's as t
   ]);
 });
 
-test("implications: a yes/no question's, swapped by the agent, are left out", () => {
+test("implications: a yes/no question's that read the wrong way round are shown with a warning, never hidden", () => {
   const ask = (text, implications) => ({ ...question("q", "bool"), question: text, implications });
   const swappedEn = ask("Should the export include archived invoices?", [
     "Archived invoices are not exported",
     "Archived invoices are exported too",
   ]);
-  assert.deepEqual(implications(swappedEn), []);
+  assert.equal(implications(swappedEn).length, 2);
+  assert.equal(reversed(swappedEn), true);
   const swappedFr = ask("Faut-il garder l’ancienne API ?", ["On n’a plus d’ancienne API", "L’ancienne API reste en place"]);
-  assert.deepEqual(implications(swappedFr), []);
+  assert.equal(implications(swappedFr).length, 2);
+  assert.equal(reversed(swappedFr), true);
+  // The review of PR #135: letters out of ASCII end no word, so "chaîne" or "aérien" hold no negation.
+  const accents = ask("Faut-il supprimer l’ancienne chaîne de build ?", ["La chaîne de build est supprimée", "La chaîne aérienne reste"]);
+  assert.equal(implications(accents).length, 2);
+  assert.equal(reversed(accents), false);
+  assert.equal(swapped("Garder le pont aérien ?", "Le pont aérien reste", "Le pont aérien ferme"), false);
+  assert.equal(reversed({ ...question("q", "choice", ["a", "b"]), implications: ["no", "yes"] }), false, "yes/no questions only");
   const right = ask("Should the export include archived invoices?", ["Archived invoices are exported too", "Only open invoices are exported, never archived ones"]);
   assert.equal(implications(right).length, 2);
+  assert.equal(reversed(right), false);
   const negative = ask("Should we not send the e-mail?", ["The e-mail is not sent", "The e-mail goes out"]);
   assert.equal(implications(negative).length, 2, "a negative question: yes keeps its negation");
   const plain = ask("Keep the old API?", ["The old API stays", "The old API is removed"]);

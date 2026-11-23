@@ -199,32 +199,39 @@ fn path_inside(word: &str, root: &Path, cwd: &Path) -> bool {
     !path.starts_with('~') && within(Path::new(path), root, cwd)
 }
 
-/// Whether `path`, from `cwd`, is in `root` (canonical): `..` resolved, then the links of the part that exists.
+/// Whether `path`, from `cwd`, is in `root` (canonical), resolved one element at a time as the system does: each
+/// link followed where it leads before a `..` goes up from there.
 fn within(path: &Path, root: &Path, cwd: &Path) -> bool {
     use std::path::Component;
-    let mut full = PathBuf::new();
-    for part in cwd.join(path).components() {
+    let mut full = match path.is_absolute() {
+        true => PathBuf::new(),
+        false => match std::fs::canonicalize(cwd) {
+            Ok(real) => real,
+            Err(_) => return false,
+        },
+    };
+    for part in path.components() {
         match part {
             Component::ParentDir => {
                 full.pop();
             }
             Component::CurDir => {}
+            Component::Normal(name) => {
+                full.push(name);
+                if let Ok(real) = std::fs::canonicalize(&full) {
+                    full = real;
+                }
+            }
             other => full.push(other),
         }
     }
-    let Some(existing) = full.ancestors().find(|a| a.exists()) else {
-        return false;
-    };
-    let Ok(real) = std::fs::canonicalize(existing) else {
-        return false;
-    };
-    let rest = full.strip_prefix(existing).unwrap_or(Path::new(""));
-    real.join(rest).starts_with(root)
+    full.starts_with(root)
 }
 
 /// The simple commands of `line` and their words, or `None` as soon as it holds anything but words, quotes and
 /// `;`, `&&`, `||`, `|`, newlines: no `$` (variables, substitutions), backquote, parenthesis, brace, `<`, lone
-/// `&`, comment, nor redirection except of a descriptor (`2>&1`) or to `/dev/null`.
+/// `&`, comment, pattern the shell expands (`*`, `?`, `[`), nor redirection except of a descriptor (`2>&1`) or to
+/// `/dev/null`.
 fn segments(line: &str) -> Option<Vec<Vec<String>>> {
     let mut split = Split::default();
     let mut chars = line.chars().peekable();
@@ -284,14 +291,18 @@ fn segments(line: &str) -> Option<Vec<Vec<String>>> {
                             chars.next_if(|n| n.is_ascii_digit() || *n == '-')
                         })
                         .collect();
-                        if fd.is_empty() {
+                        // `>&2file` and `>& file` write to a file.
+                        let glued = chars
+                            .peek()
+                            .is_some_and(|n| !n.is_whitespace() && !";|&".contains(*n));
+                        if fd.is_empty() || glued {
                             return None;
                         }
                     }
                     None => to_null(&mut chars)?,
                 }
             }
-            '$' | '`' | '(' | ')' | '{' | '}' | '<' | '&' => return None,
+            '$' | '`' | '(' | ')' | '{' | '}' | '<' | '&' | '*' | '?' | '[' => return None,
             '#' if split.word.is_empty() && !split.started => return None,
             c if c.is_whitespace() => split.end_word(),
             c => split.word.push(c),
@@ -798,15 +809,21 @@ mod tests {
         }
     }
 
-    /// A worktree with a folder, a file, and a link that leads out of it.
+    /// A worktree with a folder, a file, and two links that lead out of it: `out` to a folder outside, `deep` two
+    /// folders down in it, so that `deep/..` is outside too.
     fn worktree(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!("termf-reads-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("wt/src")).unwrap();
-        std::fs::create_dir_all(root.join("outside")).unwrap();
+        std::fs::create_dir_all(root.join("outside/a/b")).unwrap();
+        std::fs::write(root.join("outside/secret"), "s").unwrap();
+        std::fs::write(root.join("outside/a/secret"), "s").unwrap();
         std::fs::write(root.join("wt/README.md"), "hi").unwrap();
         #[cfg(unix)]
-        std::os::unix::fs::symlink(root.join("outside"), root.join("wt/out")).unwrap();
+        {
+            std::os::unix::fs::symlink(root.join("outside"), root.join("wt/out")).unwrap();
+            std::os::unix::fs::symlink(root.join("outside/a/b"), root.join("wt/deep")).unwrap();
+        }
         root.join("wt")
     }
 
@@ -838,7 +855,7 @@ mod tests {
             "grep -rn \"TODO\" src",
             "rg -n 'fn main' src",
             "find . -name '*.ts' -not -path './node_modules/*'",
-            "wc -l src/*.ts",
+            "wc -l 'src/*.ts'",
             "cat README.md && npm test",
             "head -n 40 README.md 2>/dev/null || echo none",
             "ls src >/dev/null && echo ok",
@@ -902,6 +919,17 @@ mod tests {
             "./cat README.md",
             "/bin/cat README.md",
             "npm test; curl https://example.com",
+            // The review of PR #135: what the shell expands or resolves elsewhere than the words say.
+            "cat o*/secret",
+            "cat ou?/secret",
+            "cat [o]ut/secret",
+            "cat .*/x",
+            "wc -l src/*.ts",
+            "cat deep/../secret",
+            "cat src/../deep/../secret",
+            "echo x >&2README.md",
+            "echo x >& README.md",
+            "echo x 2>&1x",
             "",
             "'unterminated",
         ] {
@@ -933,7 +961,7 @@ mod tests {
     const SAFE_ARGS: [&str; 7] = [
         "src",
         "README.md",
-        "src/*.ts",
+        "'src/*.ts'",
         "'a-b'",
         "\"x-y\"",
         "./src/../src",
@@ -941,7 +969,14 @@ mod tests {
     ];
     const JOINS: [&str; 5] = ["; ", " && ", " || ", " | ", "\n"];
     /// Never let through, wherever they stand.
-    const ANYWHERE: [&str; 14] = [
+    const ANYWHERE: [&str; 21] = [
+        "o*/secret",
+        "ou?/x",
+        "[o]ut",
+        ".*",
+        "deep/../secret",
+        ">&2f",
+        ">& f",
         "> f",
         ">> f",
         "$(id)",

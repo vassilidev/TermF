@@ -147,7 +147,19 @@ fn keeps_a_commit_subject_to_72_characters_cut_at_a_word() {
         subject,
         "acme#4 T1: add the export button to the invoices page, with its…"
     );
-    assert_eq!(body, goal, "the whole goal in the body");
+    assert_eq!(
+        body, "…tooltip, its loading state and its error message\n\nKeep the table as it is.",
+        "what the subject left out, never the subject again"
+    );
+    // The review of PR #135: a subject that holds its whole line is not repeated in the body.
+    assert_eq!(
+        commit_message("acme#4 T1: add a button\n\nKeep the table."),
+        "acme#4 T1: add a button\n\nKeep the table."
+    );
+    // Half the subject in characters, not in bytes: no space after it, so the cut falls at 72 characters.
+    let wide = format!("{} {}", "é".repeat(30), "é".repeat(80));
+    let subject = commit_message(&wide);
+    assert_eq!(subject.lines().next().unwrap().chars().count(), 72);
     // Never inside a character, even with no space to cut at.
     let accents = "é".repeat(100);
     let subject = commit_message(&accents);

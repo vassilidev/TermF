@@ -131,6 +131,8 @@ export type Step = {
   repo?: string | null;
   session: number | null;
   sessions: number[];
+  /** Its own folder (a task's, a review's copy), gone once it is done; none: the run's worktree. */
+  worktree?: string | null;
   attempt: number;
   feedback: string | null;
   /** What a task changed; for an update step, the files its merge left in conflict. */
@@ -368,13 +370,19 @@ export function byTheme(questions: Question[]): [string, Question[]][] {
 export function implications(q: Question): { option: string | null; text: string }[] {
   const options = q.kind === "bool" ? ["yes", "no"] : q.kind === "text" ? null : q.options;
   if (options && q.implications.length !== options.length) return [];
-  if (q.kind === "bool" && swapped(q.question, q.implications[0], q.implications[1])) return [];
   return q.implications
     .map((text, i) => ({ option: options ? options[i] : null, text: text.trim() }))
     .filter((row) => row.text);
 }
 
-const NEGATION = /\b(not|no|never|without|none|nothing|cannot|nor|ne|pas|jamais|sans|aucun|aucune|rien|non)\b|n['’]t\b|\bn['’]/i;
+// Bounds of words in any script: `\b` ends a word at "î" or "é", and finds "ne" in "chaîne".
+const NEGATION =
+  /(?<![\p{L}\p{N}])(?:not|no|never|without|none|nothing|cannot|nor|ne|pas|jamais|sans|aucun|aucune|rien|non)(?![\p{L}\p{N}])|n['’]t(?!\p{L})|(?<!\p{L})n['’](?=\p{L})/iu;
+
+/** Whether a yes/no question's implications seem the wrong way round: the form warns, and shows them as they are. */
+export function reversed(q: Question): boolean {
+  return q.kind === "bool" && q.implications.length === 2 && swapped(q.question, q.implications[0], q.implications[1]);
+}
 
 /**
  * A yes/no question whose implications read the wrong way round (agents swap them): yes's flips the question's

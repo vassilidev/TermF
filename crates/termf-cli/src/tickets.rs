@@ -196,8 +196,9 @@ pub fn guard(args: &[&str]) -> ExitCode {
     let data = std::env::var_os(termf_core::ipc::ENV_DATA_DIR)
         .map(std::path::PathBuf::from)
         .or_else(|| termf_core::default_data_dir().ok());
+    let tainted = data.is_some_and(|d| termf_core::taint::session(&d, session));
     if let Some(reason) = termf_tickets::egress(tool, command)
-        && data.is_some_and(|d| termf_core::taint::session(&d, session))
+        && tainted
     {
         let ask = serde_json::json!({ "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -206,6 +207,8 @@ pub fn guard(args: &[&str]) -> ExitCode {
         } });
         println!("{ask}");
     } else if let Some(worktree) = worktree
+        // Once it read prod, the user approves every command (the trifecta rule), its tests included.
+        && !tainted
         && tool == "Bash"
         && let Some(cwd) = payload["cwd"].as_str()
         && termf_tickets::reads(command, worktree, std::path::Path::new(cwd), &allowed)

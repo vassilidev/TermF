@@ -2081,7 +2081,11 @@ impl Inner {
 
     /// The routing without what changes nothing in its workflow, so that it says only what differs.
     fn normalize(&self, run: &TeamRun, routing: &mut Routing) {
-        if let Ok(team) = self.team(run) {
+        // A role only the squads the run leaves aside have is still lacking.
+        if let Ok(mut team) = self.team(run) {
+            if !routing.squads.is_empty() {
+                team.squads.retain(|s| routing.squads.contains(&s.id));
+            }
             routing.roles.retain(|r| !has_role(&team, r));
         }
         if let Ok(workflow) = workflow::load(
@@ -5674,7 +5678,7 @@ fn fixable(run: &TeamRun) -> Vec<Task> {
         .collect()
 }
 
-/// Telling an obstacle to work through from a boundary to stop at.
+/// What a step is told of the skills its brief lists.
 const SKILLS: &str = "The skills of your plugin that fit this ticket. Before you start, invoke with the Skill tool \
                       each one that bears on your work, and follow it: it holds the tested way to do that work here, \
                       which the cards of the Stack section only sum up. Say in your summary which ones you used.";
@@ -5775,6 +5779,7 @@ fn skills_for(
         .collect())
 }
 
+/// Telling an obstacle to work through from a boundary to stop at.
 const OBSTACLES: &str = "A failing command, a timeout or a missing package is a problem to diagnose and work \
      around; a refused tool, a file outside what you may change, or a decision the ticket does not make is a \
      boundary: stop there and report blocked with your questions.";

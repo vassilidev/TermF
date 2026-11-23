@@ -592,6 +592,7 @@ pub fn run() {
             claude_native::claude_doctor,
             agents::agent_start,
             agents::agent_send,
+            agents::agent_send_or_queue,
             agents::agent_interrupt,
             agents::agent_answer,
             agents::agent_stop,

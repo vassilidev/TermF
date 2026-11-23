@@ -2030,8 +2030,8 @@ fn the_cto_adds_the_role_a_ticket_needs_to_the_run() {
     bad["roles"] = json!(["nobody", "cto", "docs", "docs"]);
     env.answer("triage.1.json", bad);
     let mut good = routing("lean", &["api"]);
-    // front is in squad web already: left out.
-    good["roles"] = json!(["docs", "front"]);
+    // back is in squad api, which the run works in: left out; front is only in squad web, which it does not.
+    good["roles"] = json!(["docs", "front", "back"]);
     env.answer("triage.2.json", good);
     let mut t1 = task("T1", "docs", &["README.md"], &[]);
     t1["squad"] = "".into();
@@ -2054,7 +2054,11 @@ fn the_cto_adds_the_role_a_ticket_needs_to_the_run() {
         assert!(second.contains(expected), "{expected} in {second}");
     }
     let routing = run.routing.as_ref().unwrap();
-    assert_eq!(routing.roles, ["docs"], "what the team lacks only");
+    assert_eq!(
+        routing.roles,
+        ["docs", "front"],
+        "what the run's squads lack only"
+    );
     if env.step(&run, ROUTE).state == StepState::Waiting {
         env.team.approve(1, ROUTE).unwrap();
     }

@@ -5,19 +5,27 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
   import Send from "@lucide/svelte/icons/send";
+  import Button from "$lib/ui/Button.svelte";
+  import Card from "$lib/ui/Card.svelte";
+  import Field from "$lib/ui/Field.svelte";
   import { stepName, ticketKey } from "$lib/TeamRunDetail.svelte";
   import { type AgentSession, ctoOf, showConversation, upsert } from "$lib/agents.svelte";
   import type { StoredEvent } from "$lib/conversation-logic";
   import { t } from "$lib/i18n";
   import type { TeamRun } from "$lib/team-run-logic";
 
-  /** "Tell the team something": a message to the CTO, who leads the run, or to the agent of one of its steps. */
-  let { run }: { run: TeamRun } = $props();
+  /**
+   * "Tell the team something": a message to the CTO, who leads the run, or to the agent of one of its steps. `open`:
+   * the run's worktree is still there, where a finished step's conversation would take up again.
+   */
+  let { run, open = true }: { run: TeamRun; open?: boolean } = $props();
 
   const LEAD = "lead";
+  // An agent at work gets it at the end of its turn; a finished one only where its folder still is: the run's own.
   const agents = $derived(
     run.steps
       .filter((s) => s.session !== null && s.kind !== "foreach")
+      .filter((s) => s.state === "running" || (open && s.kind === "agent" && !s.worktree))
       .sort((a, b) => Number(b.state === "running") - Number(a.state === "running")),
   );
   let to = $state(LEAD);
@@ -26,6 +34,10 @@
   let error = $state("");
   /** The conversation that answers, what it said since the message, and whether its turn ended. */
   let reply = $state<{ session: number; who: string; text: string; heard: boolean; done: boolean } | null>(null);
+
+  $effect(() => {
+    if (to !== LEAD && !agents.some((s) => s.key === to)) to = LEAD;
+  });
 
   const stop = listen<StoredEvent>("agent-event", ({ payload: e }) => {
     if (!reply || e.session !== reply.session) return;
@@ -60,7 +72,7 @@
         who = `${step.role ?? ""} · ${stepName(step)}`;
       }
       reply = { session, who, text: "", heard: false, done: false };
-      await invoke("agent_send", { id: session, text: message });
+      await invoke<boolean>("agent_send_or_queue", { id: session, text: message });
       draft = "";
     } catch (err) {
       reply = null;
@@ -71,59 +83,35 @@
   }
 </script>
 
-<section class="panel" aria-labelledby="run-tell">
-  <h3 id="run-tell">{t("practicalTeamTell")}</h3>
+<Card title={t("practicalTeamTell")}>
   <p class="help">{t("practicalTeamTellHelp")}</p>
   <form onsubmit={send}>
-    <label class="to">
-      <span>{t("practicalTeamTellTo")}</span>
-      <select bind:value={to} disabled={busy}>
-        <option value={LEAD}>{t("practicalTeamTellLead")}</option>
-        {#each agents as step (step.key)}
-          <option value={step.key}>{step.role ?? ""} · {stepName(step)}</option>
-        {/each}
-      </select>
-    </label>
-    <input
-      type="text"
-      bind:value={draft}
-      placeholder={t("practicalTeamTellPlaceholder")}
-      aria-label={t("practicalTeamTell")}
-      disabled={busy}
-    />
-    <button class="btn primary sm" type="submit" disabled={busy || !draft.trim()}>
-      <Send size={14} aria-hidden="true" />{t("practicalTeamTellSend")}
-    </button>
+    <Field label={t("practicalTeamTellTo")}>
+      {#snippet control(attrs)}
+        <select class="field" {...attrs} bind:value={to} disabled={busy}>
+          <option value={LEAD}>{t("practicalTeamTellLead")}</option>
+          {#each agents as step (step.key)}
+            <option value={step.key}>{step.role ?? ""} · {stepName(step)}</option>
+          {/each}
+        </select>
+      {/snippet}
+    </Field>
+    <Field label={t("practicalTeamTellMessage")} placeholder={t("practicalTeamTellPlaceholder")} bind:value={draft} disabled={busy} error={error || undefined} />
+    <Button variant="primary" size="sm" type="submit" icon={Send} loading={busy} disabled={!draft.trim()}>{t("practicalTeamTellSend")}</Button>
   </form>
-  {#if error}<p class="notice error" role="alert">{error}</p>{/if}
   {#if reply}
     <div class="reply" aria-live="polite">
       <div class="who">
         <b>{reply.who}</b>
         {#if !reply.done}<LoaderCircle size={14} class="spin" aria-label={t("practicalTeamTellWaiting")} />{/if}
-        <button class="btn link sm" type="button" onclick={() => showConversation(reply!.session)}>
-          <MessagesSquare size={14} aria-hidden="true" />{t("practicalTeamTellOpen")}
-        </button>
+        <Button variant="link" size="sm" icon={MessagesSquare} onclick={() => showConversation(reply!.session)}>{t("practicalTeamTellOpen")}</Button>
       </div>
       {#if reply.text}<p class="said">{reply.text}</p>{:else if !reply.done}<p class="muted">{t("practicalTeamTellWaiting")}</p>{/if}
     </div>
   {/if}
-</section>
+</Card>
 
 <style>
-  .panel {
-    padding: 14px 16px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--panel);
-  }
-
-  h3 {
-    margin: 0 0 4px;
-    font-size: var(--text-base);
-    font-weight: 650;
-  }
-
   .help {
     margin: 0 0 10px;
     color: var(--muted);
@@ -132,28 +120,12 @@
 
   form {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 8px;
+    grid-template-columns: minmax(10rem, 16rem) minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px 10px;
   }
 
-  .to {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--text-sm);
-    color: var(--muted);
-  }
-
-  .to select {
-    max-width: 16rem;
-  }
-
-  input {
-    min-width: 0;
-  }
-
-  @container (max-width: 520px) {
+  @media (max-width: 720px) {
     form {
       grid-template-columns: minmax(0, 1fr);
     }
@@ -163,7 +135,7 @@
     margin-top: 12px;
     padding: 10px 12px;
     border-left: 3px solid var(--primary);
-    border-radius: var(--radius);
+    border-radius: var(--radius-md);
     background: var(--bg);
   }
 
@@ -174,7 +146,7 @@
     font-size: var(--text-sm);
   }
 
-  .who .btn {
+  .who :global(.btn) {
     margin-left: auto;
   }
 

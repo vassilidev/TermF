@@ -248,6 +248,12 @@ pub async fn agent_send(app: AppHandle, id: i64, text: String) -> CmdResult<()> 
     .await
 }
 
+/// Sends a message now, or keeps it for the end of the agent's turn while it works (`true`).
+#[tauri::command]
+pub async fn agent_send_or_queue(app: AppHandle, id: i64, text: String) -> CmdResult<bool> {
+    blocking(app, move |app| agents(app).send_or_queue(id, &text)).await
+}
+
 #[tauri::command]
 pub async fn agent_interrupt(app: AppHandle, id: i64) -> CmdResult<()> {
     blocking(app, move |app| agents(app).interrupt(id)).await
