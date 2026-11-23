@@ -132,6 +132,10 @@ pub struct SessionSpec {
     /// same hook.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub guard: bool,
+    /// With `guard` (a team's step): the commands that only read in `cwd` (a closed list, `termf_tickets::reads`),
+    /// and these ones (the repository's checks, tests and lint), run without asking the user.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_freely: Option<Vec<String>>,
     /// `--max-turns`: the most model calls one message may take before its turn ends on an error.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_turns: Option<u32>,

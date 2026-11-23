@@ -32,7 +32,7 @@ pub fn state(app: &AppHandle, config_dir: PathBuf, data_dir: PathBuf) -> VisualS
     VisualState(visual)
 }
 
-fn visual(app: &AppHandle) -> &Visual {
+pub(crate) fn visual(app: &AppHandle) -> &Visual {
     &app.state::<VisualState>().inner().0
 }
 

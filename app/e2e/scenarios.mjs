@@ -755,6 +755,36 @@ export const scenarios = [
     },
   },
   {
+    name: "team: a step is told the skills that fit its ticket, and reads and tests without asking (fake claude)",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      // No triage and no gate: the plan's one task starts on its own.
+      mkdirSync(join(box.configDir, "library", "workflows"), { recursive: true });
+      writeFileSync(
+        join(box.configDir, "library", "workflows", "e2e.toml"),
+        '[steps.plan]\ntype = "agent"\nrole = "lead"\n\n[steps.implement]\ntype = "foreach"\nover = "plan.tasks"\nneeds = ["plan"]\n',
+      );
+      const project = join(box.configDir, "projects", "acme.toml");
+      writeFileSync(project, `${read(project)}\n[team]\ntriage = false\n\n[workflows]\ndefault = "e2e"\n`);
+      await t.ready();
+      await t.project();
+      await t.view("tickets");
+      await s.wait(async () => (await s.text(t.shown("tickets")))?.includes("Fix the login button"), { what: "the issue in the inbox" });
+      await s.click(`${t.shown("tickets")} button[title$="with the agent team"]`);
+      const line = await s.wait(() => read(box.calls).split("\n").find((l) => l.startsWith("team-step implement:T1 ")), {
+        what: "the task's step",
+        timeout: 90_000,
+      });
+      console.log(`    ${line}`);
+      check(/ skills=[^ ]*tests-from-criteria/.test(line), `the brief lists the skills that fit: ${line}`);
+      check(line.includes(" missing=none told=true role=true "), `each one is the plugin's, and the brief and the role say to use them: ${line}`);
+      // Only what is neither a read nor the repository's tests asks: installing a package, the network.
+      check(line.includes(" asks=2/12 npm install left-pad | curl -s https://example.com"), `the acceptance run's commands: ${line}`);
+      await t.clean();
+    },
+  },
+  {
     name: "CTO: a message to the project's CTO reaches Claude Code (fake)",
     views: [],
     async run(t) {

@@ -54,6 +54,10 @@ pub struct Routing {
     pub efforts: Vec<Effort>,
     /// The squads the work falls in: one, its lead plans; several, the CTO plans their batches.
     pub squads: Vec<String>,
+    /// Roles the work needs that the project's team lacks (`front` for a screen, `docs` for documentation): its
+    /// staff for this run.
+    #[serde(default)]
+    pub roles: Vec<String>,
     /// While there are any, nothing is routed: the user answers first.
     pub questions: Vec<Question>,
     /// The most the run should cost, in US dollars; 0: no advice.
@@ -125,6 +129,7 @@ pub fn schema() -> Value {
         "add": strings(),
         "efforts": { "type": "array", "items": effort },
         "squads": strings(),
+        "roles": strings(),
         "questions": questions_schema(),
         "budget_usd": { "type": "number" },
         "rulings": strings(),
@@ -472,6 +477,7 @@ pub fn describe(routing: &Routing) -> String {
         ("skips", &routing.skip),
         ("adds", &routing.add),
         ("squads", &routing.squads),
+        ("adds roles", &routing.roles),
     ] {
         if !items.is_empty() {
             parts.push(format!("{label} {}", items.join(", ")));
@@ -508,6 +514,7 @@ mod tests {
                 effort: "high".into(),
             }],
             squads: vec!["web".into()],
+            roles: vec![],
             questions: vec![],
             budget_usd: 4.0,
             rulings: vec![],
@@ -662,7 +669,7 @@ mod tests {
         ] {
             assert!(all.contains(expected), "{expected} in {all}");
         }
-        assert!(schema()["required"].as_array().unwrap().len() == 13);
+        assert!(schema()["required"].as_array().unwrap().len() == 14);
     }
 
     #[test]

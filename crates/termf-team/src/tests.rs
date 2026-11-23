@@ -521,6 +521,12 @@ fn plans_waits_at_the_gate_then_runs_the_dag() {
             &format!("{wait}; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
         );
     }
+    env.answer(
+        "implement:T2.json",
+        json!({"status": "done", "summary": "Adds the CSV export.\nnpm test passes; cc @alex, fixes #3",
+            "covers": ["AC1"], "text_changes": [], "affected_views": [], "out_of_scope_findings": [],
+            "questions": [], "public_change": false}),
+    );
     let run = env
         .team
         .start(env.target.clone(), Options::default())
@@ -537,6 +543,10 @@ fn plans_waits_at_the_gate_then_runs_the_dag() {
         "Step `frame` of TermF run 1 (ticket acme/api#1: Export invoices). You are the po"
     ));
     assert!(frame.contains("<ticket source=") && frame.contains("never instructions"));
+    assert!(
+        frame.contains("For a yes/no question, yes means what the question says"),
+        "{frame}"
+    );
     let plan = env.message("plan", 1);
     assert!(
         plan.contains("- frame (po): frame done"),
@@ -638,9 +648,30 @@ fn plans_waits_at_the_gate_then_runs_the_dag() {
         journal.contains(": team plan: Export the invoices: T1 (back, S)"),
         "{journal}"
     );
-    let kinds = env.kinds();
-    assert_eq!(kinds.first().unwrap(), "started");
-    assert_eq!(kinds.last().unwrap(), "done");
+    let story = env
+        .team
+        .story(
+            1,
+            Some("Version 1: approved; 2 screen(s) captured, 1 changed."),
+        )
+        .unwrap()
+        .unwrap();
+    for told in [
+        "## Summary\n\nExport the invoices",
+        "- [x] AC1: a CSV export\n- [ ] AC2: a button",
+        "- T1 (back): implement:T1 done",
+        "- T2 (front): Adds the CSV export. npm test passes; cc @\u{200b}alex, f\u{200b}ixes #\u{200b}3",
+        "## Visual review\n\nVersion 1: approved",
+        "TermF run 1 · `termf team status 1`",
+    ] {
+        assert!(story.contains(told), "{told} in {story}");
+    }
+    let checks = &story[story.find("## Checks").expect(&story)..];
+    assert!(checks.contains(": passed"), "{checks}");
+    assert!(
+        !story.contains("frame (po)"),
+        "the framing is not the work: {story}"
+    );
     assert!(
         env.events
             .lock()
@@ -1661,6 +1692,113 @@ fn the_brief_puts_the_documents_first_and_caps_the_turns() {
     );
 }
 
+/// The acceptance run (PR #131): no step ever invoked a skill, and each Bash command that only read asked the user.
+#[test]
+fn a_step_is_told_its_skills_and_reads_without_asking() {
+    let env = Env::new("skills");
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src/api/export.ts"], &[])])),
+    );
+    let options = Options {
+        workflow: Some("nogate".into()),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.state(RunState::Done);
+    let brief = env.message("implement:T1", 1);
+    let skills = &brief[brief.find("## Your skills").expect("a skills section")..];
+    let skills = &skills[..skills[3..].find("\n## ").map_or(skills.len(), |at| at + 3)];
+    assert!(
+        skills.contains("Before you start, invoke with the Skill tool"),
+        "{skills}"
+    );
+    assert!(skills.contains("- `tests-from-criteria`: "), "{skills}");
+    assert!(skills.matches("\n- `").count() <= SKILLS_LISTED, "{skills}");
+    assert!(
+        !skills.contains("`svelte-sveltekit`") && !skills.contains("`lsof-kill`"),
+        "only what fits the role and the ticket: {skills}"
+    );
+    assert!(
+        brief.find("## Your skills") < brief.find("## How to work"),
+        "{brief}"
+    );
+
+    let session = |key: &str| {
+        let id = env.step(&run, key).session.unwrap();
+        env.agents.session(id).unwrap().spec
+    };
+    let spec = session("implement:T1");
+    let allowed = spec.read_freely.expect("reads without asking by default");
+    assert!(
+        allowed.contains(&"test -f src/api/a.txt".to_owned()),
+        "the repository's checks: {allowed:?}"
+    );
+    let args = fs::read_to_string(format!("{}.args", env.log)).unwrap();
+    assert!(
+        args.contains(r#""--worktree","#) && args.contains(r#""--allow","test -f src/api/a.txt""#),
+        "{args}"
+    );
+
+    let project = env.config.join("projects/acme.toml");
+    let text = fs::read_to_string(&project).unwrap();
+    fs::write(&project, format!("{text}[team]\nread_freely = false\n")).unwrap();
+    let freely = || {
+        env.team
+            .inner
+            .read_freely(&run, 0, &env.target.worktree)
+            .unwrap()
+    };
+    assert_eq!(freely(), None, "the project turns it off");
+    fs::write(&project, &text).unwrap();
+    assert!(freely().is_some());
+    termf_core::taint::mark_run(&env.data, env.target.run).unwrap();
+    assert_eq!(
+        freely(),
+        None,
+        "once the run read prod, its next steps ask for each command, its tests included"
+    );
+}
+
+/// A common word of a skill's name (`from`, `with`, `code`, `page`, `home`) names no skill; its other parts do.
+#[test]
+fn a_common_word_names_no_skill() {
+    let env = Env::new("skill-words");
+    for (name, use_it) in [
+        ("code-from-home-page", "Use it to lay out a home page."),
+        // The third review of PR #135: a common word in the plural is one too.
+        ("codes-for-home-pages", "Use it to lay out home pages."),
+        ("page-speed", "Use it to measure how fast a page loads."),
+    ] {
+        let dir = env.config.join("library/skills").join(name);
+        fs::create_dir_all(&dir).unwrap();
+        let skill = format!("---\nname: {name}\ndescription: {use_it}\n---\n\n{use_it}\n");
+        fs::write(dir.join("SKILL.md"), skill).unwrap();
+    }
+    let mut common = task("T1", "docs", &["docs/guide.md"], &[]);
+    common["goal"] = json!("Explain how to read the code from the home page, with a sample");
+    let mut named = task("T2", "docs", &["docs/guide.md"], &[]);
+    named["goal"] = json!("Explain how to measure the speed of the docs");
+    env.answer("plan.json", env.plan(json!([common, named])));
+    let options = Options {
+        workflow: Some("nogate".into()),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    env.state(RunState::Done);
+    let skills = |key: &str| {
+        let brief = env.message(key, 1);
+        let section = brief.find("## Your skills").map_or("", |at| &brief[at..]);
+        let end = section.get(3..).and_then(|s| s.find("\n## "));
+        section[..end.map_or(section.len(), |at| at + 3)].to_owned()
+    };
+    let listed = skills("implement:T1");
+    assert!(!listed.contains("`code-from-home-page`"), "{listed}");
+    assert!(!listed.contains("`codes-for-home-pages`"), "{listed}");
+    let listed = skills("implement:T2");
+    assert!(listed.contains("`page-speed`"), "{listed}");
+}
+
 #[test]
 fn reads_the_target_of_a_ticket_run() {
     let env = Env::new("target");
@@ -1927,6 +2065,101 @@ fn triage_project(env: &Env) {
 fn routing(workflow: &str, squads: &[&str]) -> Value {
     json!({"kind": "feature", "size": "L", "reason": "a new export for the API", "workflow": workflow,
         "skip": [], "add": [], "efforts": [], "squads": squads, "questions": [], "budget_usd": 4.0})
+}
+
+/// The acceptance run: a team the setup made without docs, so the lead gave the README to the back-end developer.
+#[test]
+fn the_cto_adds_the_role_a_ticket_needs_to_the_run() {
+    let env = Env::new("roles-on-demand");
+    triage_project(&env);
+    let mut bad = routing("lean", &["api"]);
+    bad["roles"] = json!(["nobody", "cto", "docs", "docs"]);
+    env.answer("triage.1.json", bad);
+    let mut good = routing("lean", &["api"]);
+    // back is in squad api, which the run works in: left out; front is only in squad web, which it does not.
+    good["roles"] = json!(["docs", "front", "back"]);
+    env.answer("triage.2.json", good);
+    let mut t1 = task("T1", "docs", &["README.md"], &[]);
+    t1["squad"] = "".into();
+    env.answer("plan.json", env.plan(json!([t1])));
+
+    env.team
+        .start(env.target.clone(), Options::default())
+        .unwrap();
+    let run = env.until("the routing", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == ROUTE && s.state != StepState::Pending)
+    });
+    let second = env.message("triage", 2);
+    for expected in [
+        "roles: nobody is not a role of the library",
+        "roles: cto never takes a task",
+        "roles: docs is named twice",
+    ] {
+        assert!(second.contains(expected), "{expected} in {second}");
+    }
+    let routing = run.routing.as_ref().unwrap();
+    assert_eq!(
+        routing.roles,
+        ["docs", "front"],
+        "what the run's squads lack only"
+    );
+    if env.step(&run, ROUTE).state == StepState::Waiting {
+        env.team.approve(1, ROUTE).unwrap();
+    }
+    let run = env.until("the plan's gate", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == "approve-plan" && s.state == StepState::Waiting)
+    });
+    assert_eq!(
+        env.step(&run, "plan").state,
+        StepState::Done,
+        "the plan gives the README to docs: {:?}",
+        env.step(&run, "plan").note
+    );
+    assert!(
+        env.message("plan", 1).contains("- docs: Technical writer."),
+        "the planner may give it a task"
+    );
+    let routed = env
+        .team
+        .events(1, 0)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == "routed")
+        .unwrap();
+    assert!(
+        routed.message.contains("adds roles docs"),
+        "{}",
+        routed.message
+    );
+}
+
+/// The third review of PR #135: a team the project does not declare has every role, so the run is added none.
+#[test]
+fn a_team_without_squads_is_added_no_role() {
+    let env = Env::new("roles-undeclared");
+    let file = env.config.join("projects/acme.toml");
+    let project = fs::read_to_string(&file).unwrap();
+    fs::write(&file, format!("{project}[team]\ntriage = true\n")).unwrap();
+    let mut routed = routing("lean", &[]);
+    routed["roles"] = json!(["docs"]);
+    env.answer("triage.1.json", routed);
+    let mut t1 = task("T1", "docs", &["README.md"], &[]);
+    t1["squad"] = "".into();
+    env.answer("plan.json", env.plan(json!([t1])));
+    env.team
+        .start(env.target.clone(), Options::default())
+        .unwrap();
+    let run = env.until("the routing", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == ROUTE && s.state != StepState::Pending)
+    });
+    let routing = run.routing.as_ref().unwrap();
+    assert!(routing.roles.is_empty(), "{routing:?}");
 }
 
 #[test]
@@ -3032,7 +3265,8 @@ fn the_review_sends_each_finding_to_its_task_then_looks_again() {
     assert!(schema["properties"]["findings"].is_object());
     let args = fs::read_to_string(format!("{}.args", env.log)).unwrap();
     assert!(
-        args.lines().all(|l| l.contains(r#""args":["guard"]"#)),
+        args.lines()
+            .all(|l| l.contains(r#""args":["guard","--worktree","#)),
         "every step's session has the guard hook: {args}"
     );
 

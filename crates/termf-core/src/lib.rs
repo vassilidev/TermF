@@ -808,6 +808,16 @@ pub fn set_checks(doc: &mut DocumentMut, checks: &BTreeMap<String, String>) {
     }
 }
 
+/// Sets `[team] <key>` of project `id`'s file, the rest of the file kept.
+pub fn set_team_flag(config_dir: &Path, id: &str, key: &str, on: bool) -> Result<()> {
+    let file = project_file(config_dir, id)?;
+    let mut doc: DocumentMut = fs::read_to_string(&file)?
+        .parse()
+        .with_context(|| format!("invalid {}", file.display()))?;
+    table_in(doc.as_table_mut(), "team")[key] = value(on);
+    write_atomic(&file, &doc.to_string())
+}
+
 /// The file a new project starts with, as `save_project` would write it.
 pub fn project_text(name: &str, repos: &[String]) -> Result<String> {
     let name = name.trim();
