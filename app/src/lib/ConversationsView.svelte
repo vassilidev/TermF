@@ -32,9 +32,20 @@
   import { mostRecent } from "$lib/nav-logic";
   import { app, shortPath } from "$lib/state.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
+  import { ask, screenName } from "$lib/ask.svelte";
 
   // Pinned for display only: without a pick, the view and ⌘J still start from the most recent.
-  const sessions = $derived(pinnedFirst(listed()));
+  // Then by role, the role asked last first: what was asked with ⌘I says from which screen.
+  const groups = $derived.by(() => {
+    const by = new Map<string, AgentSession[]>();
+    for (const s of pinnedFirst(listed())) {
+      const key = pinned(s) ? "" : (s.role ?? "~");
+      by.set(key, [...(by.get(key) ?? []), s]);
+    }
+    return [...by];
+  });
+  const sessions = $derived(groups.flatMap(([, list]) => list));
+  const groupName = (key: string) => (key === "" ? t("aigStanding") : key === "~" ? t("aigOthers") : key);
   const current = $derived(conversation());
   // Before the list is read, neither the form nor "no conversation" would be true yet.
   const creating = $derived(agents.creating || (agents.read && !current));
@@ -219,7 +230,9 @@
           </button>
         </li>
       {/if}
-      {#each sessions as session (session.id)}
+      {#each groups as [key, list] (key)}
+        {#if groups.length > 1}<li class="grp" aria-hidden="true">{groupName(key)}</li>{/if}
+      {#each list as session (session.id)}
         <li class="row" class:current={session === current && !creating} class:picked={chosen.includes(session)}>
           <input
             class="box"
@@ -239,11 +252,13 @@
               {#if session.role && !pinned(session)}<span class="role"><UserRound size={11} aria-hidden="true" />{session.role}</span>{/if}
             </span>
             <span class="desc"
-              >{runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · {ago(session.updated)}</span
+              >{runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · {ago(session.updated)}{#if ask.origins[session.id] && !pinned(session)}
+                · {t("aigFrom", { screen: screenName(ask.origins[session.id]) })}{/if}</span
             >
           </button>
           <StatusPill status={session.state} />
         </li>
+      {/each}
       {:else}
         {#if agents.read}<li class="none muted">{t("chatEmpty")}</li>{:else}<li><Skeleton shape="list" rows={6} /></li>{/if}
       {/each}
@@ -404,6 +419,13 @@
   .none {
     padding: 8px 10px;
     font-size: var(--text-sm);
+  }
+
+  .grp {
+    padding: 12px 10px 4px;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 500;
   }
 
   /* A conversation scrolls its thread between a fixed header and the message box. */

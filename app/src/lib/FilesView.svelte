@@ -11,6 +11,7 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { display, pressed } from "$lib/keymap.svelte";
   import { app, ui } from "$lib/state.svelte";
+  import { provide } from "$lib/ask.svelte";
   import {
     activate,
     ask,
@@ -38,6 +39,15 @@
   });
 
   const project = $derived(currentProject());
+
+  // The ⌘I panel: the project's expert, with the file open.
+  $effect(() => {
+    const tab = files.active;
+    return provide("files", {
+      repo: files.repo || undefined,
+      chips: tab ? [{ id: "file", kind: "object", label: tab.path, text: `File ${tab.path} in ${tab.repo}` }] : [],
+    });
+  });
 
   $effect(() => {
     void app.project;

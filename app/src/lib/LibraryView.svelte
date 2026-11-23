@@ -17,6 +17,7 @@
   import { t } from "$lib/i18n";
   import { currentProject } from "$lib/files.svelte";
   import { app, shortPath } from "$lib/state.svelte";
+  import { provide } from "$lib/ask.svelte";
   import {
     busy,
     kinds,
@@ -94,6 +95,15 @@
   ]);
   const shown = $derived(library.tab === "conventions" ? [] : visible.filter((i) => i.kind === library.tab));
   const current = $derived(shown.find((i) => i.name === selected) ?? shown[0]);
+
+  // The ⌘I panel: the item open goes with the question; a role answers for itself.
+  $effect(() => {
+    const item = current;
+    return provide("library", {
+      role: item?.kind === "role" ? item.name : undefined,
+      chips: item ? [{ id: "library-item", kind: "object", label: `${item.kind} ${item.name}`, text: item.description ?? "" }] : [],
+    });
+  });
   const here = $derived<Layer>(library.scope ? "project" : "global");
 
   /** From the default of its layer to the most specific toggle, the last one deciding. */

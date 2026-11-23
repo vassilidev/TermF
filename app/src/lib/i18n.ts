@@ -4425,6 +4425,7 @@ const fr = {
   aigUndone: "{what} remis comme avant",
   aigFrom: "depuis {screen}",
   aigStanding: "Toujours là",
+  aigOthers: "Sans rôle",
   aigHello: "Bonjour. {waits}, {works}.",
   aigWaitsNone: "Rien ne t'attend",
   aigWaitsOne: "1 chose t'attend",
@@ -4455,16 +4456,14 @@ const fr = {
   aigAskLead: "Demander au lead",
   aigNextCiFailed: "« {name} » a échoué sur {branch}. Demande à devops ce qui casse.",
   aigNextCiWhy: "Pourquoi « {name} » a échoué sur {branch} ? Dis-moi quoi corriger.",
-  aigNextOpsConnect: "ajoute la connexion d'un serveur ou d'une base de données.",
-  aigNextOpsAction: "Ajouter",
+  aigAskRole: "Demander à {role}",
+  aigOpsDraft: "Quels serveurs et quelles bases ce projet utilise-t-il ? Aide-moi à ajouter leurs connexions.",
   aigNextRunWaits: "réponds à {role} : l'équipe repart aussitôt.",
   aigNextRunWorking: "l'équipe travaille. Tu es prévenu dès qu'elle a besoin de toi.",
   aigNextRunFailed: "une étape a échoué. Demande au lead ce qui bloque.",
   aigNextRunFailedDraft: "Une étape du run a échoué. Qu'est-ce qui bloque, et que proposes-tu ?",
   aigNextRunDeliver: "relis le travail et livre la PR.",
   aigNextRunMerged: "la PR est fusionnée. Tu peux nettoyer le run.",
-  aigNextLibrary: "demande au CTO quelles skills servent ce projet.",
-  aigNextLibraryDraft: "Quelles skills et quels rôles de la bibliothèque servent vraiment ce projet ? Lesquels couper ?",
 };
 
 type Key = keyof typeof fr;
@@ -8861,6 +8860,7 @@ const en: Record<Key, string> = {
   aigUndone: "{what} put back as it was",
   aigFrom: "from {screen}",
   aigStanding: "Always there",
+  aigOthers: "No role",
   aigHello: "Hello. {waits}, {works}.",
   aigWaitsNone: "Nothing waits for you",
   aigWaitsOne: "1 thing waits for you",
@@ -8891,16 +8891,14 @@ const en: Record<Key, string> = {
   aigAskLead: "Ask the lead",
   aigNextCiFailed: "“{name}” failed on {branch}. Ask devops what breaks.",
   aigNextCiWhy: "Why did “{name}” fail on {branch}? Tell me what to fix.",
-  aigNextOpsConnect: "add the connection of a server or a database.",
-  aigNextOpsAction: "Add",
+  aigAskRole: "Ask {role}",
+  aigOpsDraft: "Which servers and databases does this project use? Help me add their connections.",
   aigNextRunWaits: "answer {role}: the team moves again right away.",
   aigNextRunWorking: "the team is working. You are told as soon as it needs you.",
   aigNextRunFailed: "a step failed. Ask the lead what blocks.",
   aigNextRunFailedDraft: "A step of the run failed. What blocks, and what do you suggest?",
   aigNextRunDeliver: "review the work and deliver the PR.",
   aigNextRunMerged: "the PR is merged. You can clean up the run.",
-  aigNextLibrary: "ask the CTO which skills serve this project.",
-  aigNextLibraryDraft: "Which skills and roles of the library really serve this project? Which ones to switch off?",
 };
 
 const messages = { fr, en };
