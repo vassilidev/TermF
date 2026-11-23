@@ -71,7 +71,8 @@
    * caller whose `top` already asks something.
    * `bare`: in the ⌘I panel, with no header; the agent's actions fold into one line, a permission is a proposal
    * (Apply, Modify, Ignore) and an applied file change can be undone. `chips` goes above the field; `outgoing` turns
-   * what is typed into what is sent, null when it went elsewhere.
+   * what is typed into what is sent, null when it went elsewhere. `fences` draws a fenced block of the given language
+   * its own way (a proposal the agent wrote), instead of as code.
    */
   let {
     session,
@@ -85,6 +86,7 @@
     chips,
     outgoing,
     placeholder,
+    fences,
   }: {
     session: AgentSession;
     embedded?: boolean;
@@ -97,6 +99,7 @@
     chips?: Snippet;
     outgoing?: (text: string) => Promise<string | null>;
     placeholder?: string;
+    fences?: Record<string, Snippet<[string]>>;
   } = $props();
 
   let events = $state.raw<StoredEvent[]>([]);
@@ -508,7 +511,9 @@
 
 {#snippet rich(text: string)}
   {#each blocks(text) as block, i (i)}
-    {#if block.kind === "code"}
+    {#if block.kind === "code" && block.lang && fences && Object.hasOwn(fences, block.lang)}
+      {@render fences[block.lang](block.text)}
+    {:else if block.kind === "code"}
       <pre class="mono">{block.text}</pre>
     {:else if block.kind === "list" && block.start === null}
       <ul>{#each block.items as item, j (j)}<li>{@render line(item)}</li>{/each}</ul>
