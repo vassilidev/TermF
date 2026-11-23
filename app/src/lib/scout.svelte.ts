@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { library, showLibrary, type Kind, type Layer } from "$lib/library.svelte";
+import { t } from "$lib/i18n";
+import { toast } from "$lib/ui/toast.svelte";
 
 export type Flaw = "vague" | "contradiction" | "redundancy" | "outdated" | "missing";
 export type Review = "pending" | "accepted" | "rejected";
@@ -32,7 +34,16 @@ export type Logged = {
   summary: string;
   sources: string[];
 };
-export type ScoutState = { model: string; budget: number; draft: Draft | null; journal: Logged[] };
+export type ScoutState = {
+  model: string;
+  budget: number;
+  draft: Draft | null;
+  journal: Logged[];
+  /** The version of Claude Code the latest launch ran. */
+  claude: string | null;
+  /** Results set aside, which `scout_restore` brings back. */
+  discarded: boolean;
+};
 export type Progress = { kind: "search" | "fetch"; text: string };
 export type ItemRef = { kind: Kind; name: string };
 
@@ -47,6 +58,8 @@ export const scout = $state({
   started: 0,
   progress: [] as Progress[],
   error: "",
+  /** The owner stopped the launch in progress: its failure is no error. */
+  cancelled: false,
 });
 
 export function showScout() {
@@ -71,11 +84,24 @@ async function call(command: string, args: Record<string, unknown>, what = "") {
     if (scope === library.scope) Object.assign(scout, { data, scope });
     return true;
   } catch (e) {
-    scout.error = String(e);
+    if (scout.cancelled) toast(t("watchCancelled"), { kind: "info" });
+    else scout.error = String(e);
     return false;
   } finally {
-    if (what) scout.running = "";
+    if (what) Object.assign(scout, { running: "", cancelled: false });
   }
+}
+
+export function cancelScout() {
+  scout.cancelled = true;
+  invoke("scout_cancel").catch((e) => (scout.error = String(e)));
+}
+
+export async function discardScout() {
+  if (!(await call("scout_discard", {}))) return;
+  toast(t("watchScoutDiscarded"), {
+    undo: () => void call("scout_restore", {}).then((ok) => ok && toast(t("watchScoutRestored"), { kind: "info" })),
+  });
 }
 
 export const loadScout = () => call("scout_state", {});
@@ -84,7 +110,6 @@ export const reviseEntry = (item: ItemRef, comment: string) =>
   call("scout_revise", { item, comment }, `revise:${item.kind}/${item.name}`);
 export const decide = (item: ItemRef, review: Review, confirm = false) =>
   call("scout_review", { item, review, confirm });
-export const discardScout = () => call("scout_discard", {});
 
 export async function applyScout() {
   if (await call("scout_apply", {})) library.version++;

@@ -97,11 +97,12 @@ usage:
                                         its worktree without asking
   termf schedule list                   scheduled tasks, their schedule and next run
   termf schedule add <name> --cron '<min hour day month weekday>' --prompt <text|-> [--dir <path>]
-                     [--tile] [--model <m>] [--effort <e>] [--permission-mode <p>] [--budget <usd>]
+                     [--tile|--scout] [--model <m>] [--effort <e>] [--permission-mode <p>] [--budget <usd>]
                      [--no-catchup] [--disable] [--machine <name>|any]
                                         a Claude Code task run on a schedule (local time) in a folder
                                         (default: here), headless or in a tile (--tile), on this machine
-                                        only unless --machine says otherwise
+                                        only unless --machine says otherwise; --scout: the library watch
+                                        of the project of the folder (no prompt)
   termf schedule edit <id> [--name <n>] [same options] [--headless] [--enable] [--catchup]
   termf schedule rm <id>                delete a task (its history stays)
   termf schedule run <id> [--scheduled] run it now (--scheduled: only if one of its times is due)

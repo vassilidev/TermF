@@ -4,7 +4,7 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import { ui } from "$lib/state.svelte";
 import { lang, t } from "$lib/i18n";
 
-export type Mode = "headless" | "tile";
+export type Mode = "headless" | "tile" | "scout";
 export type Task = {
   name: string;
   prompt: string;
