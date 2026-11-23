@@ -123,8 +123,7 @@
   const canResume = $derived(!!run && !teamRun && resumable(run) && !session);
   const canTeam = $derived(!!run && !teamRun && run.status === "running" && !!run.worktree);
   const canCopy = $derived(!!run?.worktree && run.status !== "closed");
-  /** Every entry but the team's resumption needs a run not closed yet. */
-  const hasMenu = $derived(!!run && (run.status !== "closed" || canResumeTeam));
+  const hasMenu = $derived(!!run && run.status !== "closed");
 
   /** How long a run's session may stay "starting" before the trust question is the likely reason. */
   const TRUST_DELAY = 6000;
@@ -326,6 +325,11 @@
         {@const id = review.id}
         <button class="btn sm" onclick={() => showReview(id)}>
           <Images size={14} aria-hidden="true" />{t("review5bTitle")}
+        </button>
+      {/if}
+      {#if canResumeTeam}
+        <button class="btn sm primary" onclick={() => ((step = { kind: "resume-team" }), (delivering = false))}>
+          <RotateCcw size={14} aria-hidden="true" />{t("ticketsUiResume")}
         </button>
       {/if}
       {#if canDeliver}
@@ -645,9 +649,7 @@
         {@const id = review.id}
         <li><button class="row" onclick={pick(() => showReview(id))}><Images size={14} aria-hidden="true" />{t("review5bTitle")}</button></li>
       {/if}
-      {#if canResumeTeam}
-        <li><button class="row" onclick={pick(() => (step = { kind: "resume-team" }))}><RotateCcw size={14} aria-hidden="true" />{t("ticketsUiResume")}</button></li>
-      {:else if canResume}
+      {#if canResume}
         <li><button class="row" disabled={!!busy} onclick={pick(resume)}><RotateCcw size={14} aria-hidden="true" />{t("ticketsUiResume")}</button></li>
       {/if}
       {#if canTeam}
