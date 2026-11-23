@@ -16,6 +16,7 @@ test("an agent thinks, writes, runs a tool, then is done", () => {
   assert.deepEqual([a.now.kind, a.now.state, a.recent.length], ["tool", "running", 1]);
   a = follow(a, ev("tool_result", { call: "t1", output: "boom", isError: true, truncated: false }));
   assert.equal(a.recent[0].state, "failed");
+  assert.equal(a.recent[0].output, "boom", "a failure keeps what it said");
   assert.equal(a.now.kind, "thinking");
   a = follow(a, ev("turn_end", { outcome: "done" }));
   assert.equal(a.now, null);
@@ -25,6 +26,10 @@ test("an agent thinks, writes, runs a tool, then is done", () => {
 test("a result for a call never heard changes nothing", () => {
   const a = follow(undefined, ev("user", { text: "go" }));
   assert.equal(follow(a, ev("tool_result", { call: "x", output: "", isError: false, truncated: false })), a);
+  // A long failed run keeps its last lines only, where it says what broke.
+  let b = follow(undefined, ev("tool_use", { call: "t9", name: "Bash", input: { command: "pytest" } }));
+  b = follow(b, ev("tool_result", { call: "t9", output: Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n") + "\n", isError: true, truncated: false }));
+  assert.deepEqual(b.recent[0].output.split("\n"), Array.from({ length: 12 }, (_, i) => `line ${i + 28}`));
 });
 
 test("a tool call in plain words, what it is about as its target", () => {

@@ -5,12 +5,15 @@ import type { StoredEvent } from "$lib/conversation-logic";
 export type Act =
   | { kind: "thinking"; at: number }
   | { kind: "writing"; at: number }
-  | { kind: "tool"; at: number; call: string; name: string; input: unknown; state: "running" | "done" | "failed" };
+  | { kind: "tool"; at: number; call: string; name: string; input: unknown; state: "running" | "done" | "failed"; output?: string };
 export type ToolAct = Extract<Act, { kind: "tool" }>;
 /** A session's activity: what it does now (null between turns) and its last tool calls, oldest first. */
 export type Activity = { now: Act | null; recent: ToolAct[] };
 
 const KEEP = 30;
+/** What a failed call keeps of its output: its last lines, where a test run or a build says what broke. */
+const TAIL = 12;
+const tail = (output: string) => output.trimEnd().split("\n").slice(-TAIL).join("\n");
 
 /**
  * The activity after `e`; the same object when nothing changed, so a stream of deltas costs no update. A subagent's
@@ -34,7 +37,7 @@ export function follow(activity: Activity | undefined, e: StoredEvent): Activity
     }
     case "tool_result": {
       const state = e.isError ? "failed" : "done";
-      const mark = (a: ToolAct): ToolAct => (a.call === e.call ? { ...a, state } : a);
+      const mark = (a: ToolAct): ToolAct => (a.call !== e.call ? a : e.isError ? { ...a, state, output: tail(e.output) } : { ...a, state });
       if (!was.recent.some((a) => a.call === e.call)) return was;
       const recent = was.recent.map(mark);
       // Between a call's end and what comes next, the agent reads what it got.

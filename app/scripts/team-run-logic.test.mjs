@@ -19,6 +19,7 @@ import {
   passes,
   planned,
   progress,
+  projected,
   proposed,
   runs,
   rounds,
@@ -493,6 +494,16 @@ test("tell: a finished agent is offered only while the run is at rest or done", 
     assert.deepEqual(keys(run(steps, { state })), ["implement:T1", "frame"], state);
   }
   assert.deepEqual(keys(run(steps, { state: "done" }), false), ["implement:T1"], "closed: its worktree is gone");
+  const asking = [...steps, step("prd", "blocked", { session: 4 }), step("ux", "waiting", { session: 5 })];
+  assert.deepEqual(keys(run(asking, { state: "waiting" })), ["implement:T1", "frame"], "a step that waits is answered on its lane");
+});
+
+test("projected: the cost at the pace so far, only while the team works and something is left", () => {
+  const steps = [step("frame", "done"), step("plan", "done"), step("implement:T1", "running", { kind: "task" }), step("checks", "pending")];
+  assert.equal(projected(run(steps, { cost: 3 })), 6);
+  assert.equal(projected(run(steps, { cost: 3, state: "paused" })), null);
+  assert.equal(projected(run([step("frame", "running")], { cost: 1 })), null, "nothing over yet");
+  assert.equal(projected(run([step("frame", "done")], { cost: 1 })), null, "all over: the cost is the cost");
 });
 
 test("tell: the reply ends with its turn, or when the agent fails or exits", () => {

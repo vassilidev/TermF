@@ -28,7 +28,7 @@
   /**
    * A step's questions as one form, grouped by theme, the proposed answers filled in, sent all at once; a choice
    * also takes an answer of one's own. `children`: the step's other actions, beside Send; `primary`: Send is the
-   * screen's main action.
+   * screen's main action; `lane`: on its agent's lane of the Run page, lighter, Enter in a field sends.
    */
   let {
     run,
@@ -37,6 +37,7 @@
     children,
     optionLabel = (option: string) => option,
     primary = true,
+    lane = false,
   }: {
     run: TeamRun;
     step: string;
@@ -44,6 +45,7 @@
     children?: Snippet;
     optionLabel?: (option: string) => string;
     primary?: boolean;
+    lane?: boolean;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -55,6 +57,13 @@
 
   const given = $derived(withOthers(questions, answers, others));
   const missing = $derived(unanswered(questions, given));
+
+  /** On a lane, Enter in a one-line field sends, as the button says. */
+  function enter(e: KeyboardEvent) {
+    if (!lane || e.key !== "Enter" || e.isComposing || !(e.target instanceof HTMLInputElement)) return;
+    e.preventDefault();
+    if (!busy && !missing.length) send();
+  }
 
   async function send() {
     busy = true;
@@ -69,7 +78,9 @@
   }
 </script>
 
-<p class="help">{t("ctoEntryQuestionsHelp")}</p>
+{#if !lane}<p class="help">{t("ctoEntryQuestionsHelp")}</p>{/if}
+<!-- svelte-ignore a11y_no_static_element_interactions (Enter in its fields; the button does it too) -->
+<div class="form" class:lane onkeydown={enter}>
 {#each byTheme(questions) as [theme, list] (theme)}
   <fieldset>
     <legend>{themeLabel(theme)}</legend>
@@ -84,6 +95,7 @@
           value={answers[q.id] ?? []}
           onchange={(v) => (answers[q.id] = v)}
           {optionLabel}
+          proposed={q.proposed}
         />
         {#if q.kind === "choice" || q.kind === "multi"}
           <input class="field other" placeholder={t("ctoEntryOther")} aria-label={t("ctoEntryOther")} bind:value={others[q.id]} />
@@ -102,6 +114,7 @@
     {/each}
   </fieldset>
 {/each}
+</div>
 <label class="labelled">
   <span>{t("ctoEntryNote")}</span>
   <textarea class="field" rows="2" bind:value={note}></textarea>
@@ -112,7 +125,7 @@
   {@render children?.()}
   <button class="btn" class:sm={!primary} class:primary disabled={busy || missing.length > 0} onclick={send}>
     {#if busy}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Send size={14} aria-hidden="true" />{/if}
-    {t("ctoEntrySend")}
+    {t("ctoEntrySend")}{#if lane}<kbd>⏎</kbd>{/if}
   </button>
 </div>
 
@@ -140,6 +153,21 @@
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+  }
+
+  .form {
+    display: contents;
+  }
+
+  /* On a lane, the questions read as the agent's own words: no frame, no theme heading. */
+  .lane fieldset {
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  .lane legend {
+    display: none;
   }
 
   .question {

@@ -14,10 +14,13 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Ticket from "@lucide/svelte/icons/ticket";
   import Users from "@lucide/svelte/icons/users";
+  import Plug from "@lucide/svelte/icons/plug";
+  import RunProgress from "$lib/RunProgress.svelte";
   import TeamOptions from "$lib/TeamOptions.svelte";
   import { openTile } from "$lib/tickets.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import NextStep from "$lib/ui/NextStep.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import SelectionBar from "$lib/ui/SelectionBar.svelte";
@@ -86,6 +89,12 @@
     (tickets.inbox ?? []).filter((ticket) => ticket.project && !runOf(ticket)).map((ticket) => ticket.url),
   );
   const chosenTickets = $derived(within(pickedTickets.keys, launchable));
+  /** The ticket left the longest, the one to suggest launching: the oldest update among those that can start. */
+  const oldest = $derived(
+    (tickets.inbox ?? [])
+      .filter((ticket) => launchable.includes(ticket.url))
+      .reduce<TicketSummary | null>((a, b) => (!a || Date.parse(b.updated) < Date.parse(a.updated) ? b : a), null),
+  );
   const chosenRuns = $derived(runs.filter((r) => pickedRuns.keys.includes(r.id)));
   const closable = $derived(chosenRuns.filter((r) => r.status !== "closed"));
   const cleanable = $derived(chosenRuns.filter(readyToClean));
@@ -488,13 +497,26 @@
                 ? t("ticketsEmptyProject", { project: project.name })
                 : t("ticketsEmptyAll")}
           >
-            {#if project}
+            {#if unset}
+              <button class="btn primary" onclick={() => editProject(unset.id, "tickets")}>
+                <Plug size={14} aria-hidden="true" />{t("uiTicketsConnect")}
+              </button>
+            {:else if project}
               <button class="btn" onclick={() => editProject(project.id, "tickets")}>
                 <Pencil size={14} aria-hidden="true" />{t("ticketsEditProject")}
               </button>
             {/if}
           </EmptyState>
         {:else}
+          {#if oldest && !chosenTickets.length && !starting}
+            {@const ticket = oldest}
+            <div class="suggest">
+              <NextStep
+                text={t("uiTicketsOldest", { title: ticket.title, key: ticket.key, ago: ago(Date.parse(ticket.updated) / 1000) })}
+                action={{ label: t("uiTicketsLaunchOldest"), run: () => launchTeam(ticket) }}
+              />
+            </div>
+          {/if}
           {#if chosenTickets.length}
             <div class="sticky">
               <SelectionBar
@@ -551,16 +573,20 @@
                   </span>
                 </div>
                 <div class="labels">
-                  {#each ticket.labels.slice(0, 2) as label (label)}<span class="badge">{label}</span>{/each}
+                  {#each ticket.labels.slice(0, 2) as label (label)}<span class="tag">{label}</span>{/each}
                   {#if ticket.labels.length > 2}
-                    <span class="badge" title={ticket.labels.slice(2).join(", ")}>+{ticket.labels.length - 2}</span>
+                    <span class="tag" title={ticket.labels.slice(2).join(", ")}>+{ticket.labels.length - 2}</span>
                   {/if}
                 </div>
                 <div class="state">
                   {#if run}
-                    {@const pill = shown(run, team.runs.find((r) => r.run === run.id))}
-                    <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />
-                    <button class="btn sm link" onclick={() => showRun(run.id)}>{t("ux3t5SeeRun")}</button>
+                    <!-- The ticket's run at a glance, its page one click away: its state, then where it is. -->
+                    {@const crew = team.runs.find((r) => r.run === run.id)}
+                    {@const pill = shown(run, crew)}
+                    <button class="runstate" onclick={() => showRun(run.id)} title={t("ux3t5SeeRun")}>
+                      <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />
+                      <RunProgress {run} team={crew} />
+                    </button>
                   {/if}
                   <div class="acts" class:quiet={(!!ticket.project || !!run) && starting !== ticket.url}>
                     {#if run}
@@ -604,6 +630,8 @@
           </ul>
         {/if}
       </div>
+    {:else if !runs.length && !tickets.runsRead}
+      <div class="pane loading"><Skeleton shape="list" rows={4} /></div>
     {:else if !runs.length}
       <div class="pane">
         <EmptyState icon={Ticket} title={t("runsEmpty")} text={t("runsEmptyHelp")}>
@@ -648,7 +676,8 @@
       <div class="pane">
         <ul class="runs" class:picking={chosenRuns.length > 0} aria-label={t("ticketsTabRuns")}>
           {#each runs as run (run.id)}
-            {@const pill = shown(run, team.runs.find((r) => r.run === run.id))}
+            {@const crew = team.runs.find((r) => r.run === run.id)}
+            {@const pill = shown(run, crew)}
             <li class="run" class:picked={pickedRuns.keys.includes(run.id)}>
               <input
                 class="box"
@@ -661,6 +690,7 @@
                 <span class="name"><span class="mono">{run.ticket.key}</span> {run.title}</span>
                 <span class="desc">{repoName(run.repo)}{run.branch ? ` · ${run.branch}` : ""} · {ago(run.updated)}</span>
               </button>
+              <span class="where"><RunProgress {run} team={crew} /></span>
               <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />
             </li>
           {/each}
@@ -837,15 +867,63 @@
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 4px;
-    max-width: 40%;
+    max-width: 30%;
+  }
+
+  /* A label is a detail of the ticket: quieter than its state and its actions. */
+  .tag {
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
+    background: var(--well, var(--hover));
+    color: var(--muted);
+    font-size: var(--text-xs);
+    line-height: 18px;
+    white-space: nowrap;
   }
 
   .state {
     display: flex;
-    flex: 0 0 250px;
+    flex: 0 0 340px;
     align-items: center;
     justify-content: flex-end;
     gap: 8px;
+    min-width: 0;
+  }
+
+  .runstate {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    height: 30px;
+    padding: 0 8px 0 2px;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: none;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .runstate:hover {
+    background: var(--panel);
+    box-shadow: 0 0 0 1px var(--border);
+  }
+
+  .runstate :global(.pill) {
+    flex-shrink: 0;
+  }
+
+  .suggest {
+    max-width: 1100px;
+    padding: 12px 12px 0;
+  }
+
+  .run .where {
+    display: flex;
+    flex: 0 1 340px;
+    justify-content: flex-end;
+    min-width: 0;
   }
 
   .acts {

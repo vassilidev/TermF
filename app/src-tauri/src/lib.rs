@@ -528,6 +528,7 @@ pub fn run() {
             git::git_branch_delete,
             git::git_remote_branch_delete,
             git::git_diff,
+            git::git_diff_since,
             git::git_stage,
             git::git_unstage,
             git::git_discard,

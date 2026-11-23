@@ -992,3 +992,26 @@ fn force_pushes_with_a_lease_never_on_the_default_branch() {
     );
     sb.git.force_push(&repo, "feature", &theirs).unwrap();
 }
+
+#[test]
+fn diff_since_a_base_counts_commits_and_the_work_tree_not_the_base_moving_on() {
+    let sb = Sandbox::new("since");
+    let repo = sb.clone("acme");
+    sb.git(&repo, &["switch", "-q", "-c", "termf/1-export"]);
+    sb.commit(&repo, "export.py", "def export():\n    pass\n", "Export");
+    fs::write(repo.join("README.md"), "acme\nexport\n").unwrap();
+    // The base moves on after the run left it: nothing of it shows.
+    sb.git(&repo, &["stash", "-q"]);
+    sb.git(&repo, &["switch", "-q", "main"]);
+    sb.commit(&repo, "later.md", "later\n", "Later on main");
+    sb.git(&repo, &["switch", "-q", "termf/1-export"]);
+    sb.git(&repo, &["stash", "pop", "-q"]);
+
+    let files = sb.git.diff_since(&repo, "main").unwrap();
+    let got: Vec<(&str, u32, u32)> = files
+        .iter()
+        .map(|f| (f.path.as_str(), f.added, f.removed))
+        .collect();
+    assert_eq!(got, [("README.md", 1, 0), ("export.py", 2, 0)]);
+    assert!(sb.git.diff_since(&repo, "-x").is_err(), "an option is no base");
+}

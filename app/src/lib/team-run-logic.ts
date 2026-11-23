@@ -316,6 +316,15 @@ export function progress(run: TeamRun): { over: number; total: number; left: num
   };
 }
 
+/**
+ * What a team at work would spend in all at its pace so far: its cost over the share of its steps already over. Null
+ * before its first step is over, once all are, or when it no longer works.
+ */
+export function projected(run: TeamRun): number | null {
+  const { over, total } = progress(run);
+  return working(run) && over > 0 && over < total ? (run.cost * total) / over : null;
+}
+
 export type Notice = { kind: "gate" | "blocked" | "done" | "budget"; step?: string };
 
 /** What to tell the user of a run's change: a gate that starts waiting, a step newly blocked, the end of the run or of its budget. */
@@ -535,12 +544,14 @@ export function held(run: TeamRun, step: Step, review: Review): boolean {
 
 /**
  * The steps whose agent hears a message from the Run page, at work first: one at work, at the end of its turn; a
- * finished agent step that worked in the run's own worktree, while it is still there (`open`) and the run does not go
+ * finished agent step (not one that waits for the user) that worked in the run's own worktree, while it is still there (`open`) and the run does not go
  * on. Picked up again with all its tools, it would change that worktree under the steps at work, unreviewed.
  */
 export function tellable(run: TeamRun, open: boolean): Step[] {
   return run.steps
     .filter((s) => s.session !== null && s.kind !== "foreach")
+    // A step that waits for the user is answered on its lane, never told aside.
+    .filter((s) => s.state !== "waiting" && s.state !== "blocked")
     .filter((s) => s.state === "running" || (open && run.state !== "running" && s.kind === "agent" && !s.worktree))
     .sort((a, b) => Number(b.state === "running") - Number(a.state === "running"));
 }

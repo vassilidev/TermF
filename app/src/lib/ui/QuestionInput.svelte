@@ -10,6 +10,7 @@
     value,
     onchange,
     optionLabel = (option: string) => option,
+    proposed = [],
   }: {
     kind: "choice" | "multi" | "bool" | "text";
     options: string[];
@@ -18,6 +19,8 @@
     onchange: (value: string[]) => void;
     /** How a choice's option reads. */
     optionLabel?: (option: string) => string;
+    /** The answer the agent proposes: marked on its option. */
+    proposed?: string[];
   } = $props();
 </script>
 
@@ -28,7 +31,7 @@
     {#each options as option (option)}
       <label class="chip" class:on={value.includes(option)}>
         <input type="checkbox" checked={value.includes(option)} onchange={() => onchange(pick({ kind, options }, value, option))} />
-        {option}
+        {option}{#if proposed.includes(option)}<small class="proposed">{t("uiRunProposed")}</small>{/if}
       </label>
     {/each}
   </div>
@@ -37,7 +40,7 @@
   <div class="segmented" role="radiogroup" aria-label={label}>
     {#each choices as option (option)}
       <button type="button" role="radio" aria-checked={value[0] === option} onclick={() => onchange(pick({ kind, options }, value, option))}>
-        {kind === "bool" ? t(option === "yes" ? "obYes" : "obNo") : optionLabel(option)}
+        {kind === "bool" ? t(option === "yes" ? "obYes" : "obNo") : optionLabel(option)}{#if proposed.includes(option)}<small class="proposed">{t("uiRunProposed")}</small>{/if}
       </button>
     {/each}
   </div>
@@ -72,6 +75,13 @@
 
   .chip input {
     margin: 0;
+  }
+
+  .proposed {
+    margin-left: 6px;
+    color: var(--accent-ink);
+    font-size: var(--text-xs);
+    font-weight: 600;
   }
 
   .chip.on {
