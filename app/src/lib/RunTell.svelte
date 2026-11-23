@@ -12,7 +12,7 @@
   import { type AgentSession, ctoOf, showConversation, upsert } from "$lib/agents.svelte";
   import type { StoredEvent } from "$lib/conversation-logic";
   import { t } from "$lib/i18n";
-  import type { TeamRun } from "$lib/team-run-logic";
+  import { hear, type Reply, type TeamRun, tellable } from "$lib/team-run-logic";
 
   /**
    * "Tell the team something": a message to the CTO, who leads the run, or to the agent of one of its steps. `open`:
@@ -21,31 +21,19 @@
   let { run, open = true }: { run: TeamRun; open?: boolean } = $props();
 
   const LEAD = "lead";
-  // An agent at work gets it at the end of its turn; a finished one only where its folder still is: the run's own.
-  const agents = $derived(
-    run.steps
-      .filter((s) => s.session !== null && s.kind !== "foreach")
-      .filter((s) => s.state === "running" || (open && s.kind === "agent" && !s.worktree))
-      .sort((a, b) => Number(b.state === "running") - Number(a.state === "running")),
-  );
+  const agents = $derived(tellable(run, open));
   let to = $state(LEAD);
   let draft = $state("");
   let busy = $state(false);
   let error = $state("");
-  /** The conversation that answers, what it said since the message, and whether its turn ended. */
-  let reply = $state<{ session: number; who: string; text: string; heard: boolean; done: boolean } | null>(null);
+  let reply = $state<Reply | null>(null);
 
   $effect(() => {
     if (to !== LEAD && !agents.some((s) => s.key === to)) to = LEAD;
   });
 
   const stop = listen<StoredEvent>("agent-event", ({ payload: e }) => {
-    if (!reply || e.session !== reply.session) return;
-    if (e.kind === "user") reply.heard = true;
-    else if (!reply.heard) return;
-    else if (e.kind === "delta") reply.text += e.text;
-    else if (e.kind === "text" && !e.parent) reply.text = e.text;
-    else if (e.kind === "turn_end") reply.done = true;
+    if (reply) hear(reply, e);
   });
   onDestroy(() => void stop.then((f) => f()));
 
@@ -63,7 +51,7 @@
         const cto = ctoOf(run.target.project) ?? (await invoke<AgentSession>("cto_open", { project: run.target.project }));
         upsert(cto);
         session = cto.id;
-        who = "CTO";
+        who = t("ux3t1Cto");
         message = t("practicalTeamTellAbout", { run: run.run, ticket: ticketKey(run.target.ticket), title: run.target.title, text });
       } else {
         const step = agents.find((s) => s.key === to);
@@ -71,7 +59,7 @@
         session = step.session;
         who = `${step.role ?? ""} · ${stepName(step)}`;
       }
-      reply = { session, who, text: "", heard: false, done: false };
+      reply = { session, who, text: "", heard: false, done: false, error: null };
       await invoke<boolean>("agent_send_or_queue", { id: session, text: message });
       draft = "";
     } catch (err) {
@@ -107,6 +95,7 @@
         <Button variant="link" size="sm" icon={MessagesSquare} onclick={() => showConversation(reply!.session)}>{t("practicalTeamTellOpen")}</Button>
       </div>
       {#if reply.text}<p class="said">{reply.text}</p>{:else if !reply.done}<p class="muted">{t("practicalTeamTellWaiting")}</p>{/if}
+      {#if reply.error}<p class="failed" role="alert">{reply.error}</p>{/if}
     </div>
   {/if}
 </Card>
@@ -160,5 +149,12 @@
     margin: 6px 0 0;
     color: var(--muted);
     font-size: var(--text-sm);
+  }
+
+  .failed {
+    margin: 6px 0 0;
+    color: var(--danger);
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
   }
 </style>

@@ -1743,14 +1743,57 @@ fn a_step_is_told_its_skills_and_reads_without_asking() {
     let project = env.config.join("projects/acme.toml");
     let text = fs::read_to_string(&project).unwrap();
     fs::write(&project, format!("{text}[team]\nread_freely = false\n")).unwrap();
-    assert_eq!(
+    let freely = || {
         env.team
             .inner
             .read_freely(&run, 0, &env.target.worktree)
-            .unwrap(),
+            .unwrap()
+    };
+    assert_eq!(freely(), None, "the project turns it off");
+    fs::write(&project, &text).unwrap();
+    assert!(freely().is_some());
+    termf_core::taint::mark_run(&env.data, env.target.run).unwrap();
+    assert_eq!(
+        freely(),
         None,
-        "the project turns it off"
+        "once the run read prod, its next steps ask for each command, its tests included"
     );
+}
+
+/// A common word of a skill's name (`from`, `with`, `code`, `page`, `home`) names no skill; its other parts do.
+#[test]
+fn a_common_word_names_no_skill() {
+    let env = Env::new("skill-words");
+    for (name, use_it) in [
+        ("code-from-home-page", "Use it to lay out a home page."),
+        ("page-speed", "Use it to measure how fast a page loads."),
+    ] {
+        let dir = env.config.join("library/skills").join(name);
+        fs::create_dir_all(&dir).unwrap();
+        let skill = format!("---\nname: {name}\ndescription: {use_it}\n---\n\n{use_it}\n");
+        fs::write(dir.join("SKILL.md"), skill).unwrap();
+    }
+    let mut common = task("T1", "docs", &["docs/guide.md"], &[]);
+    common["goal"] = json!("Explain how to read the code from the home page, with a sample");
+    let mut named = task("T2", "docs", &["docs/guide.md"], &[]);
+    named["goal"] = json!("Explain how to measure the speed of the docs");
+    env.answer("plan.json", env.plan(json!([common, named])));
+    let options = Options {
+        workflow: Some("nogate".into()),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    env.state(RunState::Done);
+    let skills = |key: &str| {
+        let brief = env.message(key, 1);
+        let section = brief.find("## Your skills").map_or("", |at| &brief[at..]);
+        let end = section.get(3..).and_then(|s| s.find("\n## "));
+        section[..end.map_or(section.len(), |at| at + 3)].to_owned()
+    };
+    let listed = skills("implement:T1");
+    assert!(!listed.contains("`code-from-home-page`"), "{listed}");
+    let listed = skills("implement:T2");
+    assert!(listed.contains("`page-speed`"), "{listed}");
 }
 
 #[test]

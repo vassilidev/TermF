@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   asks,
+  hear,
+  tellable,
   batchTasks,
   budgetError,
   byTheme,
@@ -475,4 +478,59 @@ test("batches: a sub-plan waits as its own ask, its tasks show under their batch
     [["questions", 1, false]],
     "a batch without a valid sub-plan is never accepted as it is",
   );
+});
+
+test("tell: a finished agent is offered only while the run is at rest or done", () => {
+  const steps = [
+    step("implement:T1", "running", { kind: "task", session: 1, worktree: "/t1" }),
+    step("frame", "done", { session: 2 }),
+    step("review", "done", { kind: "review", session: 3, worktree: "/copy" }),
+    step("plan", "pending"),
+  ];
+  const keys = (r, open = true) => tellable(r, open).map((s) => s.key);
+  assert.deepEqual(keys(run(steps)), ["implement:T1"], "picked up again while the run goes on, it would change the worktree under it");
+  for (const state of ["waiting", "paused", "stopped", "budget", "done"]) {
+    assert.deepEqual(keys(run(steps, { state })), ["implement:T1", "frame"], state);
+  }
+  assert.deepEqual(keys(run(steps, { state: "done" }), false), ["implement:T1"], "closed: its worktree is gone");
+});
+
+test("tell: the reply ends with its turn, or when the agent fails or exits", () => {
+  const reply = () => ({ session: 4, who: "CTO", text: "", heard: false, done: false, error: null });
+  const ev = (kind, more = {}) => ({ id: 1, session: 4, at: 1, kind, ...more });
+  let r = reply();
+  for (const e of [
+    ev("delta", { text: "before" }),
+    ev("exited", { code: 0 }),
+    ev("user", { text: "hi" }),
+    ev("delta", { text: "Hel" }),
+    ev("delta", { text: "lo" }),
+    { ...ev("delta", { text: "other" }), session: 5 },
+  ])
+    hear(r, e);
+  assert.deepEqual([r.text, r.done], ["Hello", false], "what it said after the message; the end of the turn before it is not its end");
+  hear(r, ev("turn_end", { error: null }));
+  assert.deepEqual([r.done, r.error], [true, null]);
+  hear(r, ev("user", { text: "again" }));
+  hear(r, ev("delta", { text: "!" }));
+  assert.deepEqual([r.text, r.done], ["Hello", true], "its answer stays as its turn ended");
+
+  r = reply();
+  hear(r, ev("user", { text: "hi" }));
+  hear(r, ev("exited", { code: 1 }));
+  assert.equal(r.done, true, "its process ended during the turn");
+  hear(r, ev("error", { message: "the agent's process ended during its turn" }));
+  assert.equal(r.error, "the agent's process ended during its turn");
+  r = reply();
+  hear(r, ev("error", { message: "the session's budget is spent" }));
+  assert.deepEqual([r.done, r.error], [true, "the session's budget is spent"], "it failed before it heard the message: never waits for ever");
+  r = reply();
+  hear(r, ev("user", { text: "hi" }));
+  hear(r, ev("turn_end", { error: "overloaded" }));
+  assert.deepEqual([r.done, r.error], [true, "overloaded"]);
+});
+
+test("tell: the CTO is named in the user's language", () => {
+  const source = readFileSync(new URL("../src/lib/RunTell.svelte", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /["'`]CTO["'`]/);
 });

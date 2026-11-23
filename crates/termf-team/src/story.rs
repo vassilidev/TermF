@@ -134,17 +134,20 @@ fn one_line(text: &str) -> String {
 }
 
 /// `text` as it reads, but inert in a pull request: no mention notifies anyone, no reference links or closes an
-/// issue (a zero-width space after `@` and `#`, inside each closing keyword, and after the scheme of a URL, which
-/// could name an issue whole).
+/// issue (a zero-width space after `@` and `#`, after the dash of `GH-12`, inside each closing keyword, and after
+/// the scheme of a URL, which could name an issue whole).
 fn defuse(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let unlinked = text.replace("://", &format!(":{ZWSP}//"));
     for word in unlinked.split_inclusive(char::is_whitespace) {
         let bare = word.trim_matches(|c: char| !c.is_alphanumeric());
         let mut split = CLOSING.iter().any(|k| bare.eq_ignore_ascii_case(k));
+        let issue = bare.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("gh-"))
+            && bare.len() > 3
+            && bare[3..].bytes().all(|b| b.is_ascii_digit());
         for c in word.chars() {
             out.push(c);
-            if c == '@' || c == '#' || (split && c.is_alphabetic()) {
+            if c == '@' || c == '#' || (issue && c == '-') || (split && c.is_alphabetic()) {
                 out.push(ZWSP);
                 split = split && !c.is_alphabetic();
             }
@@ -188,5 +191,16 @@ mod tests {
             assert!(!text.contains(live), "{live} in {text}");
         }
         assert_eq!(text.replace(ZWSP, ""), gitlab);
+        // GitHub links `GH-12` to issue 12 (the second review of PR #135).
+        let short = "See GH-12, (gh-7) and GH-3. Not high-level nor GH-x.";
+        let text = defuse(short);
+        for live in ["GH-12", "gh-7", "GH-3"] {
+            assert!(!text.contains(live), "{live} in {text}");
+        }
+        assert!(
+            text.contains("high-level") && text.contains("GH-x"),
+            "{text}"
+        );
+        assert_eq!(text.replace(ZWSP, ""), short);
     }
 }

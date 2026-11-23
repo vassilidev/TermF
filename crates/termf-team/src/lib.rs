@@ -5030,9 +5030,12 @@ impl Inner {
 
     /// What a session of step `i` working in `cwd` runs without asking (`SessionSpec::read_freely`): the commands
     /// that only read, the checks of its repository, its typecheck and lint, and the test and lint scripts the
-    /// setup finds there; `None` when `[team] read_freely` of the project's file, else of `termf.toml`, is off.
+    /// setup finds there; `None` when `[team] read_freely` of the project's file, else of `termf.toml`, is off, or
+    /// once a recipe read prod for the run (the trifecta rule: the user approves each command, its tests included).
     fn read_freely(&self, run: &TeamRun, i: usize, cwd: &Path) -> Result<Option<Vec<String>>> {
-        if !reads_freely(&self.config_dir, &run.target.project)? {
+        if termf_core::taint::run(&self.data_dir, run.target.run)
+            || !reads_freely(&self.config_dir, &run.target.project)?
+        {
             return Ok(None);
         }
         let file = termf_core::project_file(&self.config_dir, &run.target.project)?;
@@ -5697,6 +5700,11 @@ fn when(item: &termf_library::Item) -> String {
 
 /// The most skills a brief lists: past a handful, the list is skimmed.
 const SKILLS_LISTED: usize = 6;
+/// Words of a skill's name that any ticket may say: they name no skill (`tests-from-criteria` is not `from`).
+const COMMON_WORDS: [&str; 14] = [
+    "from", "with", "code", "page", "home", "into", "over", "that", "this", "what", "when", "your",
+    "about", "then",
+];
 
 /// The skills of the session of step `i` (in `scope`, with its role) that fit its ticket, with when to use
 /// each, at most [`SKILLS_LISTED`]: those whose name the ticket, the task or the step's feedback says, first, then
@@ -5743,7 +5751,7 @@ fn skills_for(
         let parts: Vec<String> = item
             .name
             .split('-')
-            .filter(|p| p.len() > 3)
+            .filter(|p| p.len() > 3 && !COMMON_WORDS.contains(p))
             .map(stem)
             .collect();
         let said = words.contains(&stem(&item.name)) || parts.iter().any(|p| words.contains(p));
