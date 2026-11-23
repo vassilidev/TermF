@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { fill, positional, slowTurn } from "./fakes/claude.mjs";
+import { fill, positional, received, slowTurn } from "./fakes/claude.mjs";
 import { answer } from "./fakes/gh.mjs";
 
 const claude = join(dirname(fileURLToPath(import.meta.url)), "fakes", "claude.mjs");
@@ -93,5 +95,24 @@ test("a real Claude Code reached from a sandbox never updates itself", async () 
     assert.equal(box.env.DISABLE_AUTOUPDATER, "1");
   } finally {
     box.cleanup();
+  }
+});
+
+test("the fake reads what its library plugin and prompt hold, as a session started by TermF gets them", () => {
+  const dir = mkdtempSync(join(tmpdir(), "termf-fake-plugin-"));
+  try {
+    for (const d of ["skills/git", "skills/acme-greeting", "commands", "agents", "hooks"]) mkdirSync(join(dir, d), { recursive: true });
+    writeFileSync(join(dir, "commands", "handoff.md"), "");
+    writeFileSync(join(dir, "agents", "front.md"), "");
+    writeFileSync(join(dir, "prompt.md"), "## Stack\n\n## conventional-commits\n\n- feat:\n");
+    assert.deepEqual(received(["--plugin-dir", dir, "--append-system-prompt-file", join(dir, "prompt.md")]), {
+      skills: ["acme-greeting", "git"],
+      commands: ["handoff"],
+      agents: ["front"],
+      prompt: ["Stack", "conventional-commits"],
+    });
+    assert.deepEqual(received([]), { skills: [], commands: [], agents: [], prompt: [] });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

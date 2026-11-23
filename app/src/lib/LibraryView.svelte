@@ -136,7 +136,7 @@
     ...kinds
       .map((kind) => ({ id: kind, label: t(kindLabel[kind]), count: matching.filter((e) => e.kind === kind).length }))
       .filter((f) => f.count || f.id === library.kind),
-    ...(plugins.length || library.kind === "plugin" ? [{ id: "plugin", label: t("lib2Plugins"), count: pluginsMatching.length }] : []),
+    ...(pluginsMatching.length || library.kind === "plugin" ? [{ id: "plugin", label: t("lib2Plugins"), count: pluginsMatching.length }] : []),
   ]);
   const shown = $derived(library.kind === "all" ? matching : matching.filter((e) => e.kind === library.kind));
   const groups = $derived({
@@ -150,6 +150,7 @@
   const pluginKey = (p: Plugin) => `plugin/${p.id}`;
   const first = $derived(groups.on[0] ?? groups.offered[0] ?? groups.off[0]);
   const picked = $derived.by<Picked | null>(() => {
+    if (!entries) return null;
     const plugin = pluginRows.find((p) => pluginKey(p) === selected);
     if (plugin) return { plugin };
     const entry = shown.find((e) => keyOf(e) === selected) ?? first;
@@ -457,7 +458,9 @@
             </label>
           </div>
           <div class="filters">
-            <Segments label={t("lib2Filter")} options={filters} selected={library.kind} onselect={(id) => (library.kind = id as typeof library.kind)} />
+            {#if entries}
+              <Segments label={t("lib2Filter")} options={filters} selected={library.kind} onselect={(id) => (library.kind = id as typeof library.kind)} />
+            {/if}
           </div>
 
           <div class="scroll">
@@ -747,6 +750,7 @@
   }
 
   .filters {
+    min-height: 50px;
     padding: 0 24px 12px;
     border-bottom: 1px solid var(--border);
     overflow-x: auto;

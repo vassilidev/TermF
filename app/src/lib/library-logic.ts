@@ -44,10 +44,12 @@ export function groupOf(e: Entry): Group {
   return "off";
 }
 
-/** Cut on purpose first, then by name. */
+const order = ["skill", "command", "role", "preference", "rule", "workflow"];
+
+/** Cut on purpose first, then by kind and name. */
 export function sorted(list: Entry[]): Entry[] {
   const cut = (e: Entry) => (e.toggles.project === false || e.toggles.global === false ? 0 : 1);
-  return [...list].sort((a, b) => cut(a) - cut(b) || a.name.localeCompare(b.name));
+  return [...list].sort((a, b) => cut(a) - cut(b) || order.indexOf(a.kind) - order.indexOf(b.kind) || a.name.localeCompare(b.name));
 }
 
 /** The layer whose word stands: the most specific toggle, else the layer the item comes from (`resolve` in Rust). */
