@@ -161,6 +161,16 @@ async fn blocking<T: Send + 'static>(
         .map_err(err)
 }
 
+/// A new task that runs on this machine only, as one made in the Scheduler; its id. The view learns of it by
+/// `schedule-saved`.
+pub(crate) fn save_here(app: &AppHandle, mut task: Task) -> Result<String> {
+    let s = scheduler(app);
+    task.machine = Some(s.machine.clone());
+    let id = s.save(None, task, api::termf_binary().as_deref())?;
+    let _ = app.emit("schedule-saved", &id);
+    Ok(id)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskEntry {

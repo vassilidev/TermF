@@ -24,6 +24,7 @@ pub fn run(config_dir: &Path, project: Option<&str>, mut args: Vec<&str>) -> Res
         budget: budget
             .map(|b| b.parse().with_context(|| format!("invalid budget {b}")))
             .transpose()?,
+        cancel: None,
     };
     if !args.is_empty() {
         bail!(crate::USAGE);

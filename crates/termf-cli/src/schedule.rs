@@ -54,7 +54,11 @@ fn apply(task: &mut Task, args: &mut Vec<&str>) -> Result<()> {
             b => Some(b.parse().context("--budget is an amount in US dollars")?),
         };
     }
-    for (flag, mode) in [("--tile", Mode::Tile), ("--headless", Mode::Headless)] {
+    for (flag, mode) in [
+        ("--tile", Mode::Tile),
+        ("--headless", Mode::Headless),
+        ("--scout", Mode::Scout),
+    ] {
         if take_flag(args, flag) {
             task.mode = mode;
         }
@@ -125,6 +129,7 @@ pub fn run(mut args: Vec<&str>) -> Result<()> {
                     let mode = match task.mode {
                         Mode::Headless => "headless",
                         Mode::Tile => "tile",
+                        Mode::Scout => "scout",
                     };
                     let closed = if s.installed(&id) {
                         "  [also while TermF is closed]".to_owned()

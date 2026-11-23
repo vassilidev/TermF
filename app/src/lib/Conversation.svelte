@@ -222,6 +222,10 @@
     mcp__termf__request_changes: "ctoToolChanges",
     mcp__termf__stop_team_run: "ctoToolStop",
     mcp__termf__send_message: "ctoToolSend",
+    mcp__termf__propose_conventions: "watchToolConventions",
+    mcp__termf__run_scout: "watchToolScout",
+    mcp__termf__start_onboarding: "watchToolOnboarding",
+    mcp__termf__schedule_task: "watchToolSchedule",
     mcp__termf__ask_expert: "expertToolAsk",
     mcp__termf__memory_search: "expertToolSearch",
     mcp__termf__memory_read: "expertToolRead",
@@ -510,11 +514,22 @@
       >{:else}{span.text}{/if}{/each}{/snippet}
 
 {#snippet rich(text: string)}
-  {#each blocks(text) as block, i (i)}
+  {#each blocks(text, true) as block, i (i)}
     {#if block.kind === "code" && block.lang && fences && Object.hasOwn(fences, block.lang)}
       {@render fences[block.lang](block.text)}
     {:else if block.kind === "code"}
       <pre class="mono">{block.text}</pre>
+    {:else if block.kind === "heading"}
+      <svelte:element this={`h${Math.min(block.level + 2, 6)}`} class="heading">{@render line(block.spans)}</svelte:element>
+    {:else if block.kind === "table"}
+      <div class="table">
+        <table>
+          <thead><tr>{#each block.head as cell, j (j)}<th style:text-align={block.align[j]}>{@render line(cell)}</th>{/each}</tr></thead>
+          <tbody>
+            {#each block.rows as row, r (r)}<tr>{#each row as cell, j (j)}<td style:text-align={block.align[j]}>{@render line(cell)}</td>{/each}</tr>{/each}
+          </tbody>
+        </table>
+      </div>
     {:else if block.kind === "list" && block.start === null}
       <ul>{#each block.items as item, j (j)}<li>{@render line(item)}</li>{/each}</ul>
     {:else if block.kind === "list"}
@@ -1185,6 +1200,53 @@
 
   .text li::marker {
     color: var(--muted);
+  }
+
+  .text .heading {
+    margin: 6px 0 0;
+    font-size: var(--text-md);
+    font-weight: 600;
+    letter-spacing: -0.005em;
+  }
+
+  .text h5.heading,
+  .text h6.heading {
+    font-size: var(--text-base);
+  }
+
+  .text .table {
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+
+  .text table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+    line-height: 1.45;
+  }
+
+  .text th,
+  .text td {
+    padding: 7px 10px;
+    border-top: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: normal;
+  }
+
+  .text th {
+    border-top: 0;
+    background: var(--well);
+    color: var(--soft);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .text tbody tr:hover {
+    background: var(--hover);
   }
 
   .text code {

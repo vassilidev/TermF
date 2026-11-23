@@ -43,6 +43,35 @@ pub async fn onboarding_analyze(
     .await
 }
 
+/// `start_onboarding` of the CTO's conversation: the analysis the assistant starts with, which the user then goes
+/// through there.
+pub(crate) fn mcp_analyze(
+    app: &AppHandle,
+    project: &str,
+    lang: Option<String>,
+) -> anyhow::Result<serde_json::Value> {
+    use anyhow::Context as _;
+    use tauri::Manager as _;
+    let dir = app.state::<AppState>().config_dir.clone();
+    let progress = &mut |p: termf_library::conventions::Progress| {
+        let read = Read {
+            project,
+            tool: p.tool,
+            target: p.target,
+        };
+        let _ = app.emit("onboarding-progress", read);
+    };
+    let lang = lang.unwrap_or_else(|| "en".into());
+    let state =
+        onboarding::analyze_showing(&dir, &data_dir()?, project, &lang, &claude(&dir), progress)?;
+    let analysis = state.analysis.context("the analysis gave nothing")?;
+    Ok(serde_json::json!({
+        "findings": analysis.findings,
+        "questions": analysis.questions.len(),
+        "next": "The user answers its questions and applies what it proposes in TermF's setup assistant."
+    }))
+}
+
 /// A file Claude Code reads, or a search it makes, during a project's analysis.
 #[derive(Serialize, Clone)]
 struct Read<'a> {

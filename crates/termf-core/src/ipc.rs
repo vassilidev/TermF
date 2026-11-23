@@ -56,13 +56,17 @@ pub const MCP_OPS: [&str; 2] = ["ops_recipes", "ops_run"];
 /// A key the project's agents then get from the vault, asked to the user in TermF's own card: the agent never gets
 /// its value.
 pub const MCP_SECRETS: [&str; 1] = ["request_secret"];
-pub const MCP_ACTIONS: [&str; 6] = [
+pub const MCP_ACTIONS: [&str; 10] = [
     "start_team_run",
     "answer",
     "approve",
     "request_changes",
     "stop_team_run",
     "send_message",
+    "propose_conventions",
+    "run_scout",
+    "start_onboarding",
+    "schedule_task",
 ];
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -214,6 +218,38 @@ pub enum McpCall {
         #[serde(default)]
         repo: Option<String>,
         text: String,
+    },
+    /// Conventions in plain words (`text`; none: those the code already follows) that Claude Code turns into
+    /// items for the user to review in the Library, as a new convention named after `name`.
+    ProposeConventions {
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
+    },
+    /// The library scout of the project, on `items` (`kind/name`) only, or on the whole library.
+    RunScout {
+        #[serde(default)]
+        items: Vec<String>,
+    },
+    /// The analysis of the project's setup assistant (`lang`: `fr` or `en`).
+    StartOnboarding {
+        #[serde(default)]
+        lang: Option<String>,
+    },
+    /// A task of the scheduler in the project's first repository: `prompt` run headless, or the library watch
+    /// (`scout`).
+    ScheduleTask {
+        name: String,
+        cron: String,
+        #[serde(default)]
+        prompt: Option<String>,
+        #[serde(default)]
+        scout: bool,
+        #[serde(default)]
+        model: Option<String>,
+        #[serde(default)]
+        budget: Option<f64>,
     },
     /// The project memory's passages that best match `query`, from `sources` (all when empty).
     MemorySearch {
@@ -1365,6 +1401,8 @@ mod tests {
                 ("recipe", json!("logs-tail")),
                 ("variable", json!("PEXELS_API_KEY")),
                 ("purpose", json!("stock photos")),
+                ("name", json!("Weekly watch")),
+                ("cron", json!("0 9 * * 1")),
             ] {
                 call.insert(key.into(), value);
             }
@@ -1382,6 +1420,8 @@ mod tests {
                 "ask_expert" => &["question"],
                 "ops_run" => &["recipe"],
                 "request_secret" => &["variable", "purpose"],
+                "propose_conventions" => &["text", "name"],
+                "schedule_task" => &["name", "cron"],
                 _ => &[],
             };
             call.retain(|k, _| k == "tool" || fields.contains(&k.as_str()));
