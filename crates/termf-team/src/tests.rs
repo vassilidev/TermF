@@ -3190,7 +3190,7 @@ fn the_review_sends_each_finding_to_its_task_then_looks_again() {
     assert!(schema["properties"]["findings"].is_object());
     let args = fs::read_to_string(format!("{}.args", env.log)).unwrap();
     assert!(
-        args.lines().all(|l| l.contains(r#""args":["guard"]"#)),
+        args.lines().all(|l| l.contains(r#""args":["guard","--worktree","#)),
         "every step's session has the guard hook: {args}"
     );
 
