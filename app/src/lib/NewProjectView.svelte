@@ -21,7 +21,8 @@
   import { toast } from "$lib/ui/toast.svelte";
   import { lang, t } from "$lib/i18n";
   import { cleanName, nameFromIdea, parentOf, uniqueSlug } from "$lib/greenfield-logic";
-  import { ensure, home as column } from "$lib/home.svelte";
+  import { ensure } from "$lib/home.svelte";
+  import { askAI } from "$lib/ask.svelte";
   import { analyze, cards, closeNewProject, creating, detect, draft, endNewProject, forget, found, keep, readCards, started } from "$lib/newproject.svelte";
   import { analyzing, readText, reads } from "$lib/onboarding.svelte";
   import { ownTeam, type Analysis } from "$lib/onboarding-logic";
@@ -230,7 +231,6 @@
     }
     setProject(project);
     endNewProject();
-    column.with = "cto";
     ui.view = "home";
     busy = false;
     toast(t("cpReady", { name: asked.name }), { kind: "ok" });
@@ -238,6 +238,8 @@
     if (cto) {
       const text = t("greenfieldSeed", { name: asked.name, path: made.path, idea: asked.idea });
       await invoke("agent_send", { id: cto.id, text }).catch((e) => failed.push(String(e)));
+      // Its answer comes in the ⌘I panel.
+      void askAI({ role: "cto" });
     }
     if (failed.length) app.error = t("setupPartial", { error: failed.join(" · ") });
   }

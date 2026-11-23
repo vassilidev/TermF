@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack, type Component, type Snippet } from "svelte";
+  import { untrack, type Component } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import BellRing from "@lucide/svelte/icons/bell-ring";
   import Check from "@lucide/svelte/icons/check";
@@ -20,8 +20,10 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Users from "@lucide/svelte/icons/users";
   import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
-  import Conversation from "$lib/Conversation.svelte";
   import Requirements from "$lib/Requirements.svelte";
+  import Avatar from "$lib/ui/Avatar.svelte";
+  import Checklist from "$lib/ui/Checklist.svelte";
+  import WaitCard from "$lib/ui/WaitCard.svelte";
   import { initial } from "$lib/ProjectSwitcher.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
   import OpsRequest from "$lib/OpsRequest.svelte";
@@ -35,11 +37,12 @@
   import Action from "$lib/Action.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { activity as live, track } from "$lib/live.svelte";
-  import { agentProjects, agents, ctoOf, expertOf, showConversations, showConversation } from "$lib/agents.svelte";
+  import { agentProjects, agents, showConversations, showConversation } from "$lib/agents.svelte";
   import { focusSession, keys, showRun } from "$lib/commands";
-  import { pinned, summary, type Item } from "$lib/conversation-logic";
-  import { openRuns, place, primary, type Wait } from "$lib/home-logic";
-  import { decisions as decisionsOf, ensure, goToWait, home, learn, projectWaits, waitProject, type Decision } from "$lib/home.svelte";
+  import { pinned, summary } from "$lib/conversation-logic";
+  import { dismissSetup, guide, setupItems } from "$lib/guide.svelte";
+  import { openRuns, type Wait } from "$lib/home-logic";
+  import { decisions as decisionsOf, goToWait, home, learn, projectWaits, waitProject, type Decision } from "$lib/home.svelte";
   import { ago, t } from "$lib/i18n";
   import { analyzing, openSetup, reads, readText, setup } from "$lib/onboarding.svelte";
   import { ops } from "$lib/ops.svelte";
@@ -51,12 +54,10 @@
   import { missingRequired } from "$lib/release-logic";
   import { awaitsDelivery, shown } from "$lib/run-logic";
   import { app, onScreen, repoName, setProject, shortPath } from "$lib/state.svelte";
-  import { initials } from "$lib/team-logic";
   import { TRIAGE, asks, current, progress, type AskKind, type TeamRun } from "$lib/team-run-logic";
   import { team, upsertRun, waitTitle } from "$lib/team.svelte";
-  import { loadInbox, openUrl, showTickets, tickets, upsert, type Resolution, type Run, type TicketSummary } from "$lib/tickets.svelte";
+  import { launchTicket, loadInbox, openUrl, showTickets, tickets, upsert, type Resolution, type Run, type TicketSummary } from "$lib/tickets.svelte";
 
-  type Notice = Extract<Item, { type: "notice" }>;
   type Onboarding = {
     step: Step;
     analysis: { repos: { name: string; stack: string[]; workflows: string[] }[]; questions: unknown[] } | null;
@@ -64,17 +65,8 @@
 
   const project = $derived(app.workspace?.projects.find((p) => p.id === app.project));
   const visible = $derived(onScreen("home"));
-  const cto = $derived(project ? ctoOf(project.id) : undefined);
-  const session = $derived(project ? (home.with === "cto" ? cto : expertOf(project.id)) : undefined);
 
   let error = $state("");
-
-  // Opening the Home opens its conversation, as the palette does: created without a process, the first message starts it.
-  $effect(() => {
-    const id = project?.id;
-    const who = home.with;
-    if (visible && id) untrack(() => ensure(id, who));
-  });
 
   const waits = $derived(projectWaits(app.project));
 
@@ -87,8 +79,7 @@
     }
   });
 
-  // The cards of the CTO's thread: each step of the project's runs that waits for the user.
-  let notices = $state<Notice[]>([]);
+  // Each step of the project's runs that waits for the user, as a card answered in place.
   // A delivery's card stays once made, to say so with the pull request, until it has nothing left to show: hidden, or
   // the delivery made from the Run page.
   let delivering = $state<Record<string, Decision>>({});
@@ -101,15 +92,18 @@
     for (const d of open) if (!d.ask || d.ask.kind === "deliver") untrack(() => (delivering[d.key] = d));
   });
   const finished = $derived(Object.values(delivering).filter((d) => !open.some((o) => o.key === d.key)));
-  const decisions = $derived([...open, ...finished.map((d) => ({ ...d, run: team.runs.find((r) => r.run === d.run.run) ?? d.run }))]);
-  const placed = $derived(place(notices, decisions.map((d) => ({ run: d.run.run, step: d.step }))));
-  const main = $derived(primary(placed, cto?.state === "waiting", finished.map((d) => d.key)));
-  const decision = (key: string | undefined) => decisions.find((d) => d.key === key);
-  // What the thread's head already asks of the user: its examples would push it out of view.
-  const asking = $derived.by(() => {
-    const ob = project ? onboarding[project.id] : undefined;
-    return decisions.length > 0 || ops.requests.some((r) => r.project === project?.id) || (!!ob && setupSteps.includes(ob.step));
-  });
+  const decisions = $derived(
+    [...open, ...finished.map((d) => ({ ...d, run: team.runs.find((r) => r.run === d.run.run) ?? d.run }))].sort(
+      (a, b) => b.run.updated - a.run.updated,
+    ),
+  );
+  // One main action on the Home: the most recent decision that still asks something.
+  const main = $derived(decisions.find((d) => open.some((o) => o.key === d.key))?.key ?? null);
+  const opsHere = $derived(ops.requests.filter((r) => r.project === project?.id));
+  const envHere = $derived(agentEnv.requests.filter((r) => r.project === project?.id));
+  // The waits that have no card of their own: a tile, a conversation, the CTO's own request.
+  const others = $derived(waits.filter((w) => w.kind === "tile" || w.kind === "agent" || w.kind === "cto"));
+  const asking = $derived(decisions.length + opsHere.length + envHere.length + others.length);
 
   // A new project's setup, until it is done.
   let onboarding = $state<Record<string, Onboarding>>({});
@@ -217,6 +211,7 @@
       const step = o.team?.state === "running" ? current(o.team).find((s) => s.session !== null) : undefined;
       if (step?.session != null) track(step.session);
     }
+    for (const a of headless) if (a.state === "working") track(a.id);
   });
 
   function showAll(tab: "inbox" | "runs") {
@@ -332,9 +327,10 @@
       // Storage off: shown again at the next launch.
     }
   }
+  // The setup list of a project also says whether Claude Code is there.
   let toolsAsked = false;
   $effect(() => {
-    if (project || toolsAsked) return;
+    if (!visible || toolsAsked) return;
     toolsAsked = true;
     if (!needs.tools) untrack(checkTools);
   });
@@ -413,34 +409,7 @@
   {/if}
 {/snippet}
 
-{#snippet lead()}
-  <span class="who" class:cto={home.with === "cto"} aria-hidden="true">{home.with === "cto" ? t("ux3t1Cto") : initials("expert")}</span>
-  <div class="grow">
-    <b>{home.with === "cto" ? t("ux3t1Cto") : t("ux3t1Expert")}</b>
-    <span class="sub">{home.with === "cto" ? t("ctoStart") : t("uxfT2ExpertHint")}</span>
-  </div>
-  <div class="segmented" role="group" aria-label={t("ux3t1With")}>
-    <button aria-pressed={home.with === "cto"} title={t("uxfT2CtoHint")} onclick={() => (home.with = "cto")}>{t("ux3t1Cto")}</button>
-    <button aria-pressed={home.with === "expert"} title={t("uxfT2ExpertHint")} onclick={() => (home.with = "expert")}>{t("ux3t1Expert")}</button>
-  </div>
-{/snippet}
-
-{#snippet card(item: Notice, fallback: Snippet<[Notice]>)}
-  {@const key = placed.at.get(item.key)}
-  {#if key}{@render cards(key)}{:else}<div class="told">{@render fallback(item)}</div>{/if}
-{/snippet}
-
-{#snippet cards(key: string)}
-  {@const d = decision(key)}
-  {#if d}
-    <!-- Only the latest open decision keeps its primary button: one main action on the Home. -->
-    <div class="decision" data-wait={key} tabindex="-1">
-      <WaitCards run={d.run} step={d.step} context compact primary={key === main} ondismiss={() => delete delivering[key]} />
-    </div>
-  {/if}
-{/snippet}
-
-{#snippet top()}
+{#snippet setupCard()}
   {@const ob = project ? onboarding[project.id] : undefined}
   {#if project}<SetupJobs project={project.id} />{/if}
   {#if project && ob && setupSteps.includes(ob.step)}
@@ -460,7 +429,7 @@
             </span>
             <span class="t"><b>{t(stepLabels[step as keyof typeof stepLabels])}</b>{#if text}<span>{text}</span>{/if}</span>
             {#if i === at}
-              <button class="btn sm" class:primary={main === null && cto?.state !== "waiting"} onclick={() => openSetup(project.id)}>
+              <button class="btn sm" class:primary={main === null && !others.length} onclick={() => openSetup(project.id)}>
                 {step === "analysis" && analyzing[project.id] ? t("setupFollow") : t(stepActions[step as keyof typeof stepActions])}<ChevronRight size={14} aria-hidden="true" />
               </button>
             {/if}
@@ -469,13 +438,6 @@
       </ol>
     </article>
   {/if}
-  {#each placed.rest as key (key)}{@render cards(key)}{/each}
-  {#each ops.requests.filter((r) => r.project === project?.id) as r (r.id)}
-    <div class="decision"><OpsRequest request={r} primary={main === null} /></div>
-  {/each}
-  {#each agentEnv.requests.filter((r) => r.project === project?.id) as r (r.id)}
-    <div class="decision"><AgentEnvRequest request={r} primary={main === null} /></div>
-  {/each}
 {/snippet}
 
 <div class="home-view">
@@ -483,6 +445,8 @@
     {#snippet actions()}
       {#if !project && !empty}
         <button class="btn sm" onclick={newProject}><Plus size={14} aria-hidden="true" />{t("newProject")}</button>
+      {:else if project}
+        <button class="btn sm" onclick={launchTicket}><Plus size={14} aria-hidden="true" />{t("ticketLaunchLong")}{#if keys.ticket}<kbd>{keys.ticket}</kbd>{/if}</button>
       {/if}
     {/snippet}
   </ViewHeader>
@@ -494,99 +458,137 @@
   {/if}
 
   {#if project}
-    <div class="home">
-      <section class="talk" aria-label={home.with === "cto" ? t("ux3t1Cto") : t("ux3t1Expert")}>
-        {#if session}
-          {#key session.id}
-            <Conversation
-              {session}
-              embedded
-              {lead}
-              card={home.with === "cto" ? card : undefined}
-              top={home.with === "cto" ? top : undefined}
-              examples={home.with !== "cto" || !asking}
-              bind:notices
-            />
-          {/key}
-        {:else}
-          <header class="bar">{@render lead()}</header>
-          <div class="opening"><Skeleton rows={4} /></div>
+    {@const working = tiles.filter((s) => s.status === "working").length + headless.filter((a) => a.state === "working").length}
+    {@const steps = setupItems(project.id)}
+    {@const checklist = !guide.dismissed.includes(project.id) && steps.some((i) => !i.done)}
+    {@const ob = onboarding[project.id]}
+    <div class="today">
+      <div class="inner">
+        <header class="hello">
+          <h2>
+            {t("aigHello", {
+              waits: waits.length === 0 ? t("aigWaitsNone") : waits.length === 1 ? t("aigWaitsOne") : t("aigWaitsMany", { n: waits.length }),
+              works: working === 0 ? t("aigWorksNone") : working === 1 ? t("aigWorksOne") : t("aigWorksMany", { n: working }),
+            })}
+          </h2>
+          <p class="lead">{waits.length ? t("aigLeadWaits") : working ? t("aigLeadWorks") : t("aigLeadIdle")}</p>
+        </header>
+
+        {#if asking || (ob && setupSteps.includes(ob.step))}
+          <section class="waits" aria-labelledby="home-waits">
+            <h3 id="home-waits" class="sr-only">{t("teamRunsWaits")}</h3>
+            {@render setupCard()}
+            {#each decisions as d (d.key)}
+              <div class="decision" data-wait={d.key} tabindex="-1">
+                <WaitCards run={d.run} step={d.step} context compact primary={d.key === main} ondismiss={() => delete delivering[d.key]} />
+              </div>
+            {/each}
+            {#each opsHere as r (r.id)}
+              <div class="decision"><OpsRequest request={r} primary={main === null} /></div>
+            {/each}
+            {#each envHere as r (r.id)}
+              <div class="decision"><AgentEnvRequest request={r} primary={main === null} /></div>
+            {/each}
+            {#each others as w (w.key)}
+              {@const r = row(w)}
+              <div class="decision" data-wait={w.key}>
+                <WaitCard title={r.title} meta={r.context} action={{ label: t("aigAnswer"), run: () => goFrom(w) }} />
+              </div>
+            {/each}
+          </section>
         {/if}
-      </section>
 
-      <aside class="rail">
-        <section aria-labelledby="home-waits">
-          <h2 id="home-waits">
-            {t("teamRunsWaits")} <span class="n">{waits.length}</span>
-            {#if keys.next && waits.length}<kbd>{keys.next}</kbd>{/if}
-          </h2>
-          {#each waits as w (w.key)}
-            {@render waitRow(w, false)}
-          {:else}
-            <p class="empty-line">{t("ux3t1NothingWaits")}</p>
-          {/each}
-        </section>
+        <div class="cols">
+          <div class="col">
+            <section aria-labelledby="home-live">
+              <h3 id="home-live" class="sec">
+                {t("aigLive")} <span class="n">{tiles.length + headless.length}</span>
+                {@render more(t("chatView"), showConversations)}
+              </h3>
+              <div class="list">
+                {#each tiles.slice(0, 5) as s (s.id)}
+                  <button class="lrow" onclick={() => focusSession(s.id)}>
+                    <Avatar role={s.role ?? s.agent ?? "term"} status={s.status ?? undefined} />
+                    <span class="t">
+                      <span class="who-line"><b>{s.role ?? s.title}</b></span>
+                      <span class="now"><SquareTerminal size={13} aria-hidden="true" />{shortPath(s.cwd)}</span>
+                    </span>
+                    {#if s.status}<StatusPill status={s.status} />{/if}
+                  </button>
+                {/each}
+                {#each headless.slice(0, Math.max(0, 5 - tiles.length)) as a (a.id)}
+                  {@const act = live[a.id]?.now}
+                  <button class="lrow" onclick={() => showConversation(a.id)}>
+                    <Avatar role={a.role ?? a.title} status={a.state} />
+                    <span class="t">
+                      <span class="who-line"><b>{a.role ?? a.title}</b><span class="where">{repoName(a.cwd)}</span></span>
+                      {#if act && a.state === "working"}
+                        <span class="now live"><LoaderCircle size={13} aria-hidden="true" class="spin" /><Action {act} /></span>
+                      {:else if a.role && a.title !== repoName(a.cwd)}
+                        <span class="now">{a.title}</span>
+                      {/if}
+                    </span>
+                    <StatusPill status={a.state} />
+                  </button>
+                {/each}
+                {#if !tiles.length && !headless.length}<p class="empty-line">{t("aigNobody")}</p>{/if}
+              </div>
+            </section>
 
-        <section aria-labelledby="home-live">
-          <h2 id="home-live">
-            {t("t5InService")} <span class="n">{tiles.length + headless.length}</span>
-            {@render more(t("chatView"), showConversations)}
-          </h2>
-          {#each tiles.slice(0, 5) as s (s.id)}
-            <button class="rrow" onclick={() => focusSession(s.id)}>
-              <span class="who sm term" aria-hidden="true"><SquareTerminal size={12} /></span>
-              <span class="t"><b>{s.role ?? s.title}</b><span>{s.role ? s.title : shortPath(s.cwd)}</span></span>
-              {#if s.status}<StatusPill status={s.status} />{/if}
-            </button>
-          {/each}
-          {#each headless.slice(0, Math.max(0, 5 - tiles.length)) as a (a.id)}
-            <button class="rrow" onclick={() => showConversation(a.id)}>
-              <span class="who sm" aria-hidden="true">{initials(a.role ?? a.title)}</span>
-              <span class="t"><b>{a.role ?? a.title}</b><span>{a.role ? a.title : shortPath(a.cwd)}</span></span>
-              <StatusPill status={a.state} />
-            </button>
-          {/each}
-          {#if !tiles.length && !headless.length}<p class="empty-line">{t("ux3t1NobodyWorks")}</p>{/if}
-        </section>
+            <section aria-labelledby="home-runs">
+              <h3 id="home-runs" class="sec">
+                {t("teamRunsTab")} <span class="n">{runs.length}</span>
+                {@render more(t("ux3t1AllRuns"), () => showAll("runs"))}
+              </h3>
+              <div class="list">
+                {#each runs.slice(0, 5) as o (o.run?.id ?? o.team?.run)}
+                  {@render runRow(o, false)}
+                {:else}
+                  {#if tickets.runsRead}<p class="empty-line">{t("ux3t1NoRuns")}</p>{:else}<Skeleton shape="list" rows={2} />{/if}
+                {/each}
+              </div>
+            </section>
+          </div>
 
-        <section aria-labelledby="home-runs">
-          <h2 id="home-runs">
-            {t("teamRunsTab")} <span class="n">{runs.length}</span>
-            {@render more(t("ux3t1AllRuns"), () => showAll("runs"))}
-          </h2>
-          {#each runs.slice(0, 5) as o (o.run?.id ?? o.team?.run)}
-            {@render runRow(o, false)}
-          {:else}
-            {#if tickets.runsRead}<p class="empty-line">{t("ux3t1NoRuns")}</p>{:else}<Skeleton shape="list" rows={2} />{/if}
-          {/each}
-        </section>
+          <aside class="col side">
+            {#if checklist}
+              <Checklist
+                title={t("aigSetupTitle")}
+                items={asking ? steps.map((i) => ({ ...i, run: undefined })) : steps}
+                ondismiss={() => dismissSetup(project.id)}
+              />
+            {/if}
 
-        <section aria-labelledby="home-tickets">
-          <h2 id="home-tickets">
-            {t("viewTickets")} <span class="n">{inbox.length}</span>
-            {@render more(t("ux3t1Inbox"), () => showAll("inbox"))}
-          </h2>
-          {#if tickets.inbox === null && tickets.loading}<Skeleton shape="list" rows={2} />{/if}
-          {#each inbox.slice(0, 3) as ticket (ticket.url)}
-            {@const picking = choosing?.url === ticket.url ? choosing : null}
-            <div class="rrow ticket" class:open={!!picking || starting === ticket.url}>
-              <button class="t" title={t("ticketsUiOpenLink")} onclick={() => openUrl(ticket.url)}>
-                <b>{ticket.title}</b>
-                <span>{ticket.key} · {ago(Date.parse(ticket.updated) / 1000)}</span>
-              </button>
-              {#if picking}
-                <select class="field" aria-label={t("ctoEntryRepo")} bind:value={picking.repo}>
-                  {#each picking.resolution.repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
-                </select>
-              {/if}
-              <button class="btn sm team" disabled={!!starting} onclick={() => withTeam(ticket)}>
-                {#if starting === ticket.url}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Users size={14} aria-hidden="true" />{/if}
-                {t("teamRunsWithTeam")}
-              </button>
-            </div>
-          {/each}
-        </section>
-      </aside>
+            <section aria-labelledby="home-tickets">
+              <h3 id="home-tickets" class="sec">
+                {t("aigTicketsTodo")} <span class="n">{inbox.length}</span>
+                {@render more(t("ux3t1Inbox"), () => showAll("inbox"))}
+              </h3>
+              <div class="list">
+                {#if tickets.inbox === null && tickets.loading}<Skeleton shape="list" rows={2} />{/if}
+                {#each inbox.slice(0, 3) as ticket (ticket.url)}
+                  {@const picking = choosing?.url === ticket.url ? choosing : null}
+                  <div class="rrow ticket" class:open={!!picking || starting === ticket.url}>
+                    <button class="t" title={t("ticketsUiOpenLink")} onclick={() => openUrl(ticket.url)}>
+                      <b>{ticket.title}</b>
+                      <span>{ticket.key} · {ago(Date.parse(ticket.updated) / 1000)}</span>
+                    </button>
+                    {#if picking}
+                      <select class="field" aria-label={t("ctoEntryRepo")} bind:value={picking.repo}>
+                        {#each picking.resolution.repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
+                      </select>
+                    {/if}
+                    <button class="btn sm team" disabled={!!starting} onclick={() => withTeam(ticket)}>
+                      {#if starting === ticket.url}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Users size={14} aria-hidden="true" />{/if}
+                      {t("teamRunsWithTeam")}
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            </section>
+          </aside>
+        </div>
+      </div>
     </div>
   {:else}
     {@const all = projectWaits(null)}
@@ -666,119 +668,175 @@
     min-height: 0;
   }
 
-  .home {
-    display: grid;
+  /* Today: a sentence, what waits first, then who works and the runs beside the setup and the tickets. */
+  .today {
     flex: 1;
-    grid-template-columns: minmax(0, 1fr) clamp(300px, 36%, 384px);
     min-height: 0;
+    container: today / inline-size;
+    padding: 28px 32px 40px;
+    overflow-y: auto;
   }
 
-  .talk {
+  .today .inner {
+    margin: 0 auto;
+  }
+
+  .hello h2 {
+    display: block;
+    margin: 0;
+    font-size: var(--text-2xl);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    text-wrap: balance;
+  }
+
+  .lead {
+    margin: 6px 0 0;
+    color: var(--soft);
+    font-size: var(--text-md);
+  }
+
+  .waits {
     display: flex;
     flex-direction: column;
+    gap: 8px;
+    margin-top: 20px;
+  }
+
+  .cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 28px;
+    margin-top: 28px;
+  }
+
+  /* The Home's own width: the ⌘I panel or a split narrows it as much as the window. */
+  @container today (max-width: 820px) {
+    .cols {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .col {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
     min-width: 0;
-    min-height: 0;
+  }
+
+  h3.sec {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 8px;
+    font-size: var(--text-md);
+    font-weight: 600;
+  }
+
+  h3 .n {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .list {
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
     background: var(--panel);
   }
 
-  .bar {
+  .list > .empty-line {
+    padding: 10px 0;
+  }
+
+  /* An agent at work: its mark and state, where, and what it does now in plain words. */
+  .lrow {
     display: flex;
     align-items: center;
-    gap: 10px;
-    flex-shrink: 0;
-    height: 52px;
-    padding: 0 12px 0 20px;
-    border-bottom: 1px solid var(--border);
+    gap: 12px;
+    width: calc(100% + 24px);
+    min-height: var(--row-lg);
+    margin: 0 -12px;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
   }
 
-  .opening {
-    flex: 1;
-    max-width: 820px;
-    padding: 16px 24px;
+  .lrow + .lrow {
+    border-top: 1px solid var(--border);
   }
 
-  /* The conversation's lead: who is spoken to, and the switch to the other. */
-  .who {
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent-ink);
-    font-size: var(--text-xs);
-    font-weight: 700;
-    letter-spacing: 0.02em;
+  .lrow:hover {
+    background: var(--hover);
   }
 
-  .who.cto {
-    width: auto;
-    min-width: 26px;
-    padding: 0 5px;
-    border-radius: var(--radius);
-    background: var(--accent);
-    color: var(--accent-text);
-    letter-spacing: 0;
+  .lrow:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
   }
 
-  .who.sm {
-    width: 22px;
-    height: 22px;
-  }
-
-  .who.term {
-    border-radius: var(--radius-sm);
-    background: var(--term-bg);
-    box-shadow: inset 0 0 0 1px var(--border-strong);
-    color: #e7e8eb;
-  }
-
-  .grow {
+  .lrow .t {
     display: flex;
     flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .who-line {
+    display: flex;
     align-items: baseline;
     gap: 8px;
     min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
   }
 
-  .grow b {
-    font-size: var(--text-md);
-    font-weight: 650;
+  .who-line b {
+    font-weight: 600;
   }
 
-  .sub {
+  .where,
+  .now {
     overflow: hidden;
     color: var(--muted);
     font-size: var(--text-sm);
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .segmented button {
-    height: 24px;
-    padding: 0 10px;
-  }
-
-  /* The rail: the project at a glance. */
-  .rail {
+  .now {
     display: flex;
-    flex-direction: column;
-    min-height: 0;
-    overflow-y: auto;
-    border-left: 1px solid var(--border);
-    background: var(--chrome);
+    align-items: center;
+    gap: 6px;
   }
 
-  .rail section {
-    padding: 16px 16px 12px;
-    border-bottom: 1px solid var(--border);
+  .now.live {
+    color: var(--text);
   }
 
-  .rail section:last-child {
-    border-bottom: 0;
+  .now.live :global(svg) {
+    flex-shrink: 0;
+    color: var(--working);
   }
+
+  .list :global(.rrow) {
+    width: calc(100% + 24px);
+    margin: 0 -12px;
+    padding: 8px 12px;
+    border-radius: 0;
+  }
+
+  .list :global(.rrow + .rrow) {
+    margin-top: 0;
+    border-top: 1px solid var(--border);
+  }
+
 
   h2 {
     display: flex;
@@ -948,17 +1006,7 @@
     outline-offset: 2px;
   }
 
-  /* A notice whose step was answered no longer asks: amber stays for what waits. */
-  .told :global(.termf.asks) {
-    border-color: var(--border);
-    background: var(--chrome);
-  }
-
-  .told :global(.termf.asks svg) {
-    color: var(--muted);
-  }
-
-  /* A new project's setup, at the head of the thread. */
+  /* A new project's setup, first of what waits. */
   .setup {
     display: flex;
     flex-direction: column;

@@ -28,6 +28,7 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { app, type ViewId } from "$lib/state.svelte";
+  import { provide } from "$lib/ask.svelte";
   import {
     biometryName,
     copy,
@@ -71,6 +72,17 @@
   const list = $derived(visible(all, scope, filter, query, projectName));
   const cut = $derived(sections(list, app.project, projectName));
   const selected = $derived(seen.find((e) => e.key === vault.selected[view]) ?? null);
+
+  // The ⌘I panel: secops sees the entry's name and type, never its value.
+  $effect(() => {
+    const e = selected;
+    const label = !e
+      ? ""
+      : e.type === "item"
+        ? t("aigVaultEntry", { name: e.item.title, kind: t(e.item.kind === "login" ? "vaultLogin" : "vaultNote") })
+        : t("aigVaultEntry", { name: e.secret.name, kind: t("vaultSecret") });
+    return provide(view, { chips: e ? [{ id: "vault-entry", kind: "object", label, secret: true }] : [] });
+  });
   const context = $derived(
     view === "vaultAll" ? t("vaultEverything") : scope ? t("vaultScope", { project: projectName(scope) }) : t("vaultAllProjects"),
   );

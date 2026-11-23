@@ -17,6 +17,7 @@
     max = 560,
     actions,
     footer,
+    flush = false,
     children,
   }: {
     id: string;
@@ -27,6 +28,8 @@
     max?: number;
     actions?: Snippet;
     footer?: Snippet;
+    /** The body without its padding, for a content that scrolls on its own (a conversation). */
+    flush?: boolean;
     children: Snippet;
   } = $props();
 
@@ -110,7 +113,7 @@
         <PanelRightClose size={16} aria-hidden="true" />
       </button>
     </header>
-    <div class="body">{@render children()}</div>
+    <div class="body" class:flush>{@render children()}</div>
     {#if footer}<footer>{@render footer()}</footer>{/if}
   </aside>
 {/if}
@@ -189,6 +192,12 @@
     min-height: 0;
     padding: 16px;
     overflow: auto;
+  }
+
+  .body.flush {
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
   }
 
   footer {

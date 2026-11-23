@@ -111,7 +111,7 @@
 
   <footer>
     <button class="btn sm" onclick={() => go(startTour)}>
-      <Compass size={14} aria-hidden="true" />{t("t6bTour")}
+      <Compass size={14} aria-hidden="true" />{t("wsIntroAgain")}
     </button>
     <button class="btn sm" onclick={() => go(() => showSettings("keys"))}>
       <Keyboard size={14} aria-hidden="true" />{t("t6bEditKeys")}

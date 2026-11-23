@@ -33,6 +33,8 @@
     continueLabel,
     head,
     foot,
+    tail,
+    skip,
     secondary,
     aside,
     children,
@@ -52,8 +54,11 @@
     continueLabel?: string;
     /** Above the steps: what is being set up. */
     head?: Snippet;
-    /** Under the steps: how long is left, what is kept. */
+    /** Under the steps: how long is left, what is kept (`tail`: the same, as the first-launch guide names it). */
     foot?: Snippet;
+    tail?: Snippet;
+    /** Before Back: a way out of the whole wizard. */
+    skip?: Snippet;
     /** Beside Continue: a way past the current screen. */
     secondary?: Snippet;
     aside?: Snippet;
@@ -111,13 +116,14 @@
         </li>
       {/each}
     </ol>
-    {#if foot}<div class="foot">{@render foot()}</div>{/if}
+    {#if foot ?? tail}<div class="foot">{@render (foot ?? tail)!()}</div>{/if}
   </nav>
   <section class="page" aria-label={steps[current]?.label} bind:this={page}>
     <div class="content">{@render children()}</div>
     {#if aside}<div class="aside">{@render aside()}</div>{/if}
   </section>
   <footer>
+    {@render skip?.()}
     <button class="btn back" onclick={onback} disabled={!(canBack ?? current > 0) || busy}>
       <ArrowLeft size={14} aria-hidden="true" />{t("uiF1Back")}
     </button>

@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import ApiConfirm from "$lib/ApiConfirm.svelte";
   import AppNav from "$lib/AppNav.svelte";
+  import AskPanel from "$lib/AskPanel.svelte";
   import UpdateBanner from "$lib/UpdateBanner.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Panel from "$lib/ui/Panel.svelte";
@@ -30,7 +31,9 @@
   import { visual, watchVisual } from "$lib/visual.svelte";
   import { watchTray } from "$lib/remote.svelte";
   import { watchUpdates } from "$lib/release.svelte";
-  import { watchMenu } from "$lib/menu";
+  import { watchMenu } from "$lib/menu.svelte";
+  import { display } from "$lib/keymap.svelte";
+  import { nav, navColumn, toggleNav, watchWorkspace } from "$lib/workspace.svelte";
 
   let area = $state<HTMLElement>();
 
@@ -54,7 +57,9 @@
     const stopMenu = watchMenu();
     const stopUsage = watchUsage();
     const stopLive = watchLive();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopAgentEnv(), stopVisual(), stopSync(), stopTray(), stopUpdates(), stopMenu(), stopUsage(), stopLive());
+    // After the panels: two panels kept win over the view kept.
+    const stopWorkspace = watchWorkspace();
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopAgentEnv(), stopVisual(), stopSync(), stopTray(), stopUpdates(), stopMenu(), stopUsage(), stopLive(), stopWorkspace());
   });
 
   function drag(e: PointerEvent) {
@@ -86,8 +91,12 @@
 <svelte:window onkeydowncapture={onShortcut} />
 
 <!-- A setup takes the whole window: the navigation steps aside until it is left. -->
-<div class="app" class:focus={ui.view === "newProject" && panes.other === null}>
+<div class="app" class:focus={ui.view === "newProject" && panes.other === null} style:--nav-width="{navColumn()}px">
   <AppNav />
+  {#if nav.mode === "hidden"}
+    <!-- Hidden, the navigation leaves a strip on the window's edge that brings it back. -->
+    <button class="reveal" aria-label={t("wsShowNav")} title="{t('wsShowNav')} ({display('toggle_nav')})" onclick={toggleNav}></button>
+  {/if}
   <div class="main">
     <ApiConfirm />
     <UpdateBanner />
@@ -119,6 +128,7 @@
         {/if}
       </div>
     {/if}
+    <div class="stage">
     <div
       class="panels"
       class:two={panes.other !== null}
@@ -195,6 +205,8 @@
         ></div>
       {/if}
     </div>
+    <AskPanel />
+    </div>
   </div>
 </div>
 
@@ -213,9 +225,9 @@
     <div class="load-error"><Banner kind="error" ondismiss={() => (ui.help = false)}>{String(error)}</Banner></div>
   {/await}
 {/if}
-{#if tour.step !== null}
-  {#await import("$lib/GuidedTour.svelte") then { default: GuidedTour }}
-    <GuidedTour />
+{#if tour.step !== null && !tour.paused}
+  {#await import("$lib/FirstLaunch.svelte") then { default: FirstLaunch }}
+    <FirstLaunch />
   {:catch error}
     <div class="load-error"><Banner kind="error" ondismiss={() => (tour.step = null)}>{String(error)}</Banner></div>
   {/await}
@@ -238,8 +250,29 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .app.focus > :global(.nav) {
+  .app.focus > :global(.nav),
+  .app.focus > .reveal {
     display: none;
+  }
+
+  .reveal {
+    position: fixed;
+    z-index: 8;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: e-resize;
+    transition: background-color var(--dur-fast) ease-out;
+  }
+
+  .reveal:hover,
+  .reveal:focus-visible {
+    background: var(--accent);
+    outline: none;
   }
 
   .main {
@@ -249,9 +282,18 @@
     min-height: 0;
   }
 
+  /* The views, and the ⌘I panel docked on their right. */
+  .stage {
+    position: relative;
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+
   .panels {
     display: grid;
     flex: 1;
+    min-width: 0;
     grid-template: minmax(0, 1fr) / minmax(0, 1fr);
     min-height: 0;
   }

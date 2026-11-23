@@ -56,7 +56,10 @@
     type StageState,
   } from "$lib/run-logic";
   import { repoName, shortPath } from "$lib/state.svelte";
-  import { TRIAGE, budgetError, progress, type TeamRun } from "$lib/team-run-logic";
+  import { TRIAGE, asks, budgetError, progress, type TeamRun } from "$lib/team-run-logic";
+  import NextStep from "$lib/ui/NextStep.svelte";
+  import { askAI, provide } from "$lib/ask.svelte";
+  import { runNext } from "$lib/guide-logic";
   import { team, upsertRun } from "$lib/team.svelte";
   import { readyToClean, refusal, resumable } from "$lib/tickets-logic";
   import { openTile, openUrl, runSession, tickets, upsert, type Resumed, type Run, type RunEvent } from "$lib/tickets.svelte";
@@ -105,6 +108,21 @@
   const active = $derived(teamRun?.state === "running" || teamRun?.state === "waiting");
   const pill = $derived(run && shown(run, teamRun));
   const wants = $derived(run ? expected(run, teamRun) : null);
+
+  // The ⌘I panel: the run's lead answers, with the run in context.
+  $effect(() => {
+    if (!run) return;
+    const label = `${ticketKey(run.ticket.key)} ${run.title}`;
+    const state = teamRun ? `, team run ${teamRun.run} ${teamRun.state}` : "";
+    return provide("run", {
+      role: "lead",
+      run: run.id,
+      repo: run.repo,
+      chips: [{ id: "run", kind: "object", label, text: `Ticket run ${run.id} (${run.ticket.url}), ${run.status}${state}` }],
+    });
+  });
+  const firstAsk = $derived(teamRun ? asks(teamRun)[0] : undefined);
+  const next = $derived(run ? runNext({ expected: wants, blocked: firstAsk?.kind === "blocked", working: teamRun?.state === "running" }) : null);
   const timeline = $derived(run ? stages(run, teamRun) : []);
   // A change over several repositories: each with its own pull request.
   const repos = $derived(repoRuns(tickets.runs, id));
@@ -374,6 +392,19 @@
               </li>
             {/each}
           </ol>
+
+          {#if next === "failed"}
+            <NextStep
+              text={t("aigNextRunFailed")}
+              action={{ label: t("aigAskLead"), run: () => askAI({ role: "lead", draft: t("aigNextRunFailedDraft") }) }}
+            />
+          {:else if next === "answer"}
+            <NextStep text={t("aigNextRunWaits", { role: firstAsk?.step.role ?? firstAsk?.step.key ?? "" })} />
+          {:else if next === "deliver"}
+            <NextStep text={t("aigNextRunDeliver")} />
+          {:else if next === "working"}
+            <NextStep text={t("aigNextRunWorking")} />
+          {/if}
 
           {#if done}<Banner kind="ok" ondismiss={() => (done = "")}>{done}</Banner>{/if}
           {#if teamRun?.note && !active}
