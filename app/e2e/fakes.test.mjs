@@ -85,3 +85,13 @@ test("totp matches RFC 6238's test vector", async () => {
   // "12345678901234567890" in base32, at 59 s: 94287082 on 8 digits.
   assert.equal(totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59_000), "287082");
 });
+
+test("a real Claude Code reached from a sandbox never updates itself", async () => {
+  const { createSandbox } = await import("./sandbox.mjs");
+  const box = createSandbox({ project: false });
+  try {
+    assert.equal(box.env.DISABLE_AUTOUPDATER, "1");
+  } finally {
+    box.cleanup();
+  }
+});

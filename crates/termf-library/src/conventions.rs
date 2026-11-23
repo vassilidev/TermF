@@ -15,9 +15,8 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use termf_core::process::run;
 #[cfg(target_os = "macos")]
-use termf_core::process::{scratch_dir, tail};
+use termf_core::process::{run, scratch_dir, tail};
 
 use crate::{
     Item, Kind, Layer, Scope, library_dir, read_toggles, resolve, set_toggle, toggle,
@@ -1268,11 +1267,37 @@ pub fn ask(
     prompt: &str,
     schema: &Value,
 ) -> Result<(Value, Option<f64>)> {
+    ask_showing(claude, repos, model, effort, prompt, schema, &mut |_| {})
+}
+
+/// What Claude Code reads as it goes: its tool (`Read`, `Grep`, `Glob`) and the file or pattern.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Progress {
+    pub tool: String,
+    pub target: String,
+}
+
+/// [`ask`], each read or search reaching `progress` as Claude Code makes it.
+pub fn ask_showing(
+    claude: &[String],
+    repos: &[(String, PathBuf)],
+    model: &str,
+    effort: &str,
+    prompt: &str,
+    schema: &Value,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<(Value, Option<f64>)> {
     let (program, lead) = claude.split_first().context("no Claude Code command")?;
     let claude = termf_core::claude::binary(program)?;
     let mut cmd = Command::new(&claude.path);
     cmd.args(lead)
-        .args(["-p", "--output-format", "json", "--json-schema"])
+        .args([
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--json-schema",
+        ])
         .arg(schema.to_string())
         .args(["--model", model, "--effort", effort])
         .args(["--tools", "Read,Grep,Glob", "--permission-mode", "dontAsk"])
@@ -1288,9 +1313,38 @@ pub fn ask(
     }
     termf_core::agent_env::for_dir(&repos[0].1)
         .apply(&mut cmd, Some(termf_core::claude::Tool::Claude));
-    let (status, stdout, stderr) = run(cmd, prompt.as_bytes(), PROPOSE_TIMEOUT)
+    let (status, stdout, stderr) =
+        termf_core::process::stream(cmd, prompt.as_bytes(), PROPOSE_TIMEOUT, &mut |line| {
+            progress_of(line).into_iter().for_each(&mut *progress)
+        })
         .with_context(|| format!("cannot run Claude Code {claude}"))?;
     termf_core::claude::structured_output(&claude, status, &stdout, &stderr)
+}
+
+/// The reads and searches of a `stream-json` line.
+fn progress_of(line: &str) -> Vec<Progress> {
+    let Ok(event) = serde_json::from_str::<Value>(line) else {
+        return Vec::new();
+    };
+    if event["type"] != "assistant" {
+        return Vec::new();
+    }
+    let blocks = event["message"]["content"].as_array().into_iter().flatten();
+    blocks
+        .filter(|b| b["type"] == "tool_use")
+        .filter_map(|b| {
+            let tool = b["name"].as_str()?;
+            let field = match tool {
+                "Read" => "file_path",
+                "Grep" | "Glob" => "pattern",
+                _ => return None,
+            };
+            Some(Progress {
+                tool: tool.to_owned(),
+                target: b["input"][field].as_str()?.chars().take(300).collect(),
+            })
+        })
+        .collect()
 }
 
 /// Everything is denied but what a check needs: reading files, running programs, writing to a private temporary
@@ -1383,6 +1437,23 @@ fn measure(script: &str, repo: &Path) -> Result<Measure> {
 mod tests {
     use super::*;
     use crate::{put, temp_dir};
+
+    #[test]
+    fn shows_what_claude_code_reads_as_it_goes() {
+        let line = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Let me look."},{"type":"tool_use","name":"Read","input":{"file_path":"/r/package.json"}},{"type":"tool_use","name":"Grep","input":{"pattern":"useState","path":"src"}},{"type":"tool_use","name":"Glob","input":{"pattern":"**/*.php"}},{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}"#;
+        let seen: Vec<(String, String)> = progress_of(line)
+            .into_iter()
+            .map(|p| (p.tool, p.target))
+            .collect();
+        let want = [
+            ("Read", "/r/package.json"),
+            ("Grep", "useState"),
+            ("Glob", "**/*.php"),
+        ];
+        assert_eq!(seen, want.map(|(a, b)| (a.to_owned(), b.to_owned())));
+        assert!(progress_of("not json").is_empty());
+        assert!(progress_of(r#"{"type":"result","structured_output":{}}"#).is_empty());
+    }
 
     /// A config with project `acme` and its repository `api`, a git repository with a tracked `src/App.tsx`.
     fn setup(name: &str) -> (PathBuf, PathBuf) {

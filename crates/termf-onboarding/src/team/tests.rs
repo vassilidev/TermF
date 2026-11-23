@@ -405,6 +405,25 @@ const SAAS: Files = &[
 ];
 
 #[test]
+fn the_worktree_recipe_s_agent_is_not_one_of_the_team() {
+    let (_, config, data) = setup("recipe-role", &[("shop", SIMPLE)]);
+    // What saving the project's worktree recipe writes beside its skill and command.
+    put(
+        &config.join("projects/acme/library/roles/worktree-setup.md"),
+        "---\nname: worktree-setup\ndescription: Prepares a worktree of Acme.\ntools: Bash, Read\nmodel: sonnet\n---\nYou prepare a worktree.\n",
+    );
+    let team = team(&config, &data, "acme", Choices::default(), true).unwrap();
+    assert!(!team.roles.iter().any(|r| r.role == "worktree-setup"));
+    assert!(!team.steps.iter().any(|r| r == "worktree-setup"));
+    assert!(
+        !composition(&team)
+            .staff
+            .iter()
+            .any(|r| r == "worktree-setup")
+    );
+}
+
+#[test]
 fn finds_what_calls_for_each_specialist() {
     let (_, config, data) = setup("saas", &[("billing", SAAS)]);
     let items = library(&config, "acme").unwrap();

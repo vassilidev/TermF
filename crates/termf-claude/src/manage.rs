@@ -431,6 +431,7 @@ pub fn mcp_json_preview(env: &Env, text: &str) -> Result<Preview> {
         diff: settings::diff(&before, &text),
         hash: settings::fingerprint(&before),
         text,
+        tracked: false,
     })
 }
 
