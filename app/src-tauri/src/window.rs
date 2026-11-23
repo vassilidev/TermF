@@ -415,8 +415,8 @@ mod tests {
 
     #[test]
     fn reads_the_brand_from_the_ui_sources() {
-        assert_eq!(BACKGROUNDS[0], Color(0xee, 0xf0, 0xf3, 255));
-        assert_eq!(BACKGROUNDS[1], Color(0x0c, 0x0d, 0x10, 255));
+        assert_eq!(BACKGROUNDS[0], Color(0xfb, 0xfb, 0xfd, 255));
+        assert_eq!(BACKGROUNDS[1], Color(0x0b, 0x0b, 0x12, 255));
         assert!(MENU[0].contains(&("Settings", "Réglages…")));
         assert!(MENU[1].contains(&("Settings", "Settings…")));
         assert_eq!(MENU[0].len(), MENU[1].len());
