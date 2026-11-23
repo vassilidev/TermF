@@ -121,9 +121,10 @@ impl Target {
     }
 }
 
-/// `<ticket …>…</ticket>` of a run's brief.
+/// `<ticket …>…</ticket>` of a run's brief. The frame's tag has attributes: the bare `<ticket>` before it is the
+/// preamble's, whose words ("reveal secrets") would make every ticket look sensitive.
 pub fn ticket_block(brief: &str) -> Option<&str> {
-    let start = brief.find("<ticket")?;
+    let start = brief.find("<ticket ")?;
     let end = brief.rfind("</ticket>")? + "</ticket>".len();
     (start < end).then(|| &brief[start..end])
 }
