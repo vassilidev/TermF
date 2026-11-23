@@ -479,6 +479,11 @@ pub fn analyze_draft(
     claude: &[String],
     progress: &mut dyn FnMut(conventions::Progress),
 ) -> Result<(Analysis, Option<String>)> {
+    // A project's analysis runs once at a time, from the setup as from the assistant: a second one would pay twice.
+    let _running = match project {
+        Some(project) => Some(Running::start(file(config_dir, data_dir, project)?)?),
+        None => None,
+    };
     let mut analysis = match project {
         Some(project) => survey(config_dir, data_dir, project)?,
         None => setup::survey(config_dir, repos)?,
@@ -488,13 +493,15 @@ pub fn analyze_draft(
     Ok((analysis, failed.map(|e| format!("{e:#}"))))
 }
 
-/// An analysis made before the project existed becomes the project's, with its proposed answers.
+/// An analysis made before the project existed becomes the project's, with its proposed answers: refused while
+/// an analysis of the project runs, and for an analysis of other repositories than the project's.
 pub fn adopt(
     config_dir: &Path,
     data_dir: &Path,
     project: &str,
     analysis: Analysis,
 ) -> Result<State> {
+    let _running = Running::start(file(config_dir, data_dir, project)?)?;
     for q in &analysis.questions {
         ensure!(
             valid_id(&q.id) && accepts(q, &q.default),
@@ -502,6 +509,20 @@ pub fn adopt(
             q.id
         );
     }
+    let found = termf_core::load_projects(config_dir)?
+        .into_iter()
+        .find(|p| p.id == project)
+        .with_context(|| format!("unknown project {project}"))?;
+    let theirs: BTreeSet<PathBuf> = found.repos.iter().map(|r| PathBuf::from(&r.path)).collect();
+    let ours: BTreeSet<PathBuf> = analysis
+        .repos
+        .iter()
+        .map(|r| PathBuf::from(&r.path))
+        .collect();
+    ensure!(
+        theirs == ours,
+        "this analysis is of other repositories than the project's: analyze the project again"
+    );
     change(config_dir, data_dir, project, |s| {
         s.answers = proposed(&analysis);
         s.analysis = Some(analysis);

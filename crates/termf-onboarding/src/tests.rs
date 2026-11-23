@@ -253,6 +253,26 @@ fn analyzes_repositories_before_they_are_a_project_and_the_project_adopts_it() {
     let mut bad = analysis.clone();
     bad.questions[0].default = vec!["maybe".into()];
     assert!(adopt(&config, &data, "acme", bad).is_err());
+    // An analysis of other repositories is never the project's.
+    let mut other = analysis.clone();
+    other.repos.truncate(1);
+    let e = format!("{:#}", adopt(&config, &data, "acme", other).unwrap_err());
+    assert!(e.contains("other repositories"), "{e}");
+    // While the project's analysis runs, a second one is refused (it would pay twice), and so is adopting one.
+    let held = Running::start(file(&config, &data, "acme").unwrap()).unwrap();
+    let e = analyze_draft(
+        &config,
+        &data,
+        &paths,
+        Some("acme"),
+        "en",
+        &fake_claude(&dir, &answer),
+        &mut |_| {},
+    )
+    .unwrap_err();
+    assert!(format!("{e:#}").contains("already running"), "{e:#}");
+    assert!(adopt(&config, &data, "acme", analysis.clone()).is_err());
+    drop(held);
 
     let script = dir.join("broken.sh");
     put(&script, "#!/bin/sh\ncat > /dev/null\nexit 3\n");

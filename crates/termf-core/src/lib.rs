@@ -791,6 +791,12 @@ pub fn save_project_with(
 
 /// Sets the `checks` of the project's repositories named in `checks` (by path); an empty command removes it.
 pub fn set_checks(doc: &mut DocumentMut, checks: &BTreeMap<String, String>) {
+    set_repo_field(doc, "checks", checks);
+}
+
+/// Sets `key` (`checks`, `dev`…) of the project's repositories named in `values` (by path); an empty value
+/// removes it.
+pub fn set_repo_field(doc: &mut DocumentMut, key: &str, values: &BTreeMap<String, String>) {
     let Some(list) = doc.get_mut("repos").and_then(Item::as_array_of_tables_mut) else {
         return;
     };
@@ -798,11 +804,11 @@ pub fn set_checks(doc: &mut DocumentMut, checks: &BTreeMap<String, String>) {
         let Some(path) = repo.get("path").and_then(Item::as_str).map(expand_tilde) else {
             continue;
         };
-        match checks.iter().find(|(p, _)| Path::new(p) == path) {
+        match values.iter().find(|(p, _)| Path::new(p) == path) {
             Some((_, run)) if run.trim().is_empty() => {
-                repo.remove("checks");
+                repo.remove(key);
             }
-            Some((_, run)) => repo["checks"] = value(run.trim()),
+            Some((_, run)) => repo[key] = value(run.trim()),
             None => {}
         }
     }

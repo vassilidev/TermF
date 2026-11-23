@@ -307,9 +307,33 @@ pub async fn setup_preview(
     team: Option<onboarding::Edit>,
     trackers: Option<termf_tickets::Trackers>,
     checks: Option<BTreeMap<String, String>>,
+    extras: Option<setup::Extras>,
 ) -> CmdResult<String> {
     let checks = checks.unwrap_or_default();
-    setup::preview(&name, &repos, team.as_ref(), trackers.as_ref(), &checks).map_err(err)
+    let extras = extras.unwrap_or_default();
+    setup::preview(
+        &name,
+        &repos,
+        team.as_ref(),
+        trackers.as_ref(),
+        &checks,
+        &extras,
+    )
+    .map_err(err)
+}
+
+/// Writes what the setup kept besides the team and the trackers: the MCP servers the project's sessions get, the
+/// dev servers and the pages of the visual review.
+#[tauri::command]
+pub async fn setup_extras(
+    state: State<'_, AppState>,
+    project: String,
+    extras: setup::Extras,
+) -> CmdResult<()> {
+    blocking(&state, move |dir| {
+        setup::write_extras(dir, &project, &extras)
+    })
+    .await
 }
 
 /// What creating a project from an idea will do: its folder, its files and every command, before any runs.

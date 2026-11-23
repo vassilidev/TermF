@@ -240,19 +240,53 @@ fn detects_and_proposes_before_the_project_exists() {
         serde_json::from_str(r#"{ "github": { "issues": true }, "mcp": {} }"#).unwrap();
     // The test command the detection found becomes the repository's checks, which the team runs before delivering.
     let checks = BTreeMap::from([(path.clone(), "npm test".to_owned())]);
+    // The dev server the visual review starts, its pages, and an MCP server the sessions get.
+    let extras: Extras = serde_json::from_value(serde_json::json!({
+        "dev": { path.clone(): "npm run dev" },
+        "routes": ["/", "pricing", " /login "],
+        "mcp": { "next-devtools": { "command": "npx", "args": ["-y", "next-devtools-mcp@latest"], "env": null } },
+    }))
+    .unwrap();
     let text = preview(
         " Acme ",
         std::slice::from_ref(&path),
         Some(&draft.team),
         Some(&trackers),
         &checks,
+        &extras,
     )
     .unwrap();
     assert!(text.starts_with("name = \"Acme\"\n"), "{text}");
     assert!(text.contains("[[repos]]"), "{text}");
     assert!(text.contains("checks = \"npm test\""), "{text}");
+    assert!(text.contains("dev = \"npm run dev\""), "{text}");
+    assert!(
+        text.contains("routes = [\"/\", \"/login\"]"),
+        "a route is a path: {text}"
+    );
+    assert!(text.contains("[mcp.next-devtools]"), "{text}");
     assert!(text.contains("[[squads]]"), "{text}");
     assert!(text.contains("[trackers.github]"), "{text}");
-    assert!(preview("  ", &[], None, None, &BTreeMap::new()).is_err());
+    assert!(
+        draft
+            .skills
+            .iter()
+            .all(|s| !s.description.is_empty() && s.description.chars().count() <= 120)
+    );
+    assert!(preview("  ", &[], None, None, &BTreeMap::new(), &Extras::default()).is_err());
+
+    // Written on the project as the preview said, read back as Claude Code's config takes it.
+    termf_core::save_project(&config, None, "Acme", std::slice::from_ref(&path)).unwrap();
+    write_extras(&config, "acme", &extras).unwrap();
+    let servers = termf_library::mcp_servers(&config, "acme");
+    assert_eq!(
+        servers["next-devtools"],
+        serde_json::json!({ "command": "npx", "args": ["-y", "next-devtools-mcp@latest"] })
+    );
+    let saved = fs::read_to_string(config.join("projects/acme.toml")).unwrap();
+    assert!(
+        saved.contains("dev = \"npm run dev\"") && saved.contains("[visual]"),
+        "{saved}"
+    );
     fs::remove_dir_all(&dir).unwrap();
 }
