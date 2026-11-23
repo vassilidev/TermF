@@ -25,6 +25,9 @@ use crate::{
 
 const DEFAULT_MODEL: &str = "opus";
 const DEFAULT_EFFORT: &str = "high";
+/// The text of a convention drawn from the code, when no one wrote one.
+pub const FROM_CODE: &str = "Follow the conventions this code already follows: formatting and lint configs, \
+     naming, folder structure, tests, error handling and commit messages. Keep only what the code shows.";
 /// Dollars a proposal may spend, unless `[conventions] budget` says otherwise.
 const DEFAULT_BUDGET: f64 = 2.0;
 /// The commits whose files a check about changes is measured on.

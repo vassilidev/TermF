@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tauri::{AppHandle, Emitter, State};
+use anyhow::Context as _;
+use serde_json::{Value, json};
+use tauri::{AppHandle, Emitter, Manager, State};
 use termf_library::archive::{self, Exported, Preview};
 use termf_library::conventions::{self, Answer, Convention, Conventions, Impact, Level, Review};
 use termf_library::scout::{self, ItemRef, Scout};
@@ -368,6 +370,88 @@ pub(crate) fn launch_scout(
         let _ = app.emit("scout-progress", p);
     };
     scout::run(dir, project, items, &options, &claude(dir), progress)
+}
+
+/// `run_scout` of the CTO's conversation: the project's watch, as the Library launches it.
+pub(crate) fn mcp_scout(app: &AppHandle, project: &str, items: &[String]) -> anyhow::Result<Value> {
+    let dir = app.state::<AppState>().config_dir.clone();
+    let refs = items
+        .iter()
+        .map(|i| {
+            let (kind, name) = i
+                .split_once('/')
+                .with_context(|| format!("{i}: give kind/name"))?;
+            Ok(ItemRef {
+                kind: serde_json::from_value(json!(kind))?,
+                name: name.into(),
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let draft = launch_scout(app, &dir, Some(project), &refs)?;
+    let _ = app.emit("library-changed", ());
+    let results: Vec<Value> = draft
+        .entries
+        .iter()
+        .map(|e| {
+            json!({ "kind": e.kind, "name": e.name, "flaws": e.critique.iter().map(|f| &f.flaw).collect::<Vec<_>>(),
+                    "proposes": !e.content.is_empty() || !e.script.is_empty(), "summary": e.summary })
+        })
+        .collect();
+    Ok(json!({ "results": results, "cost": draft.cost,
+               "next": "The user reviews each result in the Library, Watch tab: accept, reject (remembered) or ask for a change, then apply." }))
+}
+
+/// `propose_conventions` of the CTO's conversation: always a new convention, never over one the user wrote.
+pub(crate) fn mcp_propose(
+    app: &AppHandle,
+    project: &str,
+    text: Option<String>,
+    name: Option<String>,
+) -> anyhow::Result<Value> {
+    let dir = app.state::<AppState>().config_dir.clone();
+    let text = text
+        .map(|t| t.trim().to_owned())
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| conventions::FROM_CODE.to_owned());
+    let mut base: String = name
+        .unwrap_or_default()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    base.truncate(48);
+    if base.is_empty() {
+        base = "from-code".into();
+    }
+    let taken: Vec<String> = conventions::list(&dir, project)?
+        .list
+        .into_iter()
+        .map(|c| c.slug)
+        .collect();
+    let slug = (1..)
+        .map(|n| match n {
+            1 => base.clone(),
+            n => format!("{base}-{n}"),
+        })
+        .find(|s| !taken.contains(s))
+        .unwrap_or(base);
+    conventions::save_source(&dir, project, &slug, &text)?;
+    let mut progress = progress(app.clone(), project, &slug);
+    let proposed =
+        conventions::propose_with(&dir, project, &slug, Vec::new(), &claude(&dir), &mut progress)?;
+    let _ = app.emit("library-changed", ());
+    let draft = proposed.draft.unwrap_or_default();
+    let items: Vec<Value> = draft
+        .items
+        .iter()
+        .map(|i| json!({ "kind": i.kind, "name": i.name, "description": i.description }))
+        .collect();
+    Ok(json!({ "convention": slug, "questions": draft.questions, "items": items, "cost": draft.cost,
+               "next": "The user answers the questions, or reviews each item, then applies them, in the Library, Conventions tab." }))
 }
 
 /// `items` empty: the whole library.
