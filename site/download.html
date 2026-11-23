@@ -261,6 +261,35 @@ const FILES = {
 };
 const NAMES = {mac: 'macOS', windows: 'Windows', linux: 'Linux'};
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// The release body is Markdown: shown as headings, lists and code, never as raw text. Its Install section repeats this
+// page and is left out.
+const notesHtml = md => {
+  const inline = t => esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>');
+  const out = [], lines = md.replace(/\r/g, '').split('\n');
+  let list = false, skip = false, para = [];
+  const flush = () => { if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`); para = []; if (list) { out.push('</ul>'); list = false; } };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i], head = line.match(/^(#{1,4})\s+(.*)/);
+    if (head) { flush(); skip = /^install$/i.test(head[2].trim()); if (!skip) out.push(`<h3>${inline(head[2])}</h3>`); continue; }
+    if (skip) continue;
+    if (line.startsWith('```')) {
+      flush(); const code = [];
+      while (++i < lines.length && !lines[i].startsWith('```')) code.push(lines[i]);
+      out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`); continue;
+    }
+    const item = line.match(/^\s*[-*]\s+(.*)/);
+    if (item) { if (para.length) { out.push(`<p>${inline(para.join(' '))}</p>`); para = []; } if (!list) { out.push('<ul>'); list = true; } out.push(`<li>${inline(item[1])}</li>`); continue; }
+    if (!line.trim()) { flush(); continue; }
+    if (list) { out.push('</ul>'); list = false; }
+    para.push(line.trim());
+  }
+  flush();
+  return out.join('');
+};
 // iPads report a Mac platform, so touch support tells them apart
 const ua = navigator.userAgent, plat = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
 const mobile = /android|iphone|ipad|ipod/i.test(ua) || (plat.includes('mac') && navigator.maxTouchPoints > 1);
@@ -346,7 +375,8 @@ function render() {
   document.getElementById('all-state').textContent = release ? `The files of ${release.tag_name}${release.prerelease ? ', a pre-release' : ''}, published on ${date(release.published_at)}, with their size and SHA-256.`
     : failed ? "GitHub could not be reached: every file is on the releases page." : release === null ? 'Reading the latest release from GitHub…' : 'No release is published yet: the names below are the ones the next release will have.';
   const notes = document.getElementById('notes-text');
-  notes.textContent = release ? (release.body?.trim() || 'This release has no notes.') : failed ? 'GitHub could not be reached: the notes are on the releases page.' : release === null ? 'Looking for the latest release on GitHub…' : 'No release is published yet.';
+  if (release?.body?.trim()) notes.innerHTML = notesHtml(release.body);
+  else notes.textContent = release ? 'This release has no notes.' : failed ? 'GitHub could not be reached: the notes are on the releases page.' : release === null ? 'Looking for the latest release on GitHub…' : 'No release is published yet.';
   document.getElementById('notes-for').textContent = release ? `The notes of ${release.tag_name}, and every release, from GitHub.` : 'The notes of the latest release, and every release, from GitHub.';
   document.getElementById('releases').innerHTML = releases.map(r => `<li><a href="${esc(r.html_url)}">${esc(r.name || r.tag_name)}</a><span>${r.prerelease ? 'pre-release · ' : ''}${date(r.published_at)}</span></li>`).join('');
 }
