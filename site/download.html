@@ -21,8 +21,8 @@
 <meta name="twitter:description" content="TermF for macOS, Windows and Linux, free and open source: the latest release, checksums, install steps and the termf command line.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="TermF. Stop using Claude Code (alone). Tickets in. Reviewed pull requests out.">
-<meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0d0f15" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b12" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
@@ -74,34 +74,34 @@
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
-<header class="nav" id="nav">
+<header class="nav">
   <div class="nav-in">
-    <a class="brand" href="./"><img src="icon.svg" alt="" width="26" height="26"><span>TermF</span></a>
+    <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="26" height="26"><span>TermF</span></a>
     <nav class="nav-links" id="menu" aria-label="Main" popover>
       <a href="docs/">Docs</a>
       <a href="./#team">The team</a>
       <a class="gh" href="https://github.com/vassilidev/TermF"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg><span class="vh">GitHub</span></a>
     </nav>
     <button class="theme" type="button" aria-label="Switch to dark theme"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.99 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.79 9.8Z"/></svg><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button>
-    <a class="btn small" href="download.html">Download</a>
+    <a class="btn small" href="download.html" aria-current="page">Download</a>
     <button class="menu-btn" type="button" popovertarget="menu" aria-label="Menu"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </div>
 </header>
 
 <main id="main">
-<header class="page-head">
-  <div class="wrap">
+<div class="rail">
+  <header class="page-head">
     <p class="crumbs"><a href="./">TermF</a><span aria-hidden="true">/</span><span>Download</span></p>
+    <img class="appicon" src="icon.svg" alt="" width="60" height="60">
     <h1>Download TermF</h1>
-    <p class="lead">Free and open source, for macOS, Windows and Linux. Every file comes from the <a href="https://github.com/vassilidev/TermF/releases">GitHub releases</a>, built by CI from the public source. Early version: the builds are not signed by Apple or Microsoft yet; the one-line install avoids the extra step their warning asks for.</p>
-  </div>
-</header>
-<div class="wrap">
+    <p class="lead">Free and open source, for macOS, Windows and Linux. Every file comes from the <a href="https://github.com/vassilidev/TermF/releases">GitHub releases</a>, built by CI from the public source.</p>
+  </header>
+
   <div class="dl">
     <section class="dl-card" aria-labelledby="dl-title" aria-live="polite">
       <h2 id="dl-title">TermF for <span id="dl-os">macOS</span></h2>
       <p class="meta" id="dl-meta">Looking for the latest release on GitHub…</p>
-      <noscript><p class="ns">This page reads the release with JavaScript: every file is on the <a href="https://github.com/vassilidev/TermF/releases">releases page</a>.</p></noscript>
+      <noscript><p class="status">This page reads the release with JavaScript: every file is on the <a href="https://github.com/vassilidev/TermF/releases">releases page</a>.</p></noscript>
       <a class="btn" id="dl-get" href="https://github.com/vassilidev/TermF/releases"><span>Releases on GitHub</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m-5-5 5 5 5-5M5 20h14"/></svg></a>
       <div id="dl-line" hidden><p class="status">Or in a terminal, in one command:</p><div class="cmd"><code id="dl-cmd"></code></div></div>
       <p class="alts" id="dl-alts"><a href="#all">Every platform and file</a><a href="#source">Build it from source</a></p>
@@ -120,15 +120,26 @@
     </section>
   </div>
 
-  <section class="section" id="all" aria-labelledby="all-h">
-    <div class="sec-head">
+  <section class="row" id="all" aria-labelledby="all-h">
+    <div class="head">
       <h2 id="all-h">Every platform</h2>
-      <p id="all-state">The files of the latest release, with their size and SHA-256, and how to open them the first time.</p>
+      <p id="all-state">The files of the latest release, with their size and SHA-256.</p>
     </div>
     <div class="oses" id="install">
-      <section class="os" id="macos" aria-labelledby="os-mac">
-        <h3 id="os-mac">macOS</h3>
-        <ul class="files" data-files="mac"></ul>
+      <section class="os" id="macos" aria-labelledby="os-mac"><h3 id="os-mac">macOS</h3><ul class="files" data-files="mac"></ul></section>
+      <section class="os" id="windows" aria-labelledby="os-win"><h3 id="os-win">Windows</h3><ul class="files" data-files="windows"></ul></section>
+      <section class="os" id="linux" aria-labelledby="os-linux"><h3 id="os-linux">Linux</h3><ul class="files" data-files="linux"></ul></section>
+    </div>
+  </section>
+
+  <section class="row" id="first-launch" aria-labelledby="first-h">
+    <div class="head">
+      <h2 id="first-h">Open it the first time</h2>
+      <p>Early version: the builds are not signed by Apple or Microsoft yet, so your system asks once before it opens TermF. The one-line install avoids this step.</p>
+    </div>
+    <div class="oses">
+      <section class="os" aria-labelledby="first-mac">
+        <h3 id="first-mac">macOS</h3>
         <ol>
           <li>Open the <code>.dmg</code> and drag TermF to Applications.</li>
           <li>The app is not signed yet, so macOS blocks the first launch. Clear the quarantine once, in a terminal:</li>
@@ -136,55 +147,56 @@
         <div class="cmd"><code>xattr -dr com.apple.quarantine /Applications/TermF.app</code></div>
         <p class="status">Or open it once, then in System Settings, Privacy &amp; Security, click Open Anyway.</p>
       </section>
-      <section class="os" id="windows" aria-labelledby="os-win">
-        <h3 id="os-win">Windows</h3>
-        <ul class="files" data-files="windows"></ul>
+      <section class="os" aria-labelledby="first-win">
+        <h3 id="first-win">Windows</h3>
         <ol>
           <li>Run <code>TermF_*_x64-setup.exe</code>, or the <code>.msi</code>.</li>
           <li>The app is not signed yet: on the SmartScreen warning, click More info, then Run anyway.</li>
         </ol>
       </section>
-      <section class="os" id="linux" aria-labelledby="os-linux">
-        <h3 id="os-linux">Linux</h3>
-        <ul class="files" data-files="linux"></ul>
+      <section class="os" aria-labelledby="first-linux">
+        <h3 id="first-linux">Linux</h3>
         <div data-linux></div>
       </section>
     </div>
   </section>
 
-  <section class="section" id="cli" aria-labelledby="cli-h">
-    <div class="split">
-      <div class="text">
-        <h2 id="cli-h">The termf command line</h2>
-        <p>It ships inside the app: there is nothing else to install. Put it on your <code>PATH</code> in one click from the app's Settings, What you need, or by hand as below; then <code>termf help</code> lists every command. Commands that start a run, deliver, approve a step or type into a session wait for your confirmation in the app.</p>
-        <p><a class="more" href="docs/cli.html">What the command line does</a></p>
-      </div>
-      <div>
-        <h3>macOS</h3>
-        <div class="cmd"><code>sudo ln -s /Applications/TermF.app/Contents/MacOS/termf /usr/local/bin/termf</code></div>
-        <h3 style="margin-top:22px">Linux</h3>
-        <p class="status">The <code>.deb</code> and <code>.rpm</code> install it as <code>/usr/bin/termf</code>.</p>
-        <h3 style="margin-top:22px">Windows</h3>
-        <p class="status"><code>termf.exe</code> sits next to the app: add its folder to your <code>PATH</code>.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" id="verify" aria-labelledby="verify-h">
+  <section class="row" id="verify" aria-labelledby="verify-h">
     <div class="split">
       <div class="text">
         <h2 id="verify-h">Check a download</h2>
         <p>Compare the file's SHA-256 with the one listed above, which GitHub computes for each file of the release.</p>
       </div>
       <div>
+        <h3>macOS</h3>
         <div class="cmd"><code>shasum -a 256 TermF_*_aarch64.dmg</code></div>
+        <h3>Linux</h3>
         <div class="cmd"><code>sha256sum TermF_*_amd64.AppImage</code></div>
+        <h3>Windows</h3>
         <div class="cmd"><code>Get-FileHash .\TermF_*_x64-setup.exe -Algorithm SHA256</code></div>
       </div>
     </div>
   </section>
 
-  <section class="section" id="source" aria-labelledby="source-h">
+  <section class="row" id="cli" aria-labelledby="cli-h">
+    <div class="split">
+      <div class="text">
+        <h2 id="cli-h">The termf command line</h2>
+        <p>It ships inside the app: there is nothing else to install. Put it on your <code>PATH</code> in one click from the app's Settings, What you need, or by hand as below; then <code>termf help</code> lists every command. Commands that start a run, deliver, approve a step or type into a session wait for your confirmation in the app.</p>
+        <p><a class="more" href="docs/cli.html"><span>What the command line does</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></p>
+      </div>
+      <div>
+        <h3>macOS</h3>
+        <div class="cmd"><code>sudo ln -s /Applications/TermF.app/Contents/MacOS/termf /usr/local/bin/termf</code></div>
+        <h3>Linux</h3>
+        <p class="status">The <code>.deb</code> and <code>.rpm</code> install it as <code>/usr/bin/termf</code>.</p>
+        <h3>Windows</h3>
+        <p class="status"><code>termf.exe</code> sits next to the app: add its folder to your <code>PATH</code>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="row" id="source" aria-labelledby="source-h">
     <div class="split">
       <div class="text">
         <h2 id="source-h">Build it from source</h2>
@@ -198,12 +210,12 @@
     </div>
   </section>
 
-  <section class="section" id="notes" aria-labelledby="notes-h">
+  <section class="row" id="notes" aria-labelledby="notes-h">
     <div class="split">
       <div class="text">
         <h2 id="notes-h">Release notes</h2>
         <p id="notes-for">The notes of the latest release, and every release, from GitHub.</p>
-        <p><a class="more" href="https://github.com/vassilidev/TermF/releases">All releases on GitHub</a></p>
+        <p><a class="more" href="https://github.com/vassilidev/TermF/releases"><span>All releases on GitHub</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></p>
       </div>
       <div>
         <div class="notes" id="notes-text" tabindex="0" role="region" aria-label="Release notes">Looking for the latest release on GitHub…</div>
@@ -212,6 +224,16 @@
     </div>
   </section>
 </div>
+</main>
+
+<footer class="foot">
+  <div class="foot-in">
+    <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="24" height="24"><span>TermF</span></a>
+    <nav aria-label="Footer"><a href="docs/">Docs</a><a href="download.html">Download</a><a href="https://github.com/vassilidev/TermF">GitHub</a><a href="https://github.com/vassilidev/TermF/releases">Releases</a><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></nav>
+    <p>© 2026 TermF contributors</p>
+  </div>
+</footer>
+
 <script>
 const REPO = 'https://github.com/vassilidev/TermF';
 const COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
@@ -256,11 +278,11 @@ const fallback = () => failed ? `${REPO}/releases` : release?.html_url ?? `${REP
 
 function item(f) {
   const a = find(f), h = sha(a);
-  const name = a ? `<a href="${esc(a.browser_download_url)}">${esc(a.name)}</a>` : esc(f.name);
+  const name = esc(a ? a.name : f.name);
   const hash = h ? `<span class="hash"><code title="${esc(h)}">${esc(h)}</code>${copyBtn(h, 'Copy the SHA-256 of ' + a.name)}</span>` : '';
   const state = failed ? 'GitHub could not be reached: see the releases page' : release === null ? 'Loading…' : a ? (h ? '' : 'No checksum listed') : 'Not published yet';
   const get = a ? `<a class="get" href="${esc(a.browser_download_url)}" aria-label="Download ${esc(a.name)}">Download</a>` : `<a class="get" href="${esc(fallback())}" aria-label="Releases, for ${esc(f.what)}">Releases</a>`;
-  return `<li><span class="fname">${esc(f.what)} · ${name}</span>${get}<small>${a ? mb(a.size) : ''}${state ? (a ? ' · ' : '') + state : ''}</small>${hash}</li>`;
+  return `<li><span class="fname">${esc(f.what)}<span>${name}</span></span>${get}<small>${a ? mb(a.size) : ''}${state ? (a ? ', ' : '') + state : ''}</small>${hash}</li>`;
 }
 
 // The install scripts take GitHub's latest release (the newest that is not a pre-release, else the newest one), or
@@ -353,30 +375,16 @@ document.addEventListener('click', async e => {
   setTimeout(() => { btn.classList.remove('ok'); btn.querySelector('span').textContent = 'Copy' }, 1600);
 });
 </script>
-</main>
-
-<footer class="foot">
-  <div class="foot-in">
-    <a class="brand" href="./"><img src="icon.svg" alt="" width="24" height="24"><span>TermF</span></a>
-    <nav aria-label="Footer"><a href="docs/">Docs</a><a href="download.html">Download</a><a href="https://github.com/vassilidev/TermF">GitHub</a><a href="https://github.com/vassilidev/TermF/releases">Releases</a><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></nav>
-    <p>© 2026 TermF contributors</p>
-  </div>
-</footer>
 
 <script>
 const root = document.documentElement;
-const nav = document.getElementById('nav');
-addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 8), {passive: true});
-
-// The theme switch: the screenshots follow it too
 const themeBtn = document.querySelector('.theme');
 const dark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-const syncTheme = () => {
-  themeBtn.setAttribute('aria-label', dark() ? 'Switch to light theme' : 'Switch to dark theme');
-  for (const s of document.querySelectorAll('picture source')) s.media = root.dataset.theme ? (dark() ? 'all' : 'not all') : '(prefers-color-scheme: dark)';
-};
+const syncTheme = () => themeBtn.setAttribute('aria-label', dark() ? 'Switch to light theme' : 'Switch to dark theme');
 themeBtn.addEventListener('click', () => { root.dataset.theme = dark() ? 'light' : 'dark'; try { localStorage.setItem('theme', root.dataset.theme); } catch {} syncTheme(); });
 syncTheme();
+const menu = document.getElementById('menu');
+menu.addEventListener('click', e => { try { if (e.target.closest('a') && menu.matches(':popover-open')) menu.hidePopover(); } catch {} });
 </script>
 </body>
 </html>

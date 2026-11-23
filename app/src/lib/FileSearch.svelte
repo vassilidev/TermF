@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import Regex from "@lucide/svelte/icons/regex";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
   import { files, openFile } from "$lib/files.svelte";
 
@@ -15,6 +16,8 @@
   let error = $state("");
   let searched = $state("");
   let seq = 0;
+  // Until this query answers, the hits on screen are an older one's: a large repository takes seconds.
+  const pending = $derived(!!query && query !== searched);
 
   const groups = $derived(
     hits.reduce<{ path: string; hits: Hit[] }[]>((groups, hit) => {
@@ -65,13 +68,15 @@
   </div>
   {#if error}
     <p class="error" role="alert">{error}</p>
-  {:else if query && query === searched && !hits.length}
+  {:else if pending}
+    <div class="loading"><Skeleton rows={4} /></div>
+  {:else if query && !hits.length}
     <p class="muted note">{t("filesNoResults")}</p>
   {/if}
-  {#if truncated}
+  {#if truncated && !pending}
     <p class="muted note">{t("filesTruncated", { count: hits.length })}</p>
   {/if}
-  <ul>
+  <ul hidden={pending}>
     {#each groups as group (group.path)}
       <li>
         <div class="file" title={group.path}>{group.path}</div>
@@ -117,6 +122,10 @@
   .regex[aria-pressed="true"] {
     background: var(--accent-soft);
     color: var(--accent-ink);
+  }
+
+  .loading {
+    padding: 0 12px;
   }
 
   .note,
