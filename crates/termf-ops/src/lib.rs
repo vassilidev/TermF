@@ -13,25 +13,32 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table};
 
+pub mod dba;
 pub mod env;
 mod exec;
+pub mod export;
 mod flow;
+mod queries;
 mod recipe;
 pub mod redact;
 pub mod sql;
 #[cfg(test)]
 mod tests;
+mod url;
 
-pub use exec::{Check, Following, Raw, Runner, Secrets, vault_first};
+pub use exec::{Check, Following, Raw, Runner, Secrets, diagnose, vault_first};
 pub use flow::{
-    APPROVAL_WAIT, Agent, Approvals, Ops, Request, Seen, SeenConnection, SeenRecipe, Streamed, Use,
+    APPROVAL_WAIT, Agent, Approvals, EXPORT_BYTES, EXPORT_ROWS, Ops, Request, Seen, SeenConnection,
+    SeenRecipe, Streamed, Use,
 };
+pub use queries::{Query, delete_query, queries, query_recipe, save_query};
 pub use recipe::{
     Approval, Arg, Limits, Mode, Param, ParamKind, Plan, Recipe, Variant, check as check_param,
     plan, quote,
 };
 pub use redact::{Output, Part, Redact};
 pub use termf_vault::Scope as Env;
+pub use url::{Candidate, Parsed, declared, from_url, parse_url};
 
 /// What an agent may see of a connection or a recipe: nothing, an output where personal data is masked too, or the
 /// output with only the secrets masked. Ordered: the effective access is the lower of the two.
@@ -55,6 +62,9 @@ pub enum Kind {
     Gcp,
     Loki,
     Datadog,
+    Sqlite,
+    Mariadb,
+    Clickhouse,
 }
 
 impl Kind {
@@ -69,17 +79,64 @@ impl Kind {
             Kind::Gcp => "gcloud",
             Kind::Loki => "logcli",
             Kind::Datadog => "curl",
+            Kind::Sqlite => "sqlite3",
+            Kind::Mariadb => "mariadb",
+            Kind::Clickhouse => "clickhouse-client",
         }
     }
 
     /// The secrets its connection may name, by role.
     fn secrets(self) -> &'static [&'static str] {
         match self {
-            Kind::Postgres | Kind::Mysql => &["password"],
+            Kind::Postgres | Kind::Mysql | Kind::Mariadb | Kind::Clickhouse => &["password"],
             Kind::Loki => &["token"],
             Kind::Datadog => &["api_key", "app_key"],
             _ => &[],
         }
+    }
+
+    /// A database the SQL console reads, through a read-only session of its own client.
+    pub fn is_db(self) -> bool {
+        matches!(
+            self,
+            Kind::Postgres | Kind::Mysql | Kind::Mariadb | Kind::Sqlite | Kind::Clickhouse
+        )
+    }
+
+    /// A database server reached over the network (SQLite is a file).
+    fn is_server(self) -> bool {
+        self.is_db() && self != Kind::Sqlite
+    }
+
+    /// The port its server listens on by default, for a tunnel.
+    fn default_port(self) -> u16 {
+        match self {
+            Kind::Postgres => 5432,
+            Kind::Clickhouse => 9000,
+            _ => 3306,
+        }
+    }
+
+    /// The kind of a URL's scheme, or why TermF takes no such database: SQL Server, MongoDB and Redis have no
+    /// read-only session TermF can open whatever the user may do (ARCHITECTURE §12.3).
+    pub fn from_scheme(scheme: &str) -> Result<Kind> {
+        Ok(match scheme {
+            "postgres" | "postgresql" | "pgsql" => Kind::Postgres,
+            "mysql" | "mysql2" => Kind::Mysql,
+            "mariadb" => Kind::Mariadb,
+            "sqlite" | "sqlite3" | "file" => Kind::Sqlite,
+            "clickhouse" => Kind::Clickhouse,
+            "sqlserver" | "mssql" => bail!(
+                "SQL Server is not supported: it has no read-only session on a primary server, so a query could only be rolled back, not refused"
+            ),
+            "mongodb" | "mongodb+srv" => bail!(
+                "MongoDB is not supported: mongosh runs JavaScript, which can write, and has no read-only session"
+            ),
+            "redis" | "rediss" => bail!(
+                "Redis is not supported: it has no read-only mode for a connection, only the user's ACL"
+            ),
+            other => bail!("{other}:// is not a database TermF reads"),
+        })
     }
 }
 
@@ -98,6 +155,9 @@ pub fn install_hint(program: &str) -> &'static str {
         "gcloud" => "the Google Cloud CLI: https://cloud.google.com/sdk/docs/install",
         "logcli" => "Loki's logcli: https://grafana.com/docs/loki/latest/query/logcli/",
         "curl" => "curl",
+        "sqlite3" => "SQLite's shell: brew install sqlite, apt install sqlite3",
+        "mariadb" => "MariaDB's client: brew install mariadb, apt install mariadb-client",
+        "clickhouse-client" => "ClickHouse's client: https://clickhouse.com/docs/install",
         _ => "it",
     }
 }
@@ -128,8 +188,12 @@ pub struct Connection {
     /// A database: the SSH connection of the project whose server TermF opens a tunnel through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via: Option<String>,
+    /// A database: its name; SQLite: its file's absolute path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database: Option<String>,
+    /// A database server: TLS, in Postgres' words (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sslmode: Option<String>,
     /// Kubernetes: the kubectl context, and the namespace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
@@ -156,6 +220,9 @@ pub struct Connection {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secrets: BTreeMap<String, String>,
 }
+
+/// TLS modes, in Postgres' words, that each client is given in its own.
+pub const SSLMODES: &[&str] = &["disable", "prefer", "require", "verify-ca", "verify-full"];
 
 /// A name TermF puts on a command line: no option, no space, no control character.
 fn word(what: &str, value: &str) -> Result<()> {
@@ -216,12 +283,23 @@ impl Connection {
         };
         match self.kind {
             Kind::Ssh => need("host", &self.host)?,
-            Kind::Postgres | Kind::Mysql => {
+            Kind::Postgres | Kind::Mysql | Kind::Mariadb | Kind::Clickhouse => {
                 need("database", &self.database)?;
                 need("user", &self.user)?;
                 if self.via.is_none() {
                     need("host (or via)", &self.host)?;
                 }
+            }
+            Kind::Sqlite => {
+                need("database", &self.database)?;
+                ensure!(
+                    Path::new(self.database.as_deref().unwrap_or_default()).is_absolute(),
+                    "a SQLite database is the absolute path of its file"
+                );
+                ensure!(
+                    self.via.is_none() && self.host.is_none(),
+                    "a SQLite database is a file on this machine: no host, no via"
+                );
             }
             Kind::Kubernetes => need("context", &self.context)?,
             Kind::Cloudwatch => need("log_group", &self.log_group)?,
@@ -249,6 +327,14 @@ impl Connection {
                     );
                 }
             }
+        }
+        if let Some(mode) = &self.sslmode {
+            ensure!(self.kind.is_server(), "sslmode is for a database server");
+            ensure!(
+                SSLMODES.contains(&mode.as_str()),
+                "sslmode is one of {}",
+                SSLMODES.join(", ")
+            );
         }
         for (role, secret) in &self.secrets {
             ensure!(
@@ -279,7 +365,8 @@ impl Connection {
                     None => host,
                 }
             }
-            Kind::Postgres | Kind::Mysql => {
+            Kind::Sqlite => self.database.clone().unwrap_or_default(),
+            Kind::Postgres | Kind::Mysql | Kind::Mariadb | Kind::Clickhouse => {
                 let db = format!(
                     "{}/{}",
                     at(&self.user, self.host.as_deref().unwrap_or("127.0.0.1")),
@@ -312,6 +399,7 @@ struct ProjectOps {
     ops: OpsTable,
 }
 
+/// Saved queries are read apart (`queries`): one that does not read never hides the connections.
 #[derive(Deserialize, Default)]
 struct OpsTable {
     #[serde(default)]
@@ -330,6 +418,65 @@ pub fn connections(config_dir: &Path, project: &str) -> Result<Vec<Connection>> 
 /// Adds a connection, or replaces the one named `previous` (its name may change). Comments and the rest of the
 /// file stay as they are.
 pub fn save_connection(
+    config_dir: &Path,
+    project: &str,
+    connection: &Connection,
+    previous: Option<&str>,
+) -> Result<Vec<Connection>> {
+    check_save(config_dir, project, connection, previous)?;
+    let renamed = previous.filter(|p| *p != connection.name);
+    edit(config_dir, project, "connections", |list| {
+        if let Some(old) = renamed {
+            for table in list.iter_mut() {
+                if table.get("via").and_then(Item::as_str) == Some(old) {
+                    table["via"] = toml_edit::value(connection.name.as_str());
+                }
+            }
+        }
+        let mut table: Table = toml::to_string(connection)?
+            .parse::<DocumentMut>()?
+            .as_table()
+            .clone();
+        if let Some(Item::Table(secrets)) = table.remove("secrets") {
+            table.insert("secrets", toml_edit::value(secrets.into_inline_table()));
+        }
+        table.set_implicit(false);
+        let at = previous.and_then(|p| list.iter().position(|t| named(t, p)));
+        match at {
+            Some(i) => *list.get_mut(i).expect("found") = table,
+            None => {
+                ensure!(
+                    previous.is_none(),
+                    "no connection named {}",
+                    previous.unwrap_or_default()
+                );
+                list.push(table);
+            }
+        }
+        Ok(())
+    })?;
+    connections(config_dir, project)
+}
+
+/// The other connection of the project whose password is the vault's secret `connection` names for it, in the
+/// same environment: a password saved for `connection` would replace that one's.
+pub fn secret_owner<'a>(
+    all: &'a [Connection],
+    connection: &Connection,
+    previous: Option<&str>,
+) -> Option<&'a Connection> {
+    let name = connection.secrets.get("password")?;
+    all.iter().find(|c| {
+        Some(c.name.as_str()) != previous
+            && c.name != connection.name
+            && c.env == connection.env
+            && c.secrets.get("password") == Some(name)
+    })
+}
+
+/// What saving `connection` (in place of `previous`) checks against the project's connections, before anything is
+/// written, the vault included: the project's connections.
+pub fn check_save(
     config_dir: &Path,
     project: &str,
     connection: &Connection,
@@ -367,38 +514,10 @@ pub fn save_connection(
             previous.unwrap_or_default()
         );
     }
-    let renamed = previous.filter(|p| *p != connection.name);
-    edit(config_dir, project, |list| {
-        if let Some(old) = renamed {
-            for table in list.iter_mut() {
-                if table.get("via").and_then(Item::as_str) == Some(old) {
-                    table["via"] = toml_edit::value(connection.name.as_str());
-                }
-            }
-        }
-        let mut table: Table = toml::to_string(connection)?
-            .parse::<DocumentMut>()?
-            .as_table()
-            .clone();
-        if let Some(Item::Table(secrets)) = table.remove("secrets") {
-            table.insert("secrets", toml_edit::value(secrets.into_inline_table()));
-        }
-        table.set_implicit(false);
-        let at = previous.and_then(|p| list.iter().position(|t| named(t, p)));
-        match at {
-            Some(i) => *list.get_mut(i).expect("found") = table,
-            None => {
-                ensure!(
-                    previous.is_none(),
-                    "no connection named {}",
-                    previous.unwrap_or_default()
-                );
-                list.push(table);
-            }
-        }
-        Ok(())
-    })?;
-    connections(config_dir, project)
+    if let Some(p) = previous {
+        ensure!(all.iter().any(|c| c.name == p), "no connection named {p}");
+    }
+    Ok(all)
 }
 
 pub fn delete_connection(config_dir: &Path, project: &str, name: &str) -> Result<Vec<Connection>> {
@@ -411,7 +530,7 @@ pub fn delete_connection(config_dir: &Path, project: &str, name: &str) -> Result
             user.name
         );
     }
-    edit(config_dir, project, |list| {
+    edit(config_dir, project, "connections", |list| {
         let before = list.len();
         list.retain(|t| !named(t, name));
         ensure!(list.len() < before, "no connection named {name}");
@@ -420,13 +539,14 @@ pub fn delete_connection(config_dir: &Path, project: &str, name: &str) -> Result
     connections(config_dir, project)
 }
 
-fn named(table: &Table, name: &str) -> bool {
+pub(crate) fn named(table: &Table, name: &str) -> bool {
     table.get("name").and_then(Item::as_str) == Some(name)
 }
 
-fn edit(
+pub(crate) fn edit(
     config_dir: &Path,
     project: &str,
+    key: &str,
     change: impl FnOnce(&mut ArrayOfTables) -> Result<()>,
 ) -> Result<()> {
     let file = termf_core::project_file(config_dir, project)?;
@@ -440,15 +560,10 @@ fn edit(
         .with_context(|| format!("`ops` in {} must be a table", file.display()))?;
     ops.set_implicit(true);
     let list = ops
-        .entry("connections")
+        .entry(key)
         .or_insert(Item::ArrayOfTables(ArrayOfTables::new()))
         .as_array_of_tables_mut()
-        .with_context(|| {
-            format!(
-                "`ops.connections` in {} must be [[ops.connections]]",
-                file.display()
-            )
-        })?;
+        .with_context(|| format!("`ops.{key}` in {} must be [[ops.{key}]]", file.display()))?;
     change(list)?;
     termf_core::write_atomic(&file, &doc.to_string())
 }

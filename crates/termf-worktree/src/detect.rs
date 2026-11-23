@@ -18,7 +18,7 @@ const LOCAL_FILES: [&str; 7] = [
     "config/master.key",
     ".bundle/config",
 ];
-const COMPOSE_FILES: [&str; 4] = [
+pub(crate) const COMPOSE_FILES: [&str; 4] = [
     "compose.yaml",
     "compose.yml",
     "docker-compose.yml",

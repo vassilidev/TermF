@@ -13,7 +13,9 @@ use sqlparser::ast::{
     Expr, LimitClause, ObjectName, ObjectNamePart, Query, Select, Statement, TableFactor, Visit,
     Visitor,
 };
-use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect};
+use sqlparser::dialect::{
+    ClickHouseDialect, Dialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect,
+};
 use sqlparser::parser::{Parser, ParserOptions};
 use sqlparser::tokenizer::{Location, Token, Tokenizer};
 
@@ -87,6 +89,50 @@ pub const REFUSED_PREFIXES: &[&str] = &[
     "cursor_to_xml",
 ];
 
+/// SQLite's shell functions that reach files, an editor or extensions (its safe mode refuses them too).
+pub const SQLITE_REFUSED: &[&str] = &[
+    "writefile",
+    "readfile",
+    "edit",
+    "load_extension",
+    "fsdir",
+    "lsdir",
+    "zipfile",
+    "sqlar_compress",
+    "sqlar_uncompress",
+    "fts3_tokenizer",
+];
+
+/// ClickHouse's table functions that reach files, other servers or programs, and its sleeps.
+pub const CLICKHOUSE_REFUSED: &[&str] = &[
+    "file",
+    "url",
+    "urlcluster",
+    "s3",
+    "s3cluster",
+    "gcs",
+    "azureblobstorage",
+    "hdfs",
+    "remote",
+    "remotesecure",
+    "cluster",
+    "clusterallreplicas",
+    "mysql",
+    "postgresql",
+    "mongodb",
+    "redis",
+    "sqlite",
+    "jdbc",
+    "odbc",
+    "executable",
+    "input",
+    "iceberg",
+    "deltalake",
+    "hudi",
+    "sleep",
+    "sleepeachrow",
+];
+
 /// The rows a query returns when its recipe says nothing.
 pub const ROWS: usize = 500;
 
@@ -94,7 +140,7 @@ pub const ROWS: usize = 500;
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Why {
-    /// Not a Postgres or MySQL connection.
+    /// Not a database connection.
     Database,
     Empty,
     Control,
@@ -136,7 +182,10 @@ impl fmt::Display for Refused {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let s = &self.subject;
         match self.code {
-            Why::Database => write!(f, "SQL runs on a Postgres or MySQL connection"),
+            Why::Database => write!(
+                f,
+                "SQL runs on a Postgres, MySQL, MariaDB, SQLite or ClickHouse connection"
+            ),
             Why::Empty => write!(f, "the query is empty"),
             Why::Control => write!(
                 f,
@@ -179,13 +228,16 @@ impl fmt::Display for Refused {
 
 impl std::error::Error for Refused {}
 
-fn refused(name: &ObjectName) -> ControlFlow<Refused> {
+fn refused(name: &ObjectName, own: &[&str]) -> ControlFlow<Refused> {
     let last = match name.0.last() {
         Some(ObjectNamePart::Identifier(i)) => i.value.to_lowercase(),
         Some(ObjectNamePart::Function(f)) => f.name.value.to_lowercase(),
         None => return ControlFlow::Continue(()),
     };
-    if REFUSED.contains(&last.as_str()) || REFUSED_PREFIXES.iter().any(|p| last.starts_with(p)) {
+    if REFUSED.contains(&last.as_str())
+        || own.contains(&last.as_str())
+        || REFUSED_PREFIXES.iter().any(|p| last.starts_with(p))
+    {
         return ControlFlow::Break(Refused::new(Why::Function, last));
     }
     ControlFlow::Continue(())
@@ -201,7 +253,10 @@ fn keyword(statement: &Statement) -> String {
 }
 
 /// Walks every statement, query, select, expression and table of the tree, nested ones included.
-struct Guard;
+struct Guard {
+    /// The database's own functions that act beyond reading.
+    own: &'static [&'static str],
+}
 
 impl Visitor for Guard {
     type Break = Refused;
@@ -267,7 +322,7 @@ impl Visitor for Guard {
 
     fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<Refused> {
         match expr {
-            Expr::Function(f) => refused(&f.name),
+            Expr::Function(f) => refused(&f.name, self.own),
             _ => ControlFlow::Continue(()),
         }
     }
@@ -279,7 +334,7 @@ impl Visitor for Guard {
                 args: Some(_),
                 ..
             }
-            | TableFactor::Function { name, .. } => refused(name),
+            | TableFactor::Function { name, .. } => refused(name, self.own),
             _ => ControlFlow::Continue(()),
         }
     }
@@ -314,10 +369,14 @@ fn limited(query: &Query) -> bool {
 
 /// The query to run, or why the SQL console refuses it. `rows`: the `LIMIT` added to a query without one.
 pub fn analyze(sql: &str, kind: Kind, rows: usize) -> Result<String, Refused> {
-    let mysql = match kind {
-        Kind::Postgres => false,
-        Kind::Mysql => true,
-        _ => return Err(Refused::new(Why::Database, "")),
+    if !kind.is_db() {
+        return Err(Refused::new(Why::Database, ""));
+    }
+    let mysql = matches!(kind, Kind::Mysql | Kind::Mariadb);
+    let own = match kind {
+        Kind::Sqlite => SQLITE_REFUSED,
+        Kind::Clickhouse => CLICKHOUSE_REFUSED,
+        _ => &[],
     };
     let refuse = |code: Why| Err(Refused::new(code, ""));
     // The servers end a `--` comment at a lone \r too: one form of line end, the same for every reader.
@@ -328,22 +387,23 @@ pub fn analyze(sql: &str, kind: Kind, rows: usize) -> Result<String, Refused> {
     {
         return refuse(Why::Control);
     }
+    // Whether a backslash escapes depends on MySQL's sql_mode (NO_BACKSLASH_ESCAPES), which TermF cannot know, and
+    // on ClickHouse's own escapes: where a string ends would be a guess.
+    if (mysql || kind == Kind::Clickhouse) && sql.contains('\\') {
+        return refuse(Why::Backslash);
+    }
     if mysql {
-        // Whether a backslash escapes depends on the server's sql_mode (NO_BACKSLASH_ESCAPES), which TermF cannot
-        // know: where a string ends would be a guess.
-        if sql.contains('\\') {
-            return refuse(Why::Backslash);
-        }
         // MySQL runs what /*! … */ holds, MariaDB what /*M! … */ holds.
         let lower = sql.to_lowercase();
         if lower.contains("/*!") || lower.contains("/*m!") {
             return refuse(Why::Executable);
         }
     }
-    let dialect: &dyn Dialect = if mysql {
-        &MySqlDialect {}
-    } else {
-        &PostgreSqlDialect {}
+    let dialect: &dyn Dialect = match kind {
+        Kind::Mysql | Kind::Mariadb => &MySqlDialect {},
+        Kind::Sqlite => &SQLiteDialect {},
+        Kind::Clickhouse => &ClickHouseDialect {},
+        _ => &PostgreSqlDialect {},
     };
     let unreadable = |e: &dyn fmt::Display| Refused::new(Why::Unreadable, e.to_string());
     let tokens = Tokenizer::new(dialect, &sql)
@@ -366,7 +426,7 @@ pub fn analyze(sql: &str, kind: Kind, rows: usize) -> Result<String, Refused> {
     if statements.len() != 1 {
         return Err(Refused::new(Why::Several, statements.len().to_string()));
     }
-    if let ControlFlow::Break(e) = statements[0].visit(&mut Guard) {
+    if let ControlFlow::Break(e) = statements[0].visit(&mut Guard { own }) {
         return Err(e);
     }
     // Cut at its last token: a comment after it would swallow the LIMIT.
@@ -398,11 +458,162 @@ pub fn args(kind: Kind, sql: &str, timeout_s: u64) -> Vec<String> {
             "-c".into(),
             sql.into(),
         ],
+        // Opened with `-readonly -safe`: no statement timeout of its own, TermF's stops it.
+        Kind::Sqlite => ["-csv", "-header", "-nullvalue", "NULL", sql]
+            .map(String::from)
+            .to_vec(),
+        // `--readonly=1` is in the connection's options; the time limit is the server's.
+        Kind::Clickhouse => vec![
+            format!("--max_execution_time={timeout_s}"),
+            "--format=TSVWithNames".into(),
+            "--format_tsv_null_representation=NULL".into(),
+            "--query".into(),
+            sql.into(),
+        ],
+        // MariaDB's limit is `max_statement_time`, in seconds (it refuses MySQL's variable).
+        Kind::Mariadb => vec![
+            "-e".into(),
+            format!(
+                "SET SESSION max_statement_time = {timeout_s};\nSTART TRANSACTION READ ONLY;\n{sql}"
+            ),
+        ],
         _ => vec![
             "-e".into(),
             format!("SET SESSION max_execution_time = {ms};\nSTART TRANSACTION READ ONLY;\n{sql}"),
         ],
     }
+}
+
+/// The query that reads a database's tables, columns, keys and indexes, in rows of
+/// `kind (c|i), schema, table, name, type (an index: its columns or its definition), nullable (an index: UNIQUE), key, position`.
+pub fn schema_query(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Postgres => {
+            "SELECT 'c', c.table_schema::text, c.table_name::text, c.column_name::text, c.data_type::text, \
+             c.is_nullable::text, COALESCE((SELECT string_agg(DISTINCT tc.constraint_type::text, ',') \
+             FROM information_schema.key_column_usage k JOIN information_schema.table_constraints tc \
+             ON tc.constraint_name = k.constraint_name AND tc.table_schema = k.table_schema \
+             WHERE k.table_schema = c.table_schema AND k.table_name = c.table_name AND k.column_name = c.column_name), ''), \
+             c.ordinal_position::int FROM information_schema.columns c \
+             WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema') \
+             UNION ALL SELECT 'i', schemaname::text, tablename::text, indexname::text, indexdef, \
+             CASE WHEN indexdef LIKE 'CREATE UNIQUE%' THEN 'UNIQUE' ELSE '' END, '', 0 FROM pg_indexes \
+             WHERE schemaname NOT IN ('pg_catalog', 'information_schema')"
+        }
+        Kind::Mysql | Kind::Mariadb => {
+            "SELECT 'c', c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME, c.COLUMN_TYPE, c.IS_NULLABLE, c.COLUMN_KEY, \
+             c.ORDINAL_POSITION FROM information_schema.COLUMNS c WHERE c.TABLE_SCHEMA = DATABASE() \
+             UNION ALL SELECT 'i', s.TABLE_SCHEMA, s.TABLE_NAME, s.INDEX_NAME, \
+             GROUP_CONCAT(s.COLUMN_NAME ORDER BY s.SEQ_IN_INDEX SEPARATOR ', '), \
+             IF(MIN(s.NON_UNIQUE) = 0, 'UNIQUE', ''), '', 0 FROM information_schema.STATISTICS s \
+             WHERE s.TABLE_SCHEMA = DATABASE() GROUP BY s.TABLE_SCHEMA, s.TABLE_NAME, s.INDEX_NAME"
+        }
+        Kind::Sqlite => {
+            "SELECT 'c', 'main', m.name, p.name, p.type, CASE WHEN p.\"notnull\" = 0 THEN 'YES' ELSE 'NO' END, \
+             CASE WHEN p.pk > 0 THEN 'PRI' ELSE '' END, p.cid FROM sqlite_master m JOIN pragma_table_info(m.name) p \
+             WHERE m.type IN ('table', 'view') AND m.name NOT LIKE 'sqlite_%' \
+             UNION ALL SELECT 'i', 'main', m.name, il.name, \
+             (SELECT group_concat(ii.name, ', ') FROM pragma_index_info(il.name) ii), \
+             CASE WHEN il.\"unique\" THEN 'UNIQUE' ELSE '' END, '', 0 \
+             FROM sqlite_master m JOIN pragma_index_list(m.name) il \
+             WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'"
+        }
+        _ => {
+            "SELECT 'c', \"database\", \"table\", name, type, if(startsWith(type, 'Nullable'), 'YES', 'NO'), \
+             if(is_in_primary_key = 1, 'PRI', if(is_in_sorting_key = 1, 'MUL', '')), toUInt64(position) \
+             FROM system.columns WHERE \"database\" = currentDatabase() \
+             UNION ALL SELECT 'i', \"database\", \"table\", name, expr, type, '', toUInt64(0) \
+             FROM system.data_skipping_indices WHERE \"database\" = currentDatabase()"
+        }
+    }
+}
+
+#[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
+pub struct Column {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub nullable: bool,
+    /// `pk` (in the primary key), `fk`, `unique`, `index`, or empty.
+    pub key: String,
+}
+
+#[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
+pub struct Index {
+    pub name: String,
+    /// Its columns, or its definition.
+    pub columns: String,
+    pub unique: bool,
+}
+
+#[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
+pub struct SchemaTable {
+    /// Empty in the connection's default schema (`public`, the database itself, `main`).
+    pub schema: String,
+    pub name: String,
+    pub columns: Vec<Column>,
+    pub indexes: Vec<Index>,
+}
+
+/// The tables of a [`schema_query`]'s result, by schema and name, each one's columns in their order.
+pub fn schema(kind: Kind, table: &Table) -> Vec<SchemaTable> {
+    let mut tables: Vec<SchemaTable> = Vec::new();
+    let mut positions: Vec<Vec<i64>> = Vec::new();
+    for row in &table.rows {
+        let [what, schema, name, item, typed, nullable, key, position] = row.as_slice() else {
+            continue;
+        };
+        // Postgres' `public` is where an unqualified name looks; MySQL and ClickHouse name the database itself.
+        let schema = match kind {
+            Kind::Postgres if schema == "public" => String::new(),
+            Kind::Postgres => schema.clone(),
+            _ => String::new(),
+        };
+        let at = match tables
+            .iter()
+            .position(|t| t.schema == schema && &t.name == name)
+        {
+            Some(at) => at,
+            None => {
+                tables.push(SchemaTable {
+                    schema,
+                    name: name.clone(),
+                    ..SchemaTable::default()
+                });
+                positions.push(Vec::new());
+                tables.len() - 1
+            }
+        };
+        if what == "i" {
+            tables[at].indexes.push(Index {
+                name: item.clone(),
+                columns: typed.clone(),
+                unique: nullable == "UNIQUE",
+            });
+            continue;
+        }
+        let key = match key.as_str() {
+            k if k.contains("PRI") || k.contains("PRIMARY") => "pk",
+            k if k.contains("FOREIGN") => "fk",
+            k if k.contains("UNI") => "unique",
+            "MUL" => "index",
+            _ => "",
+        };
+        let position: i64 = position.parse().unwrap_or(0);
+        let i = positions[at].partition_point(|p| *p <= position);
+        positions[at].insert(i, position);
+        tables[at].columns.insert(
+            i,
+            Column {
+                name: item.clone(),
+                kind: typed.clone(),
+                nullable: nullable == "YES",
+                key: key.into(),
+            },
+        );
+    }
+    tables.sort_by(|a, b| (&a.schema, &a.name).cmp(&(&b.schema, &b.name)));
+    tables
 }
 
 /// A query's result: the names of its columns, then its rows.
@@ -458,6 +669,7 @@ fn tsv(text: &str) -> (Vec<Vec<String>>, bool) {
                         match chars.next() {
                             Some('t') => out.push('\t'),
                             Some('n') => out.push('\n'),
+                            Some('r') => out.push('\r'),
                             Some('0') => out.push('\0'),
                             Some(other) => out.push(other),
                             None => out.push('\\'),
@@ -473,7 +685,7 @@ fn tsv(text: &str) -> (Vec<Vec<String>>, bool) {
 
 /// The client's output as a table, the first record naming the columns; `true` when a cut record was dropped.
 pub fn table(kind: Kind, text: &str) -> (Table, bool) {
-    let (mut records, cut) = if kind == Kind::Mysql {
+    let (mut records, cut) = if matches!(kind, Kind::Mysql | Kind::Mariadb | Kind::Clickhouse) {
         tsv(text)
     } else {
         csv(text)
@@ -845,5 +1057,176 @@ mod tests {
         assert_eq!(t.rows, [vec!["1", "1240.00"]]);
         let (t, cut) = table(Kind::Mysql, "id\n");
         assert!(!cut && t.rows.is_empty() && t.columns == ["id"]);
+    }
+
+    #[test]
+    fn sqlite_mariadb_and_clickhouse_read_only_too() {
+        let lite = |sql: &str| analyze(sql, Kind::Sqlite, 500);
+        let maria = |sql: &str| analyze(sql, Kind::Mariadb, 500);
+        let ch = |sql: &str| analyze(sql, Kind::Clickhouse, 500);
+        assert_eq!(
+            lite("SELECT * FROM users").unwrap(),
+            "SELECT * FROM users LIMIT 500"
+        );
+        assert_eq!(
+            lite("EXPLAIN QUERY PLAN SELECT * FROM users").unwrap(),
+            "EXPLAIN QUERY PLAN SELECT * FROM users"
+        );
+        assert_eq!(maria("SELECT 1").unwrap(), "SELECT 1 LIMIT 500");
+        assert_eq!(
+            ch("SELECT count() FROM events").unwrap(),
+            "SELECT count() FROM events LIMIT 500"
+        );
+        for (sql, why) in [
+            ("DELETE FROM users", Why::NotRead),
+            ("PRAGMA user_version = 3", Why::NotRead),
+            ("ATTACH DATABASE 'x.db' AS x", Why::NotRead),
+            ("VACUUM", Why::NotRead),
+            ("SELECT writefile('x', 'y')", Why::Function),
+            ("SELECT readfile('/etc/passwd')", Why::Function),
+            ("SELECT load_extension('evil')", Why::Function),
+            ("SELECT edit('x', 'vi')", Why::Function),
+            ("SELECT 1; DROP TABLE users", Why::Several),
+        ] {
+            assert_eq!(lite(sql).map_err(|e| e.code), Err(why), "sqlite: {sql}");
+        }
+        for (sql, why) in [
+            ("DELETE FROM users", Why::NotRead),
+            ("SELECT 1 /*M! ; DELETE FROM users */", Why::Executable),
+            ("SELECT 'a\\'; DELETE FROM users; -- '", Why::Backslash),
+            ("SELECT SLEEP(10)", Why::Function),
+        ] {
+            assert_eq!(maria(sql).map_err(|e| e.code), Err(why), "mariadb: {sql}");
+        }
+        for (sql, why) in [
+            ("INSERT INTO events VALUES (1)", Why::NotRead),
+            ("SELECT * FROM url('http://evil/x', CSV)", Why::Function),
+            ("SELECT * FROM remote('other:9000', db.t)", Why::Function),
+            ("SELECT * FROM file('/etc/passwd')", Why::Function),
+            ("SELECT * FROM s3('https://b/x.csv')", Why::Function),
+            ("SELECT sleep(3)", Why::Function),
+            ("SELECT 'a\\'b'", Why::Backslash),
+        ] {
+            assert_eq!(ch(sql).map_err(|e| e.code), Err(why), "clickhouse: {sql}");
+        }
+        assert_eq!(
+            args(Kind::Sqlite, "SELECT 1 LIMIT 500", 15),
+            [
+                "-csv",
+                "-header",
+                "-nullvalue",
+                "NULL",
+                "SELECT 1 LIMIT 500"
+            ]
+        );
+        assert_eq!(
+            args(Kind::Mariadb, "SELECT 1", 15)[1],
+            "SET SESSION max_statement_time = 15;\nSTART TRANSACTION READ ONLY;\nSELECT 1"
+        );
+        let c = args(Kind::Clickhouse, "SELECT 1", 15);
+        assert!(
+            c.contains(&"--max_execution_time=15".to_string())
+                && c.ends_with(&["--query".into(), "SELECT 1".into()])
+        );
+        let (t, _) = table(Kind::Clickhouse, "a\tb\nx\\ry\tNULL\n");
+        assert_eq!(t.rows, [vec!["x\ry", "NULL"]]);
+    }
+
+    #[test]
+    fn each_schema_query_passes_the_guard_and_reads_as_tables() {
+        for kind in [
+            Kind::Postgres,
+            Kind::Mysql,
+            Kind::Mariadb,
+            Kind::Sqlite,
+            Kind::Clickhouse,
+        ] {
+            let sql = analyze(schema_query(kind), kind, 10_000)
+                .unwrap_or_else(|e| panic!("{kind:?}: {e}"));
+            assert!(sql.ends_with("LIMIT 10000"), "{kind:?}");
+        }
+        let rows = |r: &[[&str; 8]]| Table {
+            columns: (0..8).map(|i| i.to_string()).collect(),
+            rows: r
+                .iter()
+                .map(|x| x.iter().map(|s| s.to_string()).collect())
+                .collect(),
+        };
+        let pg = schema(
+            Kind::Postgres,
+            &rows(&[
+                ["c", "public", "orders", "total", "numeric", "NO", "", "2"],
+                [
+                    "c",
+                    "public",
+                    "orders",
+                    "id",
+                    "bigint",
+                    "NO",
+                    "PRIMARY KEY",
+                    "1",
+                ],
+                [
+                    "c",
+                    "public",
+                    "orders",
+                    "user_id",
+                    "bigint",
+                    "YES",
+                    "FOREIGN KEY",
+                    "3",
+                ],
+                [
+                    "i",
+                    "public",
+                    "orders",
+                    "orders_pkey",
+                    "CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (id)",
+                    "UNIQUE",
+                    "",
+                    "0",
+                ],
+                [
+                    "c",
+                    "billing",
+                    "invoices",
+                    "id",
+                    "integer",
+                    "NO",
+                    "PRIMARY KEY,UNIQUE",
+                    "1",
+                ],
+            ]),
+        );
+        assert_eq!(
+            pg.iter()
+                .map(|t| (t.schema.as_str(), t.name.as_str()))
+                .collect::<Vec<_>>(),
+            [("", "orders"), ("billing", "invoices")]
+        );
+        let names: Vec<(&str, &str)> = pg[0]
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), c.key.as_str()))
+            .collect();
+        assert_eq!(names, [("id", "pk"), ("total", ""), ("user_id", "fk")]);
+        assert!(pg[0].indexes[0].unique);
+        let my = schema(
+            Kind::Mysql,
+            &rows(&[[
+                "c",
+                "shop",
+                "users",
+                "email",
+                "varchar(255)",
+                "NO",
+                "UNI",
+                "2",
+            ]]),
+        );
+        assert_eq!(
+            (my[0].schema.as_str(), my[0].columns[0].key.as_str()),
+            ("", "unique")
+        );
     }
 }

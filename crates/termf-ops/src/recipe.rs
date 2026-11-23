@@ -49,7 +49,7 @@ pub enum ParamKind {
     /// A unit, a pod, a container: letters, digits and `@ . _ : / -`.
     Name,
     /// A query of the SQL console: one statement that only reads ([`crate::sql::analyze`]), alone in its argument,
-    /// on Postgres or MySQL, run in a read-only transaction; its result is a table.
+    /// on a database, run in a read-only session; its result is a table. With `values`, only those queries.
     Sql,
 }
 
@@ -430,8 +430,8 @@ impl Recipe {
         let hole = format!("{{{}}}", query.name);
         for v in &self.run {
             ensure!(
-                matches!(v.kind, Kind::Postgres | Kind::Mysql),
-                "{hole} runs on postgres or mysql only"
+                v.kind.is_db(),
+                "{hole} runs on a database only (postgres, mysql, mariadb, sqlite, clickhouse)"
             );
             let alone = v
                 .args
@@ -475,6 +475,12 @@ pub fn check(p: &Param, raw: &str) -> Result<String> {
                 .chars()
                 .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')),
             "{} holds a control character",
+            p.name
+        );
+        // A saved query made a recipe runs only as it was saved.
+        ensure!(
+            p.values.is_empty() || p.values.iter().any(|v| v.trim() == value),
+            "{} runs only its saved query",
             p.name
         );
         return Ok(value.to_owned());
@@ -606,6 +612,9 @@ pub struct Plan {
     /// It runs until stopped.
     #[serde(skip)]
     pub(crate) follow: bool,
+    /// Not the user's run of a recipe but what TermF read for them: `schema`, `export`, `dba`.
+    #[serde(skip)]
+    pub(crate) event: Option<&'static str>,
 }
 
 struct Values<'a> {
@@ -823,5 +832,6 @@ pub fn plan(
         table: recipe.params.iter().any(|p| p.kind == ParamKind::Sql),
         dotenv: recipe.env,
         follow: recipe.follow,
+        event: None,
     })
 }
