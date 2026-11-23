@@ -197,10 +197,14 @@ fn show(data_dir: &std::path::Path, review: &Review) {
     for note in &v.notes {
         println!("  note: {note}");
     }
+    if let Some(reason) = &v.before_missing {
+        println!("  before not captured, the after alone: {reason}");
+    }
     let dir = termf_visual::folder(data_dir, review.id, v.n);
     for s in &v.screens {
         let change = match (&s.error, s.changed) {
             (Some(e), _) => format!("not captured: {e}"),
+            (None, true) if s.before.is_none() => "after alone".into(),
             (None, true) => format!(
                 "{} zone(s), {:.1}% of pixels",
                 s.rects.len(),
