@@ -1,7 +1,7 @@
 // What a developer discovering TermF does, one scenario at a time, each in its own sandbox. `views`: the views of
 // `views.ts` (and the pages beside them) the scenario is about; every view of `views.ts` needs one.
 import { createHmac } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { text } from "./harness.mjs";
@@ -101,6 +101,8 @@ export const scenarios = [
       await s.waitFor(t.shown("home"));
       const toml = read(join(box.configDir, "projects", "acme.toml"));
       check(/name = "acme"/.test(toml) && toml.includes("acme"), `unexpected project file:\n${toml}`);
+      // The test command found in package.json is what the team's checks run before delivering.
+      check(toml.includes('checks = "npm test"'), `no checks in the project file:\n${toml}`);
       await t.settled("home");
       await t.clean();
     },
@@ -784,6 +786,51 @@ export const scenarios = [
     },
   },
   {
+    name: "Claude: two artifacts deleted after one confirmation, then one without any, no tile (fake 2.1.330)",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("claude");
+      const now = Math.floor(Date.now() / 1000);
+      const artifacts = ["Acme launch page", "Acme pricing", "Acme roadmap"].map((title, i) => ({
+        id: `acme${i}`,
+        url: `https://claude.ai/artifact/acme${i}`,
+        title,
+        owner: "me",
+        seen: now,
+      }));
+      // Listed just now: no automatic listing during the run.
+      writeFileSync(join(box.dataDir, "artifacts.json"), JSON.stringify({ artifacts, listed: now }));
+      const titles = () => s.exec((css) => [...document.querySelectorAll(`${css} td.title .name`)].map((e) => e.textContent), pane);
+      const gone = (n) => s.wait(async () => (await titles()).length === n, { what: `${n} artifact(s) left`, timeout: 30_000 });
+      const noTile = async () => check(!(await s.exec(() => document.querySelector(".tile[data-session]"))), "a tile of the hidden session showed");
+      await t.ready();
+      await t.command("claude-artifacts");
+      await s.wait(async () => (await titles()).length === 3, { what: "the three artifacts" });
+      for (const i of [0, 1]) await s.click(`${pane} td.check input`, i);
+      await s.click(`${pane} .bulk .btn.danger-quiet`);
+      await s.waitFor("dialog.confirm[open]");
+      await s.click("dialog.confirm .btn.danger");
+      await gone(1);
+      await noTile();
+      // Asked in the settings not to be asked: no dialog either.
+      await t.view("settings");
+      await s.click(t.sel("data-testid", "section-claude"));
+      const skip = `${t.shown("settings")} input.switch`;
+      await s.waitFor(`${skip}:not([disabled])`);
+      const label = text("en", "claudeRedesignSkipConfirm");
+      await s.click(skip, await s.exec((css, l) => [...document.querySelectorAll(css)].findIndex((e) => e.closest("label")?.textContent.trim() === l), skip, label));
+      await s.wait(() => /delete_without_confirmation = true/.test(read(join(box.configDir, "termf.toml"))), { what: "the choice in termf.toml" });
+      await t.command("claude-artifacts");
+      await s.wait(async () => (await titles()).length === 1, { what: "the last artifact" });
+      await s.click(`${pane} td.actions .icon-btn.delete`);
+      await gone(0);
+      check(!(await s.exec(() => document.querySelector("dialog.confirm[open]"))), "asked to confirm although told not to");
+      await noTile();
+      await t.clean();
+    },
+  },
+  {
     name: "shortcuts: the palette moved to Mod+Shift+Y, saved in termf.toml, and it opens the palette",
     views: [],
     async run(t) {
@@ -812,7 +859,126 @@ export const scenarios = [
   },
   viewOnly("ops", "Ops: the project's connections and recipes"),
   viewOnly("ci", "CI/CD: the project's runs (fake gh, none yet)"),
-  viewOnly("design", "design system: the tokens of the repository"),
+  {
+    name: "design system: the repository's own font, its specimen, its components and every button of the view",
+    views: ["design"],
+    async run(t) {
+      await t.ready();
+      await t.project();
+      const panel = t.shown("design");
+      const composer = () => t.s.exec(() => document.querySelector('[data-panel="home"] .composer textarea')?.value ?? "");
+      const asked = async (what) => {
+        await t.s.waitFor(t.shown("home"));
+        await t.s.wait(async () => (await composer()).includes(what), { what: `${what} in the CTO's message box`, timeout: 30_000 });
+      };
+      const section = async (id) => {
+        await t.s.click(`${panel} [data-testid="section-${id}"]`);
+        await t.clean();
+      };
+
+      // No tokens yet: the empty state says how to add some, or asks the brand role.
+      await t.view("design");
+      await t.s.waitFor(`${panel} .how .example`);
+      await t.s.click(`${panel} .empty .btn.primary`);
+      await asked("brand");
+
+      // A repository with tokens, a font file of its own, a web font, components.
+      const acme = t.box.acme;
+      for (const dir of ["src/components", "static/fonts"]) mkdirSync(join(acme, dir), { recursive: true });
+      copyFileSync(new URL("../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2", import.meta.url), join(acme, "static/fonts/AcmeGrotesk.woff2"));
+      writeFileSync(join(acme, "package.json"), '{ "name": "acme-web", "private": true }\n');
+      writeFileSync(
+        join(acme, "index.html"),
+        '<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&amp;display=swap" rel="stylesheet">\n',
+      );
+      writeFileSync(
+        join(acme, "src/app.css"),
+        `@font-face { font-family: "Acme Grotesk"; src: url("../static/fonts/AcmeGrotesk.woff2") format("woff2"); font-weight: 100 900; }
+:root {
+  --bg: #ffffff; --text: #16181d; --muted: #5d626d; --border: #e3e5ea; --primary: #3b5bdb; --primary-foreground: #ffffff;
+  --brand-100: #dbe4ff; --brand-500: #4c6ef5; --brand-900: #1c2f8f;
+  --font-sans: "Acme Grotesk", system-ui, sans-serif; --font-display: "Fraunces", Georgia, serif;
+  --text-sm: 14px; --text-base: 16px; --text-2xl: 28px;
+  --space-2: 8px; --space-4: 16px; --radius: 8px; --radius-lg: 16px;
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.08); --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-color-scheme: dark) { :root { --bg: #101216; --text: #eceef2; --border: #2a2d35; } }
+body { font-family: var(--font-sans); color: var(--text); background: var(--bg); }
+h1, h2 { font-family: var(--font-display); }
+.card { padding: var(--space-4); border-radius: var(--radius-lg); box-shadow: var(--shadow-1); transition: transform 200ms var(--ease-out); color: #16181e; }
+`,
+      );
+      writeFileSync(
+        join(acme, "src/components/Button.tsx"),
+        'export function Button({ variant }: { variant?: "primary" | "outline" | "ghost" }) { return <button className={variant} />; }\n',
+      );
+      writeFileSync(join(acme, "src/components/Badge.tsx"), 'export const Badge = ({ tone }: { tone?: "success" | "warning" }) => <span className={tone} />;\n');
+      writeFileSync(join(acme, "src/components/Card.tsx"), 'export function Card() { return <div className="card" />; }\n');
+      writeFileSync(join(acme, "src/components/Chart.tsx"), "export function Chart() { return <svg />; }\n");
+      writeFileSync(join(acme, "src/App.tsx"), "export default function App() { return <Card><Badge /><Button /><Chart /></Card>; }\n");
+
+      // Back on the view, which reads again; then "Refresh".
+      await t.view("design");
+      await t.s.exec((css) => document.querySelector(`${css} svg.lucide-refresh-cw`).closest("button").click(), panel);
+      await t.s.waitFor(`${panel} .ramp`);
+      await t.settled("design");
+      check((await t.s.exec((css) => document.querySelectorAll(`${css} .swatch`).length, panel)) >= 3, "the colors are not shown");
+      await t.clean();
+
+      // Typography: the repository's font file drawn under a name of its own, the web font left for the user to fetch.
+      await section("type");
+      await t.s.wait(
+        () => t.s.exec(() => [...document.fonts].some((f) => f.family.includes("termf-design-") && f.status === "loaded")),
+        { what: "the repository's font to load in the window" },
+      );
+      await t.s.waitFor(`${panel} .specimen .status svg.lucide-circle-check`);
+      const drawn = await t.s.exec((css) => getComputedStyle(document.querySelector(`${css} .proof`)).fontFamily, panel);
+      check(drawn.includes("termf-design-"), `the specimen is not drawn with the repository's font: ${drawn}`);
+      check(!(await t.s.exec(() => getComputedStyle(document.body).fontFamily)).includes("termf-design-"), "the project's font changed TermF's");
+      await t.s.waitFor(`${panel} .pairing h1`);
+      await t.s.waitFor(`${panel} .scale li`);
+      // No network in the sandbox: fetching the web font fails, said plainly.
+      await t.s.click(`${panel} .status .btn`);
+      await t.s.waitFor(`${t.shown("design")} .banners`);
+      await t.s.click(`${panel} .banners button`);
+      await t.s.waitGone(`${panel} .banners`);
+      // The preview theme, both ways.
+      await t.s.click(`${panel} .head .segmented button`, 1);
+      await t.s.click(`${panel} .head .segmented button`, 0);
+      await t.clean();
+
+      await section("spacing");
+      await t.s.waitFor(`${panel} .bar`);
+      await section("depth");
+      await t.s.waitFor(`${panel} .lifts .lift`);
+      await t.s.click(`${panel} .rows .icon-btn`);
+      await t.s.waitFor(`${panel} .dot.moved`);
+
+      await section("components");
+      check((await t.s.exec((css) => document.querySelectorAll(`${css} .gallery .stage`).length, panel)) >= 3, "the base components are not drawn");
+      await t.s.waitFor(`${panel} .others`);
+      await t.s.click(`${panel} .others .src`);
+      await t.s.waitFor(t.shown("files"));
+      await t.view("design");
+
+      // Inconsistencies: the filters, a finding opened, its place in the editor, then the request to the team.
+      await section("issues");
+      const filters = await t.s.exec((css) => document.querySelectorAll(`${css} .head .segmented button`).length, panel);
+      for (let i = filters - 1; i >= 0; i--) await t.s.click(`${panel} .head .segmented button`, i);
+      await t.s.click(`${panel} .finding .line`);
+      await t.s.click(`${panel} .place`);
+      await t.s.waitFor(t.shown("files"));
+      await t.view("design");
+      await t.s.click(`${panel} .bulk input[type=checkbox]`);
+      await t.s.click(`${panel} .bulk .btn.primary`);
+      await asked("app.css");
+
+      await t.view("design");
+      await section("brand");
+      await t.s.click(`${panel} .empty .btn.primary`);
+      await asked("brand/guidelines.html");
+    },
+  },
   viewOnly("project", "configuration: the project's page"),
   viewOnly("conversations", "conversations: the list of headless sessions"),
   viewOnly("library", "library: skills, commands and rules of the project"),

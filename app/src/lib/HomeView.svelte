@@ -40,7 +40,7 @@
   import { openRuns, place, primary, type Wait } from "$lib/home-logic";
   import { decisions as decisionsOf, ensure, goToWait, home, learn, projectWaits, waitProject, type Decision } from "$lib/home.svelte";
   import { ago, t } from "$lib/i18n";
-  import { analyzing, openSetup, setup } from "$lib/onboarding.svelte";
+  import { analyzing, openSetup, reads, readText, setup } from "$lib/onboarding.svelte";
   import { ops } from "$lib/ops.svelte";
   import { agentEnv } from "$lib/agentenv.svelte";
   import type { Step } from "$lib/onboarding-logic";
@@ -132,7 +132,10 @@
   function stepText(step: Step, ob: Onboarding): string {
     const a = ob.analysis;
     if (step === "analysis") {
-      if (project && analyzing[project.id]) return t("obAnalyzing");
+      if (project && analyzing[project.id]) {
+        const last = reads[project.id]?.last.at(-1);
+        return last ? readText(last) : t("obAnalyzing");
+      }
       if (!a) return "";
       const repos = a.repos.map((r) => [r.name, r.stack.join(", ")].filter(Boolean).join(" · "));
       const ci = [...new Set(a.repos.flatMap((r) => r.workflows))];

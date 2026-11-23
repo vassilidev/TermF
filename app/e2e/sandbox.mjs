@@ -114,6 +114,9 @@ export function createSandbox({ lang = "en", project = true, dark = false } = {}
     LC_ALL: locale,
     GIT_CONFIG_GLOBAL: gitconfig,
     GIT_CONFIG_NOSYSTEM: "1",
+    // A real Claude Code reached from here never updates itself: with this home, it would relink the machine's
+    // launcher found on the PATH to a version under the sandbox, gone with it.
+    DISABLE_AUTOUPDATER: "1",
     ...scratch,
   });
   if (!windows) {

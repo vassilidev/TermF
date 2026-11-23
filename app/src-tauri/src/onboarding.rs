@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use tauri::State;
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, State};
 use termf_claude::trust::{self, RepoTrust};
 use termf_onboarding::{self as onboarding, Decision, Step, greenfield, setup};
 
@@ -30,14 +31,31 @@ pub async fn onboarding_state(
 /// The survey, then Claude Code read-only for its findings and questions (`lang`: `fr` or `en`).
 #[tauri::command]
 pub async fn onboarding_analyze(
+    app: AppHandle,
     state: State<'_, AppState>,
     project: String,
     lang: String,
 ) -> CmdResult<onboarding::State> {
     blocking(&state, move |dir| {
-        onboarding::analyze(dir, &data_dir()?, &project, &lang, &claude(dir))
+        let progress = &mut |p: termf_library::conventions::Progress| {
+            let read = Read {
+                project: &project,
+                tool: p.tool,
+                target: p.target,
+            };
+            let _ = app.emit("onboarding-progress", read);
+        };
+        onboarding::analyze_showing(dir, &data_dir()?, &project, &lang, &claude(dir), progress)
     })
     .await
+}
+
+/// A file Claude Code reads, or a search it makes, during a project's analysis.
+#[derive(Serialize, Clone)]
+struct Read<'a> {
+    project: &'a str,
+    tool: String,
+    target: String,
 }
 
 /// `replace`: the onboarding convention was edited in the library since, and the owner chose to replace it.
@@ -207,8 +225,10 @@ pub async fn setup_preview(
     repos: Vec<String>,
     team: Option<onboarding::Edit>,
     trackers: Option<termf_tickets::Trackers>,
+    checks: Option<BTreeMap<String, String>>,
 ) -> CmdResult<String> {
-    setup::preview(&name, &repos, team.as_ref(), trackers.as_ref()).map_err(err)
+    let checks = checks.unwrap_or_default();
+    setup::preview(&name, &repos, team.as_ref(), trackers.as_ref(), &checks).map_err(err)
 }
 
 /// What creating a project from an idea will do: its folder, its files and every command, before any runs.

@@ -9,6 +9,7 @@ pub mod color;
 mod components;
 pub mod css;
 mod dtcg;
+pub mod fonts;
 mod jsobj;
 mod markup;
 
@@ -249,6 +250,20 @@ pub struct Design {
     pub brand: Option<brand::Brand>,
     /// Files read.
     pub files: usize,
+    /// The fonts it declares or loads, with their files when found.
+    pub fonts: Vec<fonts::Font>,
+    /// The font its stylesheets give the body, the headings and code.
+    pub font_uses: Vec<FontUse>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct FontUse {
+    /// `body`, `heading` or `code`.
+    pub role: &'static str,
+    /// As written: a stack, or a `var(--font-…)`.
+    pub value: String,
+    pub file: String,
+    pub line: u32,
 }
 
 /// What the files gave, before the tokens are put together.
@@ -263,6 +278,9 @@ struct Read {
     decls: Vec<(usize, css::Decl)>,
     arbitrary: Vec<(usize, u32, String, String)>,
     loaded: Vec<(usize, u32, String)>,
+    faces: Vec<(usize, css::Face)>,
+    /// `font-family` outside `@font-face`: `(file, selector, value, line)`.
+    families: Vec<(usize, String, String, u32)>,
     imports: Vec<(usize, String)>,
     tailwind: bool,
     /// Each custom property's uses (definitions aside), and its `var()` uses without a fallback.
@@ -338,7 +356,52 @@ pub fn scan(repo: &Path) -> Design {
         design_md: repo.join("DESIGN.md").is_file(),
         brand: brand::read(repo),
         files: read.files.len(),
+        fonts: fonts::read(repo, &read),
+        font_uses: font_uses(&read),
     }
+}
+
+/// The first font each role is given: the page's body, its headings, code.
+fn font_uses(read: &Read) -> Vec<FontUse> {
+    let mut out: Vec<FontUse> = Vec::new();
+    for (file, selector, value, line) in &read.families {
+        let keyword = ["inherit", "initial", "unset", "revert"]
+            .iter()
+            .any(|k| value.starts_with(k));
+        if let Some(role) = role(selector)
+            && !keyword
+            && !out.iter().any(|u| u.role == role)
+        {
+            out.push(FontUse {
+                role,
+                value: value.trim_end_matches("!important").trim().to_owned(),
+                file: read.files[*file].rel.clone(),
+                line: *line,
+            });
+        }
+    }
+    out
+}
+
+/// Which text a selector styles, by the element its parts end on: `body`, `h1`, `pre code`.
+fn role(selector: &str) -> Option<&'static str> {
+    selector.split(',').find_map(|part| {
+        let last = part
+            .trim()
+            .rsplit(|c: char| c.is_whitespace() || matches!(c, '>' | '+' | '~'))
+            .next()?
+            .to_ascii_lowercase();
+        let element: String = last
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == ':')
+            .collect();
+        match element.as_str() {
+            "body" | "html" | ":root" => Some("body"),
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => Some("heading"),
+            "code" | "pre" | "kbd" | "samp" => Some("code"),
+            _ => None,
+        }
+    })
 }
 
 enum Lang {
@@ -498,8 +561,15 @@ fn file(read: &mut Read, index: usize, name: &str, kind: Lang) {
         read.vars.extend(s.vars.into_iter().map(|v| (index, v)));
         read.scss
             .extend(s.scss.into_iter().map(|(n, v, l)| (index, n, v, l)));
-        read.loaded
-            .extend(s.faces.into_iter().map(|(f, l)| (index, l, f)));
+        read.loaded.extend(
+            s.faces
+                .iter()
+                .filter(|f| !f.family.is_empty())
+                .map(|f| (index, f.line, f.family.clone())),
+        );
+        read.faces.extend(s.faces.into_iter().map(|f| (index, f)));
+        read.families
+            .extend(s.families.into_iter().map(|(s, v, l)| (index, s, v, l)));
         read.imports
             .extend(s.imports.into_iter().map(|(i, _)| (index, i)));
         if !generated {

@@ -185,6 +185,10 @@ fn edits_a_setting_atomically_in_strict_json() {
     )
     .unwrap();
     assert_eq!(local, json!({"autoMemoryEnabled": false}));
+    assert!(
+        fs::read_to_string(root.join("repo/.git/info/exclude")).is_err(),
+        "outside git, no exclude"
+    );
 
     for (scope, key, value) in [
         (Scope::User, "effortLevel", json!("max")),
@@ -229,6 +233,80 @@ fn edits_a_setting_atomically_in_strict_json() {
         fs::read_to_string(root.join("repo/.claude/settings.json")).unwrap(),
         "{ broken"
     );
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn local_settings_stay_out_of_git() {
+    let (root, env) = tree("local-git");
+    let repo = root.join("repo");
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(args)
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout).unwrap()
+    };
+    git(&["init", "-q"]);
+    // Not the global ignore of whoever runs the tests, which may list it already.
+    let none = root.join("no-ignore");
+    write(&none, "");
+    git(&["config", "core.excludesFile", &none.to_string_lossy()]);
+    for _ in 0..2 {
+        settings::save(&env, Scope::Local, &set("model", json!("haiku")), None).unwrap();
+    }
+    assert_eq!(git(&["status", "--porcelain", "-uall"]), "");
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert_eq!(
+        exclude.matches("/.claude/settings.local.json").count(),
+        1,
+        "{exclude}"
+    );
+    settings::save(&env, Scope::Project, &set("model", json!("haiku")), None).unwrap();
+    assert_eq!(
+        git(&["status", "--porcelain", "-uall"]),
+        "?? .claude/settings.json\n",
+        "the shared file is for git"
+    );
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn local_settings_are_saved_even_when_git_cannot_exclude_them() {
+    let (root, env) = tree("local-git-broken");
+    let repo = root.join("repo");
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    let none = root.join("no-ignore");
+    write(&none, "");
+    git(&["config", "core.excludesFile", &none.to_string_lossy()]);
+    // `info` is a file: `info/exclude` cannot be written.
+    fs::remove_dir_all(repo.join(".git/info")).ok();
+    write(&repo.join(".git/info"), "");
+    let saved = settings::save(&env, Scope::Local, &set("model", json!("haiku")), None).unwrap();
+    assert!(!saved.tracked);
+    let local = repo.join(".claude/settings.local.json");
+    assert!(fs::read_to_string(&local).unwrap().contains("haiku"));
+
+    // Already tracked: the preview says so, and no exclude is written for nothing.
+    fs::remove_file(repo.join(".git/info")).unwrap();
+    git(&["add", "-f", ".claude/settings.local.json"]);
+    let preview = settings::preview(&env, Scope::Local, &set("model", json!("sonnet"))).unwrap();
+    assert!(preview.tracked);
+    settings::save(&env, Scope::Local, &set("model", json!("sonnet")), None).unwrap();
+    assert!(!repo.join(".git/info/exclude").exists());
+    let shared = settings::preview(&env, Scope::Project, &set("model", json!("sonnet"))).unwrap();
+    assert!(!shared.tracked, "only the local file is told");
     fs::remove_dir_all(&root).unwrap();
 }
 
@@ -857,7 +935,15 @@ fn a_hidden_session_may_only_do_its_task() {
         call("mcp__x__Artifact", json!({"action": "delete", "url": URL})),
     ] {
         assert_eq!(decision(&delete, refused.clone()), "deny", "{refused}");
+        assert_eq!(
+            artifacts::decide_permission(&delete, &refused),
+            None,
+            "{refused}"
+        );
     }
+    let confirmed = call("Artifact", json!({"action": "delete", "url": URL}));
+    assert!(artifacts::decide_permission(&delete, &confirmed).is_some());
+    assert_eq!(artifacts::decide_permission(&list, &confirmed), None);
 }
 
 fn deleting(urls: &[&str]) -> Deletion {
@@ -1032,6 +1118,12 @@ printf '{"answer":"{\\"deleted\\": [], \\"failed\\": []}"}\n'"#,
         let payload = json!({"tool_name": "Artifact", "tool_input": call});
         let decision = artifacts::decide(&policy, &payload);
         if decision["hookSpecificOutput"]["permissionDecision"] == "allow" {
+            // Claude Code 2.1.330 still asks before each `Artifact` delete: TermF answers, no tile shows.
+            let answer = artifacts::decide_permission(&policy, &payload).expect("answered");
+            assert_eq!(
+                answer["hookSpecificOutput"]["decision"]["behavior"],
+                "allow"
+            );
             d.hook(4, "PostToolUse", &payload);
         } else {
             refused.push(call["url"].as_str().unwrap().to_owned());

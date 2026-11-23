@@ -225,9 +225,19 @@
     team: !aside.includes("team") && draft?.team.team ? draft.team : null,
     trackers: !aside.includes("tickets") ? trackers : null,
   });
+  /** Each chosen repository's test command: the team runs it before delivering. */
+  const checks = $derived(
+    Object.fromEntries(
+      chosen.flatMap((p) => {
+        const d = found[p];
+        const run = typeof d === "object" ? d.scripts.find((s) => s.kind === "test")?.run : undefined;
+        return run ? [[p, run]] : [];
+      }),
+    ),
+  );
   $effect(() => {
     if (step !== "create" || !name) return;
-    const args = { name, repos: [...chosen], team: writes.team, trackers: writes.trackers };
+    const args = { name, repos: [...chosen], team: writes.team, trackers: writes.trackers, checks };
     invoke<string>("setup_preview", args).then(
       (text) => (preview = text),
       (e) => (preview = String(e)),
@@ -344,7 +354,7 @@
     let project: string | null = null;
     try {
       const before = app.workspace!.projects;
-      const after = await invoke<Project[]>("project_save", { id: null, name, repos: chosen });
+      const after = await invoke<Project[]>("project_save", { id: null, name, repos: chosen, checks });
       app.workspace!.projects = after;
       project = added(before, after);
     } catch (e) {
