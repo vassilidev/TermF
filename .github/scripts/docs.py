@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Builds the website's generated parts: the docs (site/docs/*.html and site/docs/search.json) from the Markdown of
 # site/docs-src/<section>/<page>.md, the role cards from library/roles/ and site/roles.toml, the number of roles on the
-# front page (between <!-- gen:count --> markers), a small redirect page for every retired address in
+# front page (between <!-- gen:count --> and <!-- gen:team --> markers), a small redirect page for every retired address in
 # site/redirects.txt, and site/sitemap.xml.
 # Usage: python3 .github/scripts/docs.py (Python 3.11+, standard library only). The Pages workflow runs it.
 import glob
@@ -97,6 +97,17 @@ def role_cards():
         out.append(f'<section class="crew" aria-labelledby="crew-{g["id"]}"><h3 id="crew-{g["id"]}">{g["name"]}</h3>'
                    f'<p>{g["intro"]}</p><div class="roles">{"".join(cards)}</div></section>')
     return "\n".join(out)
+
+
+def roster():
+    """The front page's team: every role by group, each a link to its card in the docs."""
+    out = []
+    for g in crew["groups"]:
+        members = [r for r in roles if r["group"] == g["id"]]
+        if members:
+            items = "".join(f'<li><a href="docs/team.html#role-{r["name"]}"><span class="ini" aria-hidden="true">{esc(r["mark"])}</span>{esc(r["label"])}</a></li>' for r in members)
+            out.append(f'<section class="c-{g["color"]}" aria-labelledby="g-{g["id"]}"><h3 id="g-{g["id"]}">{esc(g["name"])}</h3><ul>{items}</ul></section>')
+    return "".join(out)
 
 
 # ---------------------------------------------------------------------------------------------------------- markdown
@@ -331,7 +342,14 @@ OG_ALT = "TermF. Stop using Claude Code (alone). Tickets in. Reviewed pull reque
 THEME_SCRIPT = """<script>try{const t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch{}</script>"""
 
 
-def head(title, desc, url, prefix):
+def breadcrumbs(*items):
+    """The BreadcrumbList of a page, from (name, url) pairs."""
+    data = {"@context": "https://schema.org", "@type": "BreadcrumbList",
+            "itemListElement": [{"@type": "ListItem", "position": i, "name": n, "item": u} for i, (n, u) in enumerate(items, 1)]}
+    return f'<script type="application/ld+json">{json.dumps(data, ensure_ascii=False)}</script>'
+
+
+def head(title, desc, url, prefix, ld=""):
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -351,6 +369,8 @@ def head(title, desc, url, prefix):
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="{OG_ALT}">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{esc(title)}">
+<meta name="twitter:description" content="{esc(desc)}">
 <meta name="twitter:image" content="{BASE}og.png">
 <meta name="twitter:image:alt" content="{OG_ALT}">
 <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
@@ -362,13 +382,14 @@ def head(title, desc, url, prefix):
 <link rel="preload" href="{prefix}fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{prefix}site.css">
 {THEME_SCRIPT}
+{ld}
 </head>"""
 
 
 def topbar(prefix):
     return f"""<header class="top">
   <button class="side-btn" type="button" aria-controls="side" aria-expanded="false">{icon("menu")}{icon("x")}<span class="vh">Documentation menu</span></button>
-  <a class="brand" href="{prefix}"><img src="{prefix}icon.svg" alt="" width="26" height="26"><span>TermF</span></a>
+  <a class="brand" href="{prefix}" aria-label="TermF home"><img src="{prefix}icon.svg" alt="" width="26" height="26"><span>TermF</span></a>
   <a class="top-docs" href="{prefix}docs/">Docs</a>
   <button class="find" type="button" aria-haspopup="dialog" aria-label="Search the docs">{icon("search")}<span>Search the docs</span><kbd>⌘K</kbd></button>
   <nav class="top-links" aria-label="Site">
@@ -491,7 +512,9 @@ def doc_page(page, pages, body):
     desc = text_of(first.group(1)) if first else page.title
     desc = desc if len(desc) <= 158 else desc[:155].rsplit(" ", 1)[0] + "…"
     section = dict(SECTIONS)[page.section]
-    return f"""{head(f"{page.title} · TermF docs", desc, BASE + f"docs/{page.slug}.html", prefix)}
+    url = BASE + f"docs/{page.slug}.html"
+    ld = breadcrumbs(("TermF", BASE), ("Docs", BASE + "docs/"), (section, BASE + f"docs/#{page.section}"), (page.title, url))
+    return f"""{head(f"{page.title} · TermF docs", desc, url, prefix, ld)}
 <body class="docs-body">
 <a class="skip" href="#content">Skip to content</a>
 {topbar(prefix)}
@@ -521,7 +544,8 @@ def docs_index(pages):
         items = "".join(f'<li><a href="{p.slug}.html">{p.title}</a></li>' for p in pages if p.section == sid)
         cols.append(f'<section><h2 id="{sid}">{name}</h2><ul>{items}</ul></section>')
     prefix = "../"
-    return f"""{head("Documentation · TermF", "How to install TermF, create a project, work with the CTO and its team, and use every feature.", BASE + "docs/", prefix)}
+    ld = breadcrumbs(("TermF", BASE), ("Docs", BASE + "docs/"))
+    return f"""{head("Documentation · TermF", "How to install TermF, create a project, work with the CTO and its team, and use every feature.", BASE + "docs/", prefix, ld)}
 <body class="docs-body">
 <a class="skip" href="#content">Skip to content</a>
 {topbar(prefix)}
@@ -554,12 +578,12 @@ def redirect(old, new):
 <meta charset="utf-8">
 <title>Moved · TermF</title>
 <meta name="robots" content="noindex">
-<link rel="canonical" href="{BASE}{new}">
+<link rel="canonical" href="{BASE}{target.removeprefix("./")}">
 <meta http-equiv="refresh" content="0; url={esc(rel)}">
 <script>location.replace({json.dumps(rel)}{keep})</script>
 </head>
 <body>
-<p>This page moved: <a href="{esc(rel)}">{esc(BASE + new)}</a>.</p>
+<p>This page moved: <a href="{esc(rel)}">{esc(BASE + new.removeprefix("./"))}</a>.</p>
 </body>
 </html>
 """
@@ -597,7 +621,7 @@ for p in pages:
 open(os.path.join(OUT, "search.json"), "w", encoding="utf-8").write(json.dumps(index, ensure_ascii=False, separators=(",", ":")))
 
 # The front page's count of roles, between its markers
-fills = {"count": COUNTS["roles"]}
+fills = {"count": COUNTS["roles"], "team": roster()}
 path = os.path.join(SITE, "index.html")
 source = open(path, encoding="utf-8").read()
 filled = source
@@ -606,7 +630,7 @@ for key, value in fills.items():
     assert n, f"index.html: no <!-- gen:{key} --> … <!-- /gen:{key} --> marker"
 # The launch video plays over the screenshot only once site/media/ has it, so the page never asks for a missing file
 video = ' data-video' if os.path.exists(os.path.join(SITE, "media", "launch.mp4")) else ""
-filled = re.sub(r'id="reel"( data-video)?', f'id="reel"{video}', filled)
+filled = re.sub(r'id="film"( data-video)?', f'id="film"{video}', filled)
 if filled != source:
     open(path, "w", encoding="utf-8").write(filled)
     print("index.html refreshed")
@@ -615,7 +639,7 @@ urls = ["", "download.html", "docs/"] + [f"docs/{p.slug}.html" for p in pages]
 open(os.path.join(SITE, "sitemap.xml"), "w", encoding="utf-8").write(
     '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
     + "".join(f"  <url>\n    <loc>{BASE}{u}</loc>\n  </url>\n" for u in urls) + "</urlset>\n")
-# The retired pages of the old site, each sent to the page of the docs that replaced it
+# The retired pages of the old site, each sent to the page of the docs, or the place on the front page, that replaced it
 moved = []
 for n, line in enumerate(open(os.path.join(SITE, "redirects.txt"), encoding="utf-8"), 1):
     line = line.split("#", 1)[0].strip() if line.lstrip().startswith("#") else line.strip()
@@ -624,7 +648,8 @@ for n, line in enumerate(open(os.path.join(SITE, "redirects.txt"), encoding="utf
     old, new = line.split()
     target, _, anchor = new.partition("#")
     slug = target[len("docs/"):-len(".html")] if target.endswith(".html") else ""
-    assert target == "docs/" or (slug in by_slug and (not anchor or anchor in by_slug[slug].ids)), f"redirects.txt:{n}: {new} does not exist"
+    front = target == "./" and (not anchor or f'id="{anchor}"' in filled)
+    assert front or target == "docs/" or (slug in by_slug and (not anchor or anchor in by_slug[slug].ids)), f"redirects.txt:{n}: {new} does not exist"
     assert not os.path.exists(os.path.join(SITE, old)) or open(os.path.join(SITE, old), encoding="utf-8").read().startswith("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Moved"), f"redirects.txt:{n}: {old} is a real page"
     os.makedirs(os.path.dirname(os.path.join(SITE, old)), exist_ok=True)
     open(os.path.join(SITE, old), "w", encoding="utf-8").write(redirect(old, new))
