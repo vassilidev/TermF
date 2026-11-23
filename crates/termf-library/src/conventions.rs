@@ -450,6 +450,18 @@ pub fn propose(
     answers: Vec<Answer>,
     claude: &[String],
 ) -> Result<Convention> {
+    propose_with(config_dir, project, slug, answers, claude, &mut |_| {})
+}
+
+/// [`propose`], with what Claude Code reads as it goes.
+pub fn propose_with(
+    config_dir: &Path,
+    project: &str,
+    slug: &str,
+    answers: Vec<Answer>,
+    claude: &[String],
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Convention> {
     let dir = dir(config_dir, project, slug)?;
     let source = fs::read_to_string(dir.join("source.md")).unwrap_or_default();
     ensure!(!source.trim().is_empty(), "write the conventions first");
@@ -468,7 +480,15 @@ pub fn propose(
     let context = Grounding::new(config_dir, project, owned_items(&dir)?)?;
     let (model, effort) = settings(config_dir);
     let prompt = context.prompt(&source, &given, None);
-    let (answer, cost) = ask(claude, &context.repos, &model, &effort, &prompt, &schema())?;
+    let (answer, cost) = ask_showing(
+        claude,
+        &context.repos,
+        &model,
+        &effort,
+        &prompt,
+        &schema(),
+        progress,
+    )?;
 
     let mut next = Pack {
         model,
@@ -1492,12 +1512,14 @@ mod tests {
     /// A stand-in for Claude Code that records its arguments and stdin, then prints `answer` as Claude Code would.
     #[cfg(unix)]
     fn fake_claude(dir: &Path, answer: &Value) -> Vec<String> {
+        let read = json!({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Read", "input": {"file_path": "src/app.css"}}]}});
         let out = json!({ "type": "result", "is_error": false, "total_cost_usd": 0.25, "structured_output": answer });
         let script = dir.join("fake-claude.sh");
         put(
             &script,
             &format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"{0}/args.txt\"\ncat > \"{0}/prompt.txt\"\necho 'profile noise'\ncat <<'EOF'\n{1}\nEOF\n",
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"{0}/args.txt\"\ncat > \"{0}/prompt.txt\"\necho 'profile noise'\ncat <<'EOF'\n{read}\n{1}\nEOF\n",
                 dir.display(),
                 out
             ),
@@ -1611,9 +1633,22 @@ mod tests {
         ]});
         let claude = fake_claude(&dir, &answer);
 
-        let convention = propose(&config, "acme", "front", Vec::new(), &claude).unwrap();
+        let mut steps = Vec::new();
+        let convention = propose_with(&config, "acme", "front", Vec::new(), &claude, &mut |s| {
+            steps.push(s)
+        })
+        .unwrap();
+        assert_eq!(
+            steps,
+            [Progress {
+                tool: "Read".into(),
+                target: "src/app.css".into()
+            }],
+            "what Claude Code reads shows as it goes"
+        );
         let args = fs::read_to_string(dir.join("args.txt")).unwrap();
         for flag in [
+            "--output-format\nstream-json\n",
             "--tools\nRead,Grep,Glob\n",
             "--restricted",
             "--safe-mode",
