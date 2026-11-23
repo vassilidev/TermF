@@ -1136,7 +1136,9 @@ fn remembered(key: &'static str, probe: impl FnOnce() -> bool) -> bool {
 
 pub fn expand_tilde(path: &str) -> PathBuf {
     match (path.strip_prefix("~"), dirs::home_dir()) {
-        (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with(['/', '\\']) => {
+        // Joining "" would end the path with a separator, and every `~/x` shown would read `~x`.
+        (Some(""), Some(home)) => home,
+        (Some(rest), Some(home)) if rest.starts_with(['/', '\\']) => {
             home.join(rest.trim_start_matches(['/', '\\']))
         }
         _ => PathBuf::from(path),
@@ -1784,6 +1786,8 @@ mod tests {
         let home = dirs::home_dir().unwrap();
         assert_eq!(expand_tilde("~/x"), home.join("x"));
         assert_eq!(expand_tilde("~"), home);
+        // Paths compare by component: the text is what the interface shortens to `~/…`.
+        assert_eq!(expand_tilde("~").to_string_lossy(), home.to_string_lossy());
         assert_eq!(expand_tilde("/a/~b"), PathBuf::from("/a/~b"));
         assert_eq!(expand_tilde("~user/x"), PathBuf::from("~user/x"));
     }

@@ -324,7 +324,9 @@ export function repoName(path: string): string {
 /** `~/code/acme/api` for a path under the home folder. */
 export function shortPath(path: string): string {
   const home = app.workspace?.home ?? "";
-  return home && path.startsWith(home) ? "~" + path.slice(home.length) : path;
+  // `/home/al` is not under `/home/a`.
+  const under = home && path.startsWith(home) && (path.length === home.length || /[\\/]/.test(path[home.length]));
+  return under ? "~" + path.slice(home.length) : path;
 }
 
 export function toggleProject(project: Project) {
