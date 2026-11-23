@@ -168,7 +168,7 @@ export const scenarios = [
       await s.waitFor(".new-project .rows", { timeout: 30_000 });
       // What the setup proposes for these repositories, each line kept by default.
       const shown = (await s.text(".new-project .rows")) ?? "";
-      for (const what of ["next-devtools", "acme", "next dev", "CLAUDE.md"]) check(shown.includes(what), `"${what}" is not proposed:\n${shown}`);
+      for (const what of ["next-devtools", "acme", "npm run dev", "CLAUDE.md"]) check(shown.includes(what), `"${what}" is not proposed:\n${shown}`);
       await s.click(go);
       await s.waitFor(t.shown("home"), { timeout: 30_000 });
       const toml = read(join(box.configDir, "projects", "acme.toml"));
