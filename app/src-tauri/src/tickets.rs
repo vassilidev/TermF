@@ -260,7 +260,7 @@ pub(crate) fn conversation(app: &AppHandle, session: u32, conversation: &str) {
 fn stop_session(app: &AppHandle, id: i64) {
     // A team still waiting at a gate of a closed run would ask for it forever, and one at work would go on in a
     // worktree about to go.
-    let _ = crate::team::team(app).stop(Some(id));
+    let _ = crate::team::team(app).run_closed(id);
     let sessions = &app.state::<TicketsState>().sessions;
     let session = sessions.lock().unwrap().remove(&id);
     if let Some(session) = session {

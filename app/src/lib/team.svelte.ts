@@ -27,10 +27,10 @@ export function waitTitle(ask: Ask): string {
   return t(title.key, title.step ? { step: stepTitle(ask.step.key, ask.step.task) } : {});
 }
 
-/** A gate or a blocked step waits for the user. */
 /** A team left waiting by a run closed before closing stopped its team asks for nothing any more. */
-export const openRun = (r: TeamRun) => tickets.runs.find((t) => t.id === r.run)?.status !== "closed";
+export const openRun = (r: TeamRun) => tickets.runs.find((ticket) => ticket.id === r.run)?.status !== "closed";
 
+/** A gate or a blocked step waits for the user. */
 export function waitingRuns(): TeamRun[] {
   return team.runs.filter((r) => openRun(r) && asks(r).length);
 }

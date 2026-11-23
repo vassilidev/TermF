@@ -1044,6 +1044,24 @@ impl Team {
         Ok(stopped)
     }
 
+    /// The team of a run being closed or cleaned up stops with it, waiting at a gate or at work: its worktree is
+    /// about to go. Nothing for a team not at work.
+    pub fn run_closed(&self, id: i64) -> Result<()> {
+        let inner = &self.inner;
+        let _lock = inner.lock.lock().unwrap();
+        let store = inner.store()?;
+        let mut run = inner.get(&store, id)?;
+        if run.state.active() {
+            inner.halt(
+                &store,
+                &mut run,
+                RunState::Stopped,
+                "its ticket run was closed",
+            )?;
+        }
+        Ok(())
+    }
+
     /// Rule levels for the ticket (`task: None`) or a task of the plan, for the steps that start from now.
     pub fn set_rules(
         &self,
@@ -3417,13 +3435,21 @@ impl Inner {
         });
         let writes = role.map(|r| list(r.meta.get("writes"))).unwrap_or_default();
         let paths = squad.map(|s| s.paths).unwrap_or_default();
-        // A screen changed by any role reaches the visual review: its check reads the diff, not who wrote it (a back
-        // developer builds the page of a project with no front role).
-        for rule in rules.iter().filter(|r| {
-            r.level >= Level::Warn
-                && (r.applies(&task.role, squad_id.as_deref())
-                    || r.check.as_deref() == Some("ui-changed"))
+        // The shipped visual review follows a screen whoever builds it (the triage gives the page of a project without
+        // a front role to back), on what the plan and the report declare: for another role, a file alone may be a
+        // test or an e-mail template. A rule of the user's keeps its own roles.
+        if rules.iter().any(|r| {
+            r.shipped
+                && r.level >= Level::Warn
+                && r.check.as_deref() == Some("ui-changed")
+                && !r.applies(&task.role, squad_id.as_deref())
         }) {
+            run.ui_changed |= task.ui_impact || !report.affected_views.is_empty();
+        }
+        for rule in rules
+            .iter()
+            .filter(|r| r.level >= Level::Warn && r.applies(&task.role, squad_id.as_deref()))
+        {
             let found = match rule.check.as_deref() {
                 Some("scope") => rules::check_scope(&task, &writes, &paths, &report, &files, lines),
                 Some("text-changes") => rules::check_texts(&diff, &run.target.brief, &report),

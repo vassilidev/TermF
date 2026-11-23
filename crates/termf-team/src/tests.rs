@@ -1176,36 +1176,96 @@ fn asks_the_last_task_again_from_the_visual_gate() {
     assert_eq!(run.state, RunState::Done);
 }
 
-#[test]
-fn a_page_changed_by_the_back_developer_still_waits_for_the_visual_review() {
-    let env = Env::new("visual-back");
+/// A run whose one task T1 runs `script`, then its rules and its visual gate, with `rule` (`(name, rule.md)`) among
+/// the user's rules; the run once its visual step waits or is skipped.
+fn visual_run(
+    name: &str,
+    t1: Value,
+    script: &str,
+    levels: &[(&str, Level)],
+    rule: Option<(&str, &str)>,
+) -> TeamRun {
+    let env = Env::new(name);
     fs::write(
         env.config.join("library/workflows/visual.toml"),
         "[steps.plan]\ntype = \"agent\"\nrole = \"orchestrator\"\n[steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n[steps.rules]\ntype = \"rules\"\nneeds = [\"implement\"]\n[steps.visual]\ntype = \"visual\"\nneeds = [\"rules\"]\n",
     )
     .unwrap();
-    env.answer(
-        "plan.json",
-        env.plan(json!([task("T1", "back", &["public"], &[])])),
-    );
-    env.script(
-        "implement:T1",
-        "mkdir -p public; echo '<b>calc</b>' > public/index.html\n",
-    );
+    if let Some((name, text)) = rule {
+        let dir = env.config.join("library/rules").join(name);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("rule.md"), text).unwrap();
+    }
+    env.answer("plan.json", env.plan(json!([t1])));
+    env.script("implement:T1", script);
     let options = Options {
         workflow: Some("visual".into()),
-        rules: [("visual-review".to_owned(), Level::Warn)].into(),
+        rules: levels.iter().map(|(n, l)| (n.to_string(), *l)).collect(),
         ..Options::default()
     };
     env.team.start(env.target.clone(), options).unwrap();
-    let run = env.until("the visual gate or the end", |r| {
+    env.until("the visual gate or the end", |r| {
         matches!(
             r.steps.last().unwrap().state,
             StepState::Waiting | StepState::Skipped
         )
-    });
+    })
+}
+
+#[test]
+fn a_closed_run_stops_its_team_waiting_at_a_gate_and_says_why() {
+    let env = Env::new("closed");
+    fs::write(
+        env.config.join("library/workflows/gate.toml"),
+        "[steps.plan]\ntype = \"agent\"\nrole = \"orchestrator\"\n[steps.approve]\ntype = \"gate\"\nneeds = [\"plan\"]\n",
+    )
+    .unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["src"], &[])])),
+    );
+    let options = Options {
+        workflow: Some("gate".into()),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    env.state(RunState::Waiting);
+    env.team.run_closed(1).unwrap();
+    let run = env.team.run(1).unwrap();
+    assert_eq!(run.state, RunState::Stopped);
+    assert_eq!(run.note.as_deref(), Some("its ticket run was closed"));
+    env.team.run_closed(1).unwrap();
+}
+
+#[test]
+fn a_page_the_back_developer_builds_still_waits_for_the_visual_review() {
+    let mut page_task = task("T1", "back", &["public"], &[]);
+    page_task["ui_impact"] = true.into();
+    let page = "mkdir -p public; echo '<b>calc</b>' > public/index.html\n";
+    let visual = [("visual-review", Level::Warn)];
+    let run = visual_run("visual-back", page_task.clone(), page, &visual, None);
     assert!(run.ui_changed);
     assert_eq!(run.steps.last().unwrap().state, StepState::Waiting);
+
+    // Another role's test of a component, or its e-mail template, with no screen declared: no screen.
+    let files =
+        "mkdir -p web mail; echo t > web/Button.test.tsx; echo '<p>hi</p>' > mail/welcome.html\n";
+    let other = task("T1", "back", &["web", "mail"], &[]);
+    let run = visual_run("visual-files", other, files, &visual, None);
+    assert!(!run.ui_changed);
+    assert_eq!(run.steps.last().unwrap().state, StepState::Skipped);
+
+    // A rule of the user's with the same check keeps the roles it names.
+    let own = "---\nname: own-visual\ndescription: Screens reviewed\napplies_to: [front]\ncheck: ui-changed\ngate: visual\nlevel: warn\n---\n- Say which screens changed.\n";
+    let levels = [("own-visual", Level::Warn)];
+    let run = visual_run(
+        "visual-own",
+        page_task,
+        page,
+        &levels,
+        Some(("own-visual", own)),
+    );
+    assert!(!run.ui_changed);
 }
 
 #[test]
