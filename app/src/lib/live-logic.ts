@@ -5,12 +5,15 @@ import type { StoredEvent } from "$lib/conversation-logic";
 export type Act =
   | { kind: "thinking"; at: number }
   | { kind: "writing"; at: number }
-  | { kind: "tool"; at: number; call: string; name: string; input: unknown; state: "running" | "done" | "failed" };
+  | { kind: "tool"; at: number; call: string; name: string; input: unknown; state: "running" | "done" | "failed"; output?: string };
 export type ToolAct = Extract<Act, { kind: "tool" }>;
 /** A session's activity: what it does now (null between turns) and its last tool calls, oldest first. */
 export type Activity = { now: Act | null; recent: ToolAct[] };
 
 const KEEP = 30;
+/** What a failed call keeps of its output: its last lines, where a test run or a build says what broke. */
+const TAIL = 12;
+const tail = (output: string) => output.trimEnd().split("\n").slice(-TAIL).join("\n");
 
 /**
  * The activity after `e`; the same object when nothing changed, so a stream of deltas costs no update. A subagent's
@@ -34,7 +37,7 @@ export function follow(activity: Activity | undefined, e: StoredEvent): Activity
     }
     case "tool_result": {
       const state = e.isError ? "failed" : "done";
-      const mark = (a: ToolAct): ToolAct => (a.call === e.call ? { ...a, state } : a);
+      const mark = (a: ToolAct): ToolAct => (a.call !== e.call ? a : e.isError ? { ...a, state, output: tail(e.output) } : { ...a, state });
       if (!was.recent.some((a) => a.call === e.call)) return was;
       const recent = was.recent.map(mark);
       // Between a call's end and what comes next, the agent reads what it got.
@@ -50,6 +53,13 @@ export function follow(activity: Activity | undefined, e: StoredEvent): Activity
       return was;
   }
 }
+
+const FAILURE = /\b(fail(ed|ures?)?|errors?|assert(ion)?error|panic(ked)?)\b|✗|×/i;
+/** "0 failed", "no errors": a count of failures that says there are none. */
+const NONE = /\b(0|no)\s+(fail(ed|ures?)?|errors?)\b/gi;
+
+/** Whether a line a command printed says something broke: a failure or an error, not a count of none. */
+export const broke = (line: string) => FAILURE.test(line.replace(NONE, ""));
 
 /** A phrase key and its values: `target` is what to show as code. */
 export type Phrase = { key: string; target?: string; vars?: Record<string, string | number> };
@@ -108,11 +118,6 @@ export function phrase(name: string, input: unknown): Phrase {
   return target ? { key: "liveToolOn", target, vars: { tool: name } } : { key: "liveTool", vars: { tool: name } };
 }
 
-const EDITS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
-const edited = (act: ToolAct) => first((act.input ?? {}) as Record<string, unknown>, ["file_path", "notebook_path", "path"]);
-/** Only a change that went through, to a known file, joins « Modifie N fichiers »: a failure keeps its own line. */
-const groupable = (act: ToolAct) => EDITS.has(act.name) && act.state === "done" && edited(act) !== "";
-
 /**
  * A session's activity from its stored past, then what was heard while it was read and came after it. From nothing:
  * what was heard before is in the past too.
@@ -128,41 +133,4 @@ export function elapsed(seconds: number): Phrase {
   if (s < 60) return { key: "liveSeconds", vars: { n: s } };
   if (s < 3600) return { key: "liveMinutes", vars: { n: Math.floor(s / 60) } };
   return { key: "liveHours", vars: { h: Math.floor(s / 3600), m: String(Math.floor((s % 3600) / 60)).padStart(2, "0") } };
-}
-
-type FeedStep = { key: string; role: string | null; state: string; session: number | null; started: number | null; finished: number | null; report: { status: string } | null };
-/** A line of a run's feed: a step that starts or ends, or a call of a step's agent. */
-export type Moment =
-  | { kind: "start"; at: number; step: string; role: string | null }
-  | { kind: "end"; at: number; step: string; how: "done" | "blocked" | "failed" }
-  | { kind: "act"; at: number; step: string; role: string | null; act: ToolAct }
-  | { kind: "edits"; at: number; step: string; role: string | null; files: string[] };
-
-/**
- * A run's feed, oldest first: its steps' starts and ends, and what their agents did that this window heard. Files a
- * step changes in a row make one line.
- */
-export function feed(steps: FeedStep[], heard: (session: number) => ToolAct[]): Moment[] {
-  const out: Moment[] = [];
-  for (const s of steps) {
-    if (s.started !== null) out.push({ kind: "start", at: s.started, step: s.key, role: s.role });
-    if (s.finished !== null && (s.state === "done" || s.state === "blocked")) {
-      const how = s.state === "done" ? "done" : s.report?.status === "failed" ? "failed" : "blocked";
-      out.push({ kind: "end", at: s.finished, step: s.key, how });
-    }
-    for (const act of s.session === null ? [] : heard(s.session)) out.push({ kind: "act", at: act.at, step: s.key, role: s.role, act });
-  }
-  // Stable: a step's start stays before its first call of the same second.
-  const sorted = out.map((m, i) => [m, i] as const).sort(([a, i], [b, j]) => a.at - b.at || i - j);
-  const merged: Moment[] = [];
-  for (const [m] of sorted) {
-    const last = merged.at(-1);
-    const edit = m.kind === "act" && groupable(m.act) ? edited(m.act) : null;
-    if (edit === null || !last || last.step !== m.step) merged.push(m);
-    else if (last.kind === "edits") last.files = [...new Set([...last.files, edit])];
-    else if (last.kind === "act" && groupable(last.act)) {
-      merged[merged.length - 1] = { kind: "edits", at: last.at, step: m.step, role: last.role, files: [...new Set([edited(last.act), edit])] };
-    } else merged.push(m);
-  }
-  return merged;
 }

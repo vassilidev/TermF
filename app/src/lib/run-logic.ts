@@ -91,6 +91,34 @@ export function stages(ticket: Ticket, team?: Team | null): Stage[] {
   return [...out, { id: "deliver", state: last }];
 }
 
+/** The stage of a step on the timeline: the CTO's escalation in the stage of the step it decides on. */
+export const stageOfStep = (team: Team, step: Step): string => stageOf(team.steps.find((s) => s.key === step.escalates) ?? step);
+
+/**
+ * A team no longer at work, the steps it stopped on: blocked, or still running when it was stopped or ran out of
+ * budget. Nothing while it works: what waits is on a lane.
+ */
+export function stuck<S extends Step>(team: { state: string; steps: S[] }): S[] {
+  if (working(team)) return [];
+  const halted = team.state === "stopped" || team.state === "budget";
+  return team.steps.filter((s) => s.kind !== "foreach" && (s.state === "blocked" || (halted && s.state === "running")));
+}
+
+/**
+ * The stage whose steps the Run page lists unless one is picked: where a team no longer at work stopped, else its
+ * tasks, else (a workflow without a plan's tasks) the stage under way, failed or last done.
+ */
+export function defaultStage(team: Team, timeline: Stage[]): string {
+  const stop = stuck(team)[0];
+  if (stop) return stageOfStep(team, stop);
+  if (team.steps.some((s) => s.kind === "task")) return "tasks";
+  // Only a stage with steps to list: the delivery of a workflow without one has none.
+  const listed = new Set(team.steps.map((s) => stageOfStep(team, s)));
+  const own = timeline.filter((s) => listed.has(s.id));
+  const at = own.find((s) => s.state === "working" || s.state === "waiting" || s.state === "failed") ?? own.findLast((s) => s.state === "done");
+  return at?.id ?? "tasks";
+}
+
 /** The shipped stages' names; any other is shown as its id. */
 export const stageNames: Record<string, Key> = {
   triage: "ux3t2StageTriage",
