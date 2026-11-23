@@ -1016,13 +1016,19 @@ h1, h2 { font-family: var(--font-display); }
       await t.s.waitGone("dialog.confirm[open]");
 
       // The side panel folds away, opens again with its width kept.
-      const width = () => t.s.exec((c) => document.querySelector(`${c} aside.side`)?.getBoundingClientRect().width ?? 0, page);
+      const width = () => t.s.exec((c) => document.querySelector(`${c} aside.side [role=separator]`)?.getAttribute("aria-valuenow"), page);
       const before = await width();
       await t.s.click(`${page} aside.side header .icon-btn`);
       await t.s.waitGone(`${page} aside.side`);
       await t.s.click(`${page} ${t.sel("data-testid", "ui-side")}`);
       await t.s.waitFor(`${page} aside.side`);
       if ((await width()) !== before) throw new Error("the side panel's width was not kept");
+      // Its edge widens it from the keyboard, and the width is stored for the next launch.
+      await t.s.click(`${page} aside.side [role=separator]`);
+      await t.s.press("\uE012");
+      const wider = String(Number(before) + 16);
+      await t.s.wait(async () => (await width()) === wider, { what: "the panel 16 px wider" });
+      if ((await t.s.exec(() => localStorage.getItem("termf.side.ui-f1-demo"))) !== wider) throw new Error("the side panel's width was not stored");
       await t.clean();
     },
   },
