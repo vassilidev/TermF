@@ -6,6 +6,7 @@
   import Plus from "@lucide/svelte/icons/plus";
   import UserRound from "@lucide/svelte/icons/user-round";
   import Conversation from "$lib/Conversation.svelte";
+  import GitProposal from "$lib/GitProposal.svelte";
   import Square from "@lucide/svelte/icons/square";
   import Banner from "$lib/ui/Banner.svelte";
   import SelectionBar from "$lib/ui/SelectionBar.svelte";
@@ -168,6 +169,8 @@
     }
   }
 </script>
+
+{#snippet cleanupPlan(text: string)}<GitProposal {text} />{/snippet}
 
 <div class="conversations">
   <ViewHeader title={t("chatView")} context={currentProject()?.name ?? t("ticketsAll")}>
@@ -362,7 +365,7 @@
         </form>
       {:else if current}
         {#key current.id}
-          <Conversation session={current} />
+          <Conversation session={current} fences={{ "termf-cleanup": cleanupPlan }} />
         {/key}
       {/if}
     </section>

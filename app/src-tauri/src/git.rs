@@ -5,9 +5,10 @@ use std::path::Path;
 
 use tauri::AppHandle;
 use termf_git::{
-    Blame, CommitDetail, FileDiff, FileHistory, ForcePlan, Git, Graph, Outcome, Pick, Pr, Pull,
-    Push, RebasePlan, ResetMode, ResetPlan, Resolution, State, Step, Unique,
+    Blame, Cleanup, CommitDetail, FileDiff, FileHistory, ForcePlan, Git, Graph, Outcome, Pick, Pr,
+    Pull, Push, RebasePlan, ResetMode, ResetPlan, Resolution, RunRef, State, Step, Unique,
 };
+use termf_tickets::RunStatus;
 
 use crate::CmdResult;
 use crate::tickets::blocking;
@@ -371,6 +372,61 @@ pub async fn git_reset(
 #[tauri::command]
 pub async fn git_force_plan(app: AppHandle, repo: String, branch: String) -> CmdResult<ForcePlan> {
     with_git(app, repo, move |git, repo| git.force_plan(repo, &branch)).await
+}
+
+/// What can be cleaned up in the repository; `merged`: the branches whose pull request was merged, as the view
+/// knows them from `git_prs`. TermF's runs of this repository say which worktrees and branches are theirs.
+#[tauri::command]
+pub async fn git_cleanup(app: AppHandle, repo: String, merged: Vec<String>) -> CmdResult<Cleanup> {
+    blocking(app, move |app| {
+        let canonical = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| p.into());
+        let here = canonical(&repo);
+        let runs: Vec<RunRef> = crate::tickets::tickets(app)
+            .runs()?
+            .into_iter()
+            .filter(|r| canonical(&r.repo) == here)
+            .map(|r| RunRef {
+                id: r.id,
+                open: matches!(r.status, RunStatus::Running | RunStatus::Delivered),
+                done: r.pr_state.is_some()
+                    || matches!(r.status, RunStatus::Closed | RunStatus::Failed),
+                worktree: r.worktree,
+                branch: r.branch,
+            })
+            .collect();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
+        Git::default().cleanup(Path::new(&repo), &runs, &merged, now)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn git_worktree_remove(
+    app: AppHandle,
+    repo: String,
+    path: String,
+    changes: usize,
+) -> CmdResult<()> {
+    with_git(app, repo, move |git, repo| {
+        git.remove_worktree(repo, &path, changes)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn git_worktree_restore(
+    app: AppHandle,
+    repo: String,
+    path: String,
+    branch: Option<String>,
+    head: String,
+) -> CmdResult<()> {
+    with_git(app, repo, move |git, repo| {
+        git.restore_worktree(repo, &path, branch.as_deref(), &head)
+    })
+    .await
 }
 
 #[tauri::command]

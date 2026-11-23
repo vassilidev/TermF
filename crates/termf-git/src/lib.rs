@@ -10,10 +10,12 @@ use std::process::{Command, Output, Stdio};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
+mod cleanup;
 #[cfg(test)]
 mod tests;
 mod work;
 
+pub use cleanup::*;
 pub use work::*;
 
 /// The most commits one graph reads.
@@ -177,6 +179,8 @@ pub struct Pr {
     pub url: String,
     /// The branch it comes from.
     pub branch: String,
+    /// The commit of that branch it holds (merged, its last one); empty when gh does not say.
+    pub head: String,
 }
 
 /// What deleting a branch would lose: the commits no other branch or tag holds.
@@ -412,6 +416,8 @@ struct GhPr {
     is_draft: bool,
     url: String,
     head_ref_name: String,
+    #[serde(default)]
+    head_ref_oid: String,
     is_cross_repository: bool,
 }
 
@@ -687,7 +693,7 @@ impl Git {
             .command(&self.gh)
             .current_dir(repo)
             .args(["pr", "list", "--state", "all", "--limit", "100", "--json"])
-            .arg("number,title,state,isDraft,url,headRefName,isCrossRepository")
+            .arg("number,title,state,isDraft,url,headRefName,headRefOid,isCrossRepository")
             .output();
         let out = match out {
             Ok(out) if out.status.success() => out,
@@ -704,6 +710,7 @@ impl Git {
                 draft: p.is_draft,
                 url: p.url,
                 branch: p.head_ref_name,
+                head: p.head_ref_oid,
             })
             .collect()
     }
