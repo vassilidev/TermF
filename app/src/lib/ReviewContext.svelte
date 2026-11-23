@@ -72,7 +72,9 @@
   <section>
     <h4>{t("review5bChanged")}</h4>
     <p>
-      {#if !screen.changed}
+      {#if !screen.before && screen.after}
+        {t("practicalVisualAfterOnly")}
+      {:else if !screen.changed}
         {t("review5bSame")}
       {:else if zones}
         {zones === 1 ? t("review5bZone") : t("review5bZones", { count: zones })} · {t("review5bPixels", { percent: percent(screen.ratio, lang) })}
