@@ -327,7 +327,7 @@
     bind:open={confirming}
     title={t("gitclConfirmTitle", { items: items(sel.count) })}
     confirm={sel.lost || sel.changes
-      ? t("gitclConfirmLose", { loss: loss(sel.lost, sel.changes, sel.runs) })
+      ? t("gitclConfirmLose", { loss: loss(sel.lost, sel.changes) })
       : t("gitclConfirmClose", { runs: count(sel.runs, "gitclRunsOne", "gitclRuns") })}
     cancel={t("uiF1DialogKeep")}
     danger
