@@ -313,6 +313,7 @@ def render_nested(lines, page):
 ICONS = {
     "search": '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
     "menu": '<path d="M4 6h16M4 12h16M4 18h16"/>',
+    "x": '<path d="M18 6 6 18M6 6l12 12"/>',
     "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
     "moon": '<path d="M20.99 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.79 9.8Z"/>',
     "github": '<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>',
@@ -323,6 +324,9 @@ ICONS = {
 def icon(name):
     return f'<svg class="i" viewBox="0 0 24 24" aria-hidden="true">{ICONS[name]}</svg>'
 
+
+# The share image, site/og.png, made from site/og/og.html
+OG_ALT = "TermF. Stop using Claude Code (alone). Tickets in. Reviewed pull requests out."
 
 THEME_SCRIPT = """<script>try{const t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch{}</script>"""
 
@@ -342,7 +346,13 @@ def head(title, desc, url, prefix):
 <meta property="og:description" content="{esc(desc)}">
 <meta property="og:url" content="{url}">
 <meta property="og:image" content="{BASE}og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="{OG_ALT}">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{BASE}og.png">
+<meta name="twitter:image:alt" content="{OG_ALT}">
 <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0b0b12" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
@@ -357,7 +367,7 @@ def head(title, desc, url, prefix):
 
 def topbar(prefix):
     return f"""<header class="top">
-  <button class="side-btn" type="button" aria-controls="side" aria-expanded="false">{icon("menu")}<span class="vh">Documentation menu</span></button>
+  <button class="side-btn" type="button" aria-controls="side" aria-expanded="false">{icon("menu")}{icon("x")}<span class="vh">Documentation menu</span></button>
   <a class="brand" href="{prefix}"><img src="{prefix}icon.svg" alt="" width="26" height="26"><span>TermF</span></a>
   <a class="top-docs" href="{prefix}docs/">Docs</a>
   <button class="find" type="button" aria-haspopup="dialog" aria-label="Search the docs">{icon("search")}<span>Search the docs</span><kbd>⌘K</kbd></button>
