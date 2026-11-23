@@ -66,7 +66,6 @@ export const ask = $state({
 const screens: Partial<Record<ViewId, Parameters<typeof t>[0]>> = {
   run: "aigScreenRun",
   review: "aigScreenReview",
-  onboarding: "obConfigure",
   newProject: "newProject",
 };
 

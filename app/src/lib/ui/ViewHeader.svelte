@@ -2,7 +2,6 @@
   import { getContext, type Snippet } from "svelte";
   import X from "@lucide/svelte/icons/x";
   import { t } from "$lib/i18n";
-  import { closeSetup } from "$lib/onboarding.svelte";
   import { closePanel } from "$lib/panes.svelte";
   import { closeProject } from "$lib/project.svelte";
   import { panes, ui, type ViewId } from "$lib/state.svelte";
@@ -13,7 +12,6 @@
   /** A page's panel closes as the page does, which forgets what it showed. */
   function close(view: ViewId) {
     if (view === "project") closeProject();
-    else if (view === "onboarding") closeSetup();
     else closePanel(view);
   }
 
