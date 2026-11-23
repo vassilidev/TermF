@@ -686,6 +686,37 @@ export const scenarios = [
     },
   },
   {
+    name: "git: merged branches and a worktree cleaned up in one go, unpushed work kept, then all put back with Undo",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("git");
+      const folder = join(box.root, "acme-old");
+      box.git("branch", "merged-one");
+      box.git("branch", "merged-two");
+      box.git("worktree", "add", "-q", "-b", "old-work", folder);
+      box.git("switch", "-q", "-c", "wip");
+      writeFileSync(join(box.acme, "wip.txt"), "not pushed\n");
+      box.git("add", "wip.txt");
+      box.git("commit", "-q", "-m", "Work in progress");
+      box.git("switch", "-q", "main");
+      const has = (name) => box.git("branch", "--list", name).trim() !== "";
+      await t.ready();
+      await t.project();
+      await t.view("git");
+      await s.click(`${pane} [data-testid="git-clean"]:not([disabled])`);
+      await s.waitFor(`${pane} [data-testid="git-cleanup"] .item`);
+      // The suggestions are picked: what loses nothing. The branch with an unpushed commit is not.
+      await s.click(`${pane} [data-testid="git-cleanup-apply"]:not([disabled])`);
+      await s.wait(() => !has("merged-one") && !has("merged-two") && !has("old-work") && !existsSync(folder), { what: "the branches and the worktree gone" });
+      check(has("wip"), "the branch with an unpushed commit was deleted");
+      await s.exec(() => [...document.querySelectorAll(".toast-card button")].find((b) => b.querySelector("kbd"))?.click());
+      await s.wait(() => has("merged-one") && has("merged-two") && has("old-work") && existsSync(folder), { what: "everything put back" });
+      await t.settled("git");
+      await t.clean();
+    },
+  },
+  {
     name: "git: a merge conflict resolved with the other branch's side, then the merge continued",
     views: [],
     async run(t) {
