@@ -98,6 +98,18 @@ fn finds_the_commands_a_repository_declares() {
             "lint npm run check"
         ]
     );
+    // What `npm init` writes is no test: it always fails, and would block every delivery as checks.
+    put(
+        &dir.join("package.json"),
+        r#"{ "scripts": { "test": "echo \"Error: no test specified\" && exit 1", "build": "tsc" } }"#,
+    );
+    let init = found(&termf_worktree::detect(&dir, &[]));
+    assert!(!init.iter().any(|s| s.starts_with("test npm")), "{init:?}");
+    assert_eq!(init[0], "build npm run build");
+    put(
+        &dir.join("package.json"),
+        r#"{ "scripts": { "dev": "vite", "build": "vite build", "test": "vitest", "check": "svelte-check" } }"#,
+    );
     put(&dir.join("pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     let pnpm = termf_worktree::detect(&dir, &[]);
     assert_eq!(found(&pnpm)[0], "dev pnpm dev");
@@ -109,6 +121,27 @@ fn finds_the_commands_a_repository_declares() {
         ["build cargo build", "test make test", "lint make lint"]
     );
     fs::remove_dir_all(&dir).unwrap();
+
+    // PHP: Composer's scripts, else Laravel's own test command.
+    let php = temp("scripts-php");
+    put(
+        &php.join("composer.json"),
+        r#"{ "require": { "laravel/framework": "^11.0" } }"#,
+    );
+    put(&php.join("artisan"), "#!/usr/bin/env php\n");
+    let found = |dir: &Path| -> Vec<String> {
+        scripts(dir, &termf_worktree::detect(dir, &[]))
+            .into_iter()
+            .map(|s| format!("{} {}", s.kind, s.run))
+            .collect()
+    };
+    assert_eq!(found(&php), ["test php artisan test"]);
+    put(
+        &php.join("composer.json"),
+        r#"{ "scripts": { "test": "pest", "lint": "pint --test" } }"#,
+    );
+    assert_eq!(found(&php), ["test composer test", "lint composer lint"]);
+    fs::remove_dir_all(&php).unwrap();
 }
 
 #[test]
@@ -205,17 +238,21 @@ fn detects_and_proposes_before_the_project_exists() {
 
     let trackers: termf_tickets::Trackers =
         serde_json::from_str(r#"{ "github": { "issues": true }, "mcp": {} }"#).unwrap();
+    // The test command the detection found becomes the repository's checks, which the team runs before delivering.
+    let checks = BTreeMap::from([(path.clone(), "npm test".to_owned())]);
     let text = preview(
         " Acme ",
         std::slice::from_ref(&path),
         Some(&draft.team),
         Some(&trackers),
+        &checks,
     )
     .unwrap();
     assert!(text.starts_with("name = \"Acme\"\n"), "{text}");
     assert!(text.contains("[[repos]]"), "{text}");
+    assert!(text.contains("checks = \"npm test\""), "{text}");
     assert!(text.contains("[[squads]]"), "{text}");
     assert!(text.contains("[trackers.github]"), "{text}");
-    assert!(preview("  ", &[], None, None).is_err());
+    assert!(preview("  ", &[], None, None, &BTreeMap::new()).is_err());
     fs::remove_dir_all(&dir).unwrap();
 }

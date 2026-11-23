@@ -38,6 +38,8 @@
   const project = $derived(app.workspace?.projects.find((p) => p.id === id));
   let name = $state(seed?.name ?? "");
   let chosen = $state(seed?.repos.map((r) => r.path) ?? []);
+  /** Each repository's check command, by path: what the team runs before delivering. */
+  let checks = $state<Record<string, string>>({ ...(seed?.checks ?? {}) });
   let adding = $state(false);
   let confirming = $state(false);
   let asked = false;
@@ -55,8 +57,9 @@
   let pending = $state<{ leave: () => void; stay?: () => void }>();
   /** Set once the user chose to leave: nothing asks again on the way out. */
   let released = false;
-  let savedForm = $state(JSON.stringify([seed?.name ?? "", seed?.repos.map((r) => r.path) ?? []]));
-  const dirty = $derived(JSON.stringify([name, chosen]) !== savedForm || !!sources?.dirty());
+  const form = () => JSON.stringify([name, chosen, chosen.map((p) => checks[p]?.trim() ?? "")]);
+  let savedForm = $state(form());
+  const dirty = $derived(form() !== savedForm || !!sources?.dirty());
   // An id that names no project (deleted, or gone after a reload) never shows a form that would create a copy.
   const missing = $derived(!!id && !project);
 
@@ -177,8 +180,9 @@
     busy = true;
     error = "";
     try {
-      app.workspace!.projects = await invoke<Project[]>("project_save", { id, name, repos: chosen });
-      savedForm = JSON.stringify([name, chosen]);
+      const asked = Object.fromEntries(chosen.map((p) => [p, checks[p] ?? ""]));
+      app.workspace!.projects = await invoke<Project[]>("project_save", { id, name, repos: chosen, checks: asked });
+      savedForm = form();
       await sources?.save();
       readRepos();
       return true;
@@ -197,7 +201,8 @@
 
   /** The form goes back to what is saved. */
   function discard() {
-    [name, chosen] = JSON.parse(savedForm);
+    const [n, c, k] = JSON.parse(savedForm) as [string, string[], string[]];
+    [name, chosen, checks] = [n, c, Object.fromEntries(c.map((p, i) => [p, k[i]]))];
     adding = false;
     round++;
   }
@@ -320,6 +325,16 @@
                         </button>
                       {/snippet}
                     </RepoCard>
+                    <label class="checks">
+                      <span>{t("recetteChecks")}</span>
+                      <input
+                        class="field mono"
+                        bind:value={checks[path]}
+                        aria-describedby="checks-hint"
+                        autocomplete="off"
+                        spellcheck="false"
+                      />
+                    </label>
                   </li>
                 {/each}
                 <li>
@@ -328,6 +343,7 @@
                   </button>
                 </li>
               </ul>
+              <p id="checks-hint" class="checks-hint">{t("recetteChecksHint")}</p>
             </div>
           </form>
           <!-- Outside the form: Enter in its search must not save the project. -->
@@ -581,6 +597,32 @@
 
   .repos li + li {
     border-top: 1px solid var(--border);
+  }
+
+  .checks {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px 12px 60px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .checks span {
+    flex-shrink: 0;
+  }
+
+  .checks input {
+    flex: 1;
+    max-width: 360px;
+    height: 28px;
+    font-size: var(--text-sm);
+  }
+
+  .checks-hint {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: var(--text-xs);
   }
 
   /* Right under the list it adds to. */

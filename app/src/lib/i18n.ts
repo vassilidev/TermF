@@ -4117,6 +4117,8 @@ const fr = {
   proportionateTaskRole: "Rôle",
   proportionateTaskGoal: "Objectif",
   proportionateTaskMissing: "Donne le rôle et l'objectif de la tâche.",
+  recetteChecks: "Vérification avant livraison",
+  recetteChecksHint: "La commande que l'équipe lance avant de livrer, par exemple npm test. Vide : rien n'est vérifié.",
 };
 
 type Key = keyof typeof fr;
@@ -8207,6 +8209,8 @@ const en: Record<Key, string> = {
   proportionateTaskRole: "Role",
   proportionateTaskGoal: "Goal",
   proportionateTaskMissing: "Give the task's role and goal.",
+  recetteChecks: "Check before delivery",
+  recetteChecksHint: "The command the team runs before delivering, for example npm test. Empty: nothing is checked.",
 };
 
 const messages = { fr, en };

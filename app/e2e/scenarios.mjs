@@ -101,6 +101,8 @@ export const scenarios = [
       await s.waitFor(t.shown("home"));
       const toml = read(join(box.configDir, "projects", "acme.toml"));
       check(/name = "acme"/.test(toml) && toml.includes("acme"), `unexpected project file:\n${toml}`);
+      // The test command found in package.json is what the team's checks run before delivering.
+      check(toml.includes('checks = "npm test"'), `no checks in the project file:\n${toml}`);
       await t.settled("home");
       await t.clean();
     },
