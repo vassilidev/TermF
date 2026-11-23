@@ -799,6 +799,14 @@ export const scenarios = [
       // Only what is neither a read nor the repository's tests asks: installing a package, the network.
       check(line.includes(" asks=2/12 npm install left-pad | curl -s https://example.com"), `the acceptance run's commands: ${line}`);
 
+      // The fake's report has no summary: the task is blocked, answered on its lane too, accepted as it is.
+      const accept = () =>
+        s.exec((c) => {
+          const button = [...document.querySelectorAll(`${c} .ask.lane button`)].find((b) => b.textContent.trim() === "Accept as it is");
+          button?.click();
+          return !!button;
+        }, run);
+      await s.wait(accept, { what: "the blocked task's lane", timeout: 90_000 });
       // Done, the delivery waits on a lane of its own; the tasks are listed, without a cost on each line.
       await s.wait(async () => /Ready to deliver/.test((await s.text(`${run} .live`)) ?? ""), { what: "the delivery's lane", timeout: 90_000 });
       check(/T1/.test(await s.text(`${run} .stage`)), "the plan's task is not listed");

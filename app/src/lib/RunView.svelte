@@ -706,7 +706,7 @@
                 <p class="muted small pace" class:over={teamRun.budget !== null && pace > teamRun.budget}>
                   {teamRun.budget !== null && pace > teamRun.budget
                     ? t("uiRunPaceOver", { budget: budgetUsd(teamRun.budget) })
-                    : t("uiRunPace", { amount: budgetUsd(Math.ceil(pace)) })}
+                    : t("uiRunPace", { amount: budgetUsd(Math.ceil(pace * 10) / 10) })}
                 </p>
               {/if}
             </section>
