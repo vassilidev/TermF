@@ -125,7 +125,22 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, data_dir: &Path) {
             keep(&watched);
         }
     });
+    // The e2e app on macOS: behind every window of the user, who keeps the keyboard; the bridge needs neither.
+    #[cfg(all(feature = "e2e", target_os = "macos"))]
+    {
+        let _ = window.set_always_on_bottom(true);
+        // Never key either: `show()` would make it so for a moment, and the page would sometimes believe it has the
+        // focus (`document.hasFocus()`).
+        let _ = window.set_focusable(false);
+        // Covered, WebKit would take the page for hidden: no frames for xterm, its timers slowed down.
+        let _ = window.with_webview(|webview| {
+            let view: &objc2::runtime::AnyObject = unsafe { &*(webview.inner() as *const _) };
+            let _: () =
+                unsafe { objc2::msg_send![view, _setWindowOcclusionDetectionEnabled: false] };
+        });
+    }
     let _ = window.show();
+    #[cfg(not(all(feature = "e2e", target_os = "macos")))]
     let _ = window.set_focus();
 }
 
