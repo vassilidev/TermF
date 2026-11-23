@@ -327,7 +327,8 @@
           <Images size={14} aria-hidden="true" />{t("review5bTitle")}
         </button>
       {/if}
-      {#if canResumeTeam}
+      <!-- A closed run's worktree is gone: its team has nowhere to go on. -->
+      {#if canResumeTeam && run?.status !== "closed"}
         <button class="btn sm primary" onclick={() => ((step = { kind: "resume-team" }), (delivering = false))}>
           <RotateCcw size={14} aria-hidden="true" />{t("ticketsUiResume")}
         </button>
