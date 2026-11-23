@@ -311,8 +311,9 @@ pub async fn conventions_apply(
     state: State<'_, AppState>,
     project: String,
     slug: String,
+    repos: Option<bool>,
 ) -> CmdResult<Convention> {
-    conventions::apply(&state.config_dir, &project, &slug).map_err(err)
+    conventions::apply_with(&state.config_dir, &project, &slug, repos.unwrap_or(true)).map_err(err)
 }
 
 #[tauri::command]

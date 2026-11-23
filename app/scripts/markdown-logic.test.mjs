@@ -91,3 +91,22 @@ test("a list after another kind starts a new one; an unclosed fence runs to the 
   assert.deepEqual(blocks("-pas une liste\n---"), [{ kind: "paragraph", spans: [{ kind: "text", text: "-pas une liste\n---" }] }]);
   assert.deepEqual(blocks("\r\n\n"), []);
 });
+
+test("rich: headings and tables, as the CTO and the expert write them", () => {
+  const text =
+    "## Étapes\n\n| Étape | Rôle | Coût |\n|:---|:---:|---:|\n| Plan | `po` | 0,10 $ |\n| Code | **dev** |\n| a \\| b | c | d | e |\nAprès.\n#123 n'est pas un titre";
+  const out = blocks(text, true);
+  assert.deepEqual(out.map((b) => b.kind), ["heading", "table", "paragraph"]);
+  assert.deepEqual(out[0], { kind: "heading", level: 2, spans: [{ kind: "text", text: "Étapes" }] });
+  const table = out[1];
+  assert.deepEqual(table.align, ["left", "center", "right"]);
+  assert.deepEqual(table.head, [[{ kind: "text", text: "Étape" }], [{ kind: "text", text: "Rôle" }], [{ kind: "text", text: "Coût" }]]);
+  assert.equal(table.rows.length, 3);
+  assert.deepEqual(table.rows[0][1], [{ kind: "code", text: "po" }]);
+  assert.deepEqual(table.rows[1][2], [], "a missing cell is empty");
+  assert.deepEqual(table.rows[2][0], [{ kind: "text", text: "a | b" }], "an escaped bar stays in its cell");
+  assert.equal(table.rows[2].length, 3, "extra cells are dropped");
+  assert.deepEqual(out[2].spans, [{ kind: "text", text: "Après.\n#123 n'est pas un titre" }]);
+  assert.deepEqual(blocks("| a | b |\n|---|\n", true).map((b) => b.kind), ["paragraph"], "the delimiter must match the header");
+  assert.deepEqual(blocks("## Titre\n| a |\n|---|").map((b) => b.kind), ["paragraph"], "plain without rich");
+});

@@ -707,6 +707,12 @@ pub fn restore(config_dir: &Path, project: &str, slug: &str) -> Result<Conventio
 /// anything is written: a repository file changed since the proposal stops the whole apply. The items about to
 /// be written are recorded in `journal.toml` first, so an apply that fails half-way can simply be run again.
 pub fn apply(config_dir: &Path, project: &str, slug: &str) -> Result<Convention> {
+    apply_with(config_dir, project, slug, true)
+}
+
+/// [`apply`]; without `repos`, the accepted repository changes are left to the team (a pull request), neither
+/// written nor kept in the pack.
+pub fn apply_with(config_dir: &Path, project: &str, slug: &str, repos: bool) -> Result<Convention> {
     let dir = dir(config_dir, project, slug)?;
     let draft = read_pack(&dir.join("draft.toml"))?.context("no proposal to apply")?;
     ensure!(draft.questions.is_empty(), "answer the questions first");
@@ -720,7 +726,7 @@ pub fn apply(config_dir: &Path, project: &str, slug: &str) -> Result<Convention>
     let accepted: Vec<Proposal> = draft
         .items
         .iter()
-        .filter(|i| i.review == Review::Accepted)
+        .filter(|i| i.review == Review::Accepted && (repos || i.kind != ItemKind::Repo))
         .cloned()
         .collect();
     let same = |a: &Proposal, b: &Proposal| a.kind == b.kind && a.name == b.name;
@@ -2216,6 +2222,28 @@ mod tests {
             .unwrap();
         assert!(draft.items[0].changes);
         assert!(!draft.items[1].changes, "only a check is about changes");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn repository_changes_left_to_the_team_are_neither_written_nor_kept() {
+        let (config, repo) = setup("conventions-team");
+        let dir = config.parent().unwrap().to_path_buf();
+        save_source(&config, "acme", "front", TEXT).unwrap();
+        let mut change = item("repo", "private", "Pas de CSS inline.");
+        change["repo"] = "api".into();
+        change["path"] = "package.json".into();
+        change["content"] = "{ \"private\": true }\n".into();
+        let answer = json!({ "questions": [], "items": [item("preference", "style", "Pas de CSS inline."), change] });
+        propose(&config, "acme", "front", Vec::new(), &fake_claude(&dir, &answer)).unwrap();
+        accept_all(&config);
+        let applied = apply_with(&config, "acme", "front", false).unwrap();
+        let names: Vec<&str> = applied.pack.as_ref().unwrap().items.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["style"]);
+        assert_eq!(
+            fs::read_to_string(repo.join("package.json")).unwrap(),
+            "{ \"name\": \"api\" }\n"
+        );
     }
 
     #[cfg(unix)]
