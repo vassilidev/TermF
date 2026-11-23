@@ -4251,6 +4251,7 @@ const fr = {
   proportionateTaskMissing: "Donne le rôle et l'objectif de la tâche.",
   recetteChecks: "Vérification avant livraison",
   recetteChecksHint: "La commande que l'équipe lance avant de livrer, par exemple npm test. Vide : rien n'est vérifié.",
+  practicalPrDecisionHelp: "Le CTO propose cette décision : à toi de valider ou de demander une autre option.",
 };
 
 type Key = keyof typeof fr;
@@ -8474,6 +8475,7 @@ const en: Record<Key, string> = {
   proportionateTaskMissing: "Give the task's role and goal.",
   recetteChecks: "Check before delivery",
   recetteChecksHint: "The command the team runs before delivering, for example npm test. Empty: nothing is checked.",
+  practicalPrDecisionHelp: "The CTO proposes this decision: approve it or ask for another option.",
 };
 
 const messages = { fr, en };
