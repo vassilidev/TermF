@@ -626,6 +626,7 @@ pub fn run() {
             visual::visual_pr_comment,
             design::design_scan,
             design::design_pdf,
+            design::design_web_fonts,
             onboarding::onboarding_state,
             onboarding::onboarding_analyze,
             onboarding::onboarding_answer,

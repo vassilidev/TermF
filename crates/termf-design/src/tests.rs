@@ -885,3 +885,339 @@ fn never_panics_on_any_text() {
     ));
     assert_eq!(d.files, 2);
 }
+
+/// A Tailwind 4 app with its `@theme` and a font of its own in `static/`.
+fn tailwind_app() -> PathBuf {
+    repo(
+        "tailwind-app",
+        &[
+            ("package.json", r#"{"name": "ledger", "private": true}"#),
+            (
+                "src/app.css",
+                r#"@import "tailwindcss";
+
+@font-face {
+  font-family: "Satoshi";
+  src: url("../static/fonts/Satoshi-Variable.woff2") format("woff2");
+  font-weight: 300 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Satoshi";
+  src: url("/fonts/Satoshi-VariableItalic.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: italic;
+}
+@font-face {
+  font-family: "Escape";
+  src: url("../../outside.woff2");
+}
+
+@theme {
+  --font-sans: "Satoshi", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Satoshi", ui-sans-serif, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --color-ink: oklch(0.21 0.02 265);
+  --color-paper: oklch(0.99 0.004 95);
+  --color-brand-500: oklch(0.62 0.19 155);
+  --color-brand-600: oklch(0.53 0.17 155);
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-2xl: 1.5rem;
+  --text-4xl: 2.25rem;
+  --radius-md: 0.5rem;
+  --radius-xl: 1rem;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.05), 0 8px 24px rgb(0 0 0 / 0.08);
+}
+
+h1, h2 { font-family: var(--font-display); }
+"#,
+            ),
+            ("static/fonts/Satoshi-Variable.woff2", "wOF2 satoshi"),
+            ("static/fonts/Satoshi-VariableItalic.woff2", "wOF2 italic"),
+            ("outside.woff2", "wOF2 outside"),
+            (
+                "src/lib/Button.svelte",
+                "<script lang=\"ts\">let { variant = \"solid\" }: { variant?: \"solid\" | \"soft\" | \"ghost\" } = $props();</script>\n<button class=\"rounded-md bg-brand-600 text-paper font-sans\"><slot /></button>\n",
+            ),
+            (
+                "src/routes/+page.svelte",
+                "<script>import Button from \"$lib/Button.svelte\";</script>\n<h1 class=\"font-display text-4xl text-ink\">Ledger</h1><Button>Pay</Button>\n",
+            ),
+        ],
+    )
+}
+
+/// A site with plain custom properties and Google Fonts, one of them also installed as a `@fontsource` package.
+fn css_site() -> PathBuf {
+    repo(
+        "css-site",
+        &[
+            (
+                "index.html",
+                r#"<!doctype html>
+<html>
+<head>
+<link rel="preconnect" href="https://fonts.gstatic.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&amp;family=Inter:wght@400;500&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles/tokens.css">
+</head>
+<body><h1>Field notes</h1></body>
+</html>
+"#,
+            ),
+            (
+                "styles/tokens.css",
+                r#":root {
+  --font-heading: "Fraunces", Georgia, serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-code: "IBM Plex Mono", monospace;
+  --color-bg: #fbfaf7;
+  --color-text: #1d1b16;
+  --color-accent: #b4432c;
+  --space-2: 8px;
+  --space-4: 16px;
+  --radius-2: 6px;
+}
+body { font-family: var(--font-body); color: var(--color-text); background: var(--color-bg); }
+h1, h2, h3 { font-family: var(--font-heading); }
+pre code { font-family: var(--font-code); }
+"#,
+            ),
+            (
+                "node_modules/@fontsource/inter/index.css",
+                "@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; src: url(./files/inter-latin-ext-400-normal.woff2) format('woff2'); }\n@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; src: url(./files/inter-latin-400-normal.woff2) format('woff2'); }\n",
+            ),
+            (
+                "node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2",
+                "wOF2 inter latin",
+            ),
+            (
+                "node_modules/@fontsource/inter/files/inter-latin-ext-400-normal.woff2",
+                "wOF2 inter latin-ext",
+            ),
+        ],
+    )
+}
+
+/// A React kit with its primitives, their variants and stories, and Inter from `@fontsource-variable`.
+fn react_kit() -> PathBuf {
+    repo(
+        "react-kit",
+        &[
+            (
+                ".storybook/main.ts",
+                "export default { stories: [\"../src/**/*.stories.tsx\"] };",
+            ),
+            (
+                "src/main.tsx",
+                "import \"@fontsource-variable/inter\";\nimport \"@fontsource/jetbrains-mono/400.css\";\nimport \"./index.css\";\n",
+            ),
+            (
+                "src/index.css",
+                ":root {\n  --background: #ffffff;\n  --foreground: #0a0a0a;\n  --primary: #2563eb;\n  --primary-foreground: #ffffff;\n  --border: #e5e7eb;\n  --radius: 0.5rem;\n  --font-sans: \"Inter Variable\", system-ui, sans-serif;\n}\n",
+            ),
+            (
+                "src/components/Button.tsx",
+                r#"export function Button({ variant = "primary", size = "md" }: { variant?: "primary" | "secondary" | "outline" | "destructive"; size?: "sm" | "md" | "lg" }) { return <button className={variant} />; }"#,
+            ),
+            (
+                "src/components/Button.stories.tsx",
+                "export default { title: \"Primitives/Button\" };\nexport const Primary = {};\nexport const Outline = {};\n",
+            ),
+            (
+                "src/components/Badge.tsx",
+                r#"export const Badge = ({ tone }: { tone?: "neutral" | "success" | "warning" }) => <span className={tone} />;"#,
+            ),
+            (
+                "src/components/Card.tsx",
+                "export function Card() { return <div className=\"card\" />; }",
+            ),
+            (
+                "src/components/TextField.tsx",
+                "export function TextField() { return <input />; }",
+            ),
+            (
+                "src/components/Alert.tsx",
+                r#"export function Alert({ intent }: { intent?: "info" | "danger" }) { return <div role="alert" className={intent} />; }"#,
+            ),
+            (
+                "src/App.tsx",
+                "export default function App() { return <Card><TextField /><Badge tone=\"success\" /><Alert /><Button /><Button variant=\"outline\" /></Card>; }",
+            ),
+            (
+                "node_modules/@fontsource-variable/inter/index.css",
+                "/* inter-cyrillic-wght-normal */\n@font-face { font-family: 'Inter Variable'; font-style: normal; font-weight: 100 900; src: url(./files/inter-cyrillic-wght-normal.woff2) format('woff2-variations'); }\n/* inter-latin-wght-normal */\n@font-face { font-family: 'Inter Variable'; font-style: normal; font-weight: 100 900; src: url(./files/inter-latin-wght-normal.woff2) format('woff2-variations'); }\n",
+            ),
+            (
+                "node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
+                "wOF2 inter variable",
+            ),
+            (
+                "node_modules/@fontsource-variable/inter/files/inter-cyrillic-wght-normal.woff2",
+                "wOF2 cyrillic",
+            ),
+        ],
+    )
+}
+
+fn font<'a>(d: &'a Design, family: &str) -> &'a fonts::Font {
+    d.fonts
+        .iter()
+        .find(|f| f.family == family)
+        .unwrap_or_else(|| panic!("no {family} in {:#?}", d.fonts))
+}
+
+#[test]
+fn reads_a_tailwind_app_with_its_own_font_files() {
+    let root = tailwind_app();
+    // A face that points outside the repository is never read, even when the file is there.
+    let inner = root.join("repo");
+    fs::create_dir_all(&inner).unwrap();
+    for entry in ["package.json", "src", "static"] {
+        fs::rename(root.join(entry), inner.join(entry)).unwrap();
+    }
+    let d = scan(&inner);
+    let satoshi = font(&d, "Satoshi");
+    assert_eq!(satoshi.origin, fonts::Origin::Repo);
+    assert_eq!((satoshi.file.as_str(), satoshi.line), ("src/app.css", 4));
+    let faces: Vec<_> = satoshi
+        .faces
+        .iter()
+        .map(|f| (f.weight.as_str(), f.style.as_str(), f.file.as_str()))
+        .collect();
+    assert_eq!(
+        faces,
+        [
+            ("300 900", "normal", "static/fonts/Satoshi-Variable.woff2"),
+            (
+                "300 900",
+                "italic",
+                "static/fonts/Satoshi-VariableItalic.woff2"
+            ),
+        ]
+    );
+    assert_eq!(
+        satoshi.faces[0].src,
+        format!(
+            "data:font/woff2;base64,{}",
+            <base64ct::Base64 as base64ct::Encoding>::encode_string(b"wOF2 satoshi")
+        )
+    );
+    let escape = font(&d, "Escape");
+    assert_eq!(
+        (escape.origin, escape.faces.len()),
+        (fonts::Origin::Missing, 0)
+    );
+    assert_eq!(
+        d.font_uses,
+        [FontUse {
+            role: "heading",
+            value: "var(--font-display)".into(),
+            file: "src/app.css".into(),
+            line: 37,
+        }]
+    );
+    assert_eq!(token(&d, "--font-sans").family, Family::Font);
+    assert_eq!(
+        d.components[0].variants[0].values,
+        ["solid", "soft", "ghost"]
+    );
+}
+
+#[test]
+fn reads_web_fonts_from_an_installed_package_and_leaves_the_others_to_fetch() {
+    let d = scan(&css_site());
+    let inter = font(&d, "Inter");
+    assert_eq!(inter.origin, fonts::Origin::Package);
+    assert_eq!(
+        inter
+            .faces
+            .iter()
+            .map(|f| f.file.as_str())
+            .collect::<Vec<_>>(),
+        ["node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2"]
+    );
+    let fraunces = font(&d, "Fraunces");
+    assert_eq!(
+        (fraunces.origin, fraunces.faces.len()),
+        (fonts::Origin::Service, 0)
+    );
+    assert_eq!((fraunces.file.as_str(), fraunces.line), ("index.html", 5));
+    assert_eq!(
+        fraunces.url.as_deref(),
+        Some(
+            "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500&display=swap"
+        )
+    );
+    let roles: Vec<_> = d
+        .font_uses
+        .iter()
+        .map(|u| (u.role, u.value.as_str()))
+        .collect();
+    assert_eq!(
+        roles,
+        [
+            ("body", "var(--font-body)"),
+            ("heading", "var(--font-heading)"),
+            ("code", "var(--font-code)"),
+        ]
+    );
+}
+
+#[test]
+fn reads_a_component_kit_with_stories_and_its_variable_font() {
+    let d = scan(&react_kit());
+    let inter = font(&d, "Inter Variable");
+    assert_eq!(inter.origin, fonts::Origin::Package);
+    assert_eq!(inter.faces.len(), 1);
+    assert_eq!(inter.faces[0].weight, "100 900");
+    assert!(
+        inter.faces[0]
+            .file
+            .ends_with("inter-latin-wght-normal.woff2")
+    );
+    assert_eq!((inter.file.as_str(), inter.line), ("src/main.tsx", 1));
+    let mono = font(&d, "Jetbrains Mono");
+    assert_eq!(
+        (mono.origin, mono.faces.len()),
+        (fonts::Origin::Missing, 0)
+    );
+    let names: Vec<_> = d.components.iter().map(|c| c.name.as_str()).collect();
+    for name in ["Alert", "Badge", "Button", "Card", "TextField"] {
+        assert!(names.contains(&name), "{name} in {names:?}");
+    }
+    let button = d.components.iter().find(|c| c.name == "Button").unwrap();
+    assert_eq!(
+        button.stories,
+        ["primitives-button--primary", "primitives-button--outline"]
+    );
+    assert_eq!(button.uses, 2);
+    assert!(d.storybook);
+}
+
+#[test]
+fn knows_web_font_stylesheets_and_their_families() {
+    assert!(fonts::service(
+        "https://fonts.googleapis.com/css2?family=Inter"
+    ));
+    assert!(fonts::service(
+        "https://fonts.bunny.net/css?family=inter:400"
+    ));
+    for url in [
+        "http://fonts.googleapis.com/css2?family=Inter",
+        "https://fonts.googleapis.com.evil.test/css2",
+        "https://evil.test/?fonts.googleapis.com/css",
+        "https://fonts.googleapis.com/css2?family=Inter --output x",
+        "file:///etc/passwd",
+    ] {
+        assert!(!fonts::service(url), "{url}");
+    }
+    assert_eq!(
+        fonts::families(
+            "https://fonts.googleapis.com/css?family=Open+Sans:400,700|Roboto%20Slab"
+        ),
+        ["Open Sans", "Roboto Slab"]
+    );
+    assert!(fonts::fetch("https://example.com/font.css").is_err());
+}

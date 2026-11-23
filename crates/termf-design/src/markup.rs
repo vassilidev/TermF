@@ -203,7 +203,7 @@ pub fn css_imports(text: &str) -> Vec<String> {
     out
 }
 
-fn title(text: &str) -> String {
+pub(crate) fn title(text: &str) -> String {
     text.split(' ')
         .map(|w| {
             let mut c = w.chars();

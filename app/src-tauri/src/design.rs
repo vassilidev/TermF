@@ -20,6 +20,15 @@ pub async fn design_scan(files: State<'_, Arc<Files>>, repo: String) -> CmdResul
         .map_err(|e| e.to_string())
 }
 
+/// The fonts of a web font service's stylesheet the repository links (`Font.url`), fetched on the user's word.
+#[tauri::command]
+pub async fn design_web_fonts(url: String) -> CmdResult<Vec<termf_design::fonts::Font>> {
+    tauri::async_runtime::spawn_blocking(move || termf_design::fonts::fetch(&url))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)
+}
+
 /// `path`: where the user chose to save it.
 #[tauri::command]
 pub async fn design_pdf(files: State<'_, Arc<Files>>, repo: String, path: String) -> CmdResult<()> {

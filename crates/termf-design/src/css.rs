@@ -30,12 +30,26 @@ pub struct Decl {
     pub rule: usize,
 }
 
+/// An `@font-face` rule.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Face {
+    pub family: String,
+    /// The `url(…)`s of its `src`, in order.
+    pub src: Vec<String>,
+    pub weight: Option<String>,
+    pub style: Option<String>,
+    pub line: u32,
+    rule: usize,
+}
+
 #[derive(Debug, Default)]
 pub struct Sheet {
     pub vars: Vec<VarDef>,
     pub decls: Vec<Decl>,
     pub scss: Vec<(String, String, u32)>,
-    pub faces: Vec<(String, u32)>,
+    pub faces: Vec<Face>,
+    /// `font-family` outside `@font-face`: `(selector, value, line)`.
+    pub families: Vec<(String, String, u32)>,
     pub imports: Vec<(String, u32)>,
     /// Imports Tailwind (`@import "tailwindcss"`, `@tailwind`).
     pub tailwind: bool,
@@ -145,10 +159,29 @@ fn statement(
         return;
     };
     if top.starts_with("@font-face") {
-        if prop.eq_ignore_ascii_case("font-family") {
-            sheet.faces.push((unquote(&value), line));
+        if sheet.faces.last().is_none_or(|f| f.rule != *rule) {
+            sheet.faces.push(Face {
+                line,
+                rule: *rule,
+                ..Face::default()
+            });
+        }
+        let face = sheet.faces.last_mut().expect("pushed above");
+        match prop.to_ascii_lowercase().as_str() {
+            "font-family" => (face.family, face.line) = (unquote(&value), line),
+            "src" => face.src = urls(&value),
+            "font-weight" => face.weight = Some(value),
+            "font-style" => face.style = Some(value),
+            _ => {}
         }
         return;
+    }
+    if prop.eq_ignore_ascii_case("font-family")
+        && let Some(selector) = innermost_rule(stack)
+    {
+        sheet
+            .families
+            .push((selector.to_owned(), value.clone(), line));
     }
     if prop.starts_with("--") {
         let tailwind = stack.iter().any(|(p, _)| p.starts_with("@theme"));
@@ -297,6 +330,18 @@ fn rootish(selector: &str) -> bool {
     })
 }
 
+/// The targets of the `url(…)`s in a value, unquoted.
+pub fn urls(value: &str) -> Vec<String> {
+    value
+        .match_indices("url(")
+        .filter_map(|(at, _)| {
+            let rest = &value[at + 4..];
+            Some(unquote(&rest[..rest.find(')')?]))
+        })
+        .filter(|u| !u.is_empty())
+        .collect()
+}
+
 pub fn unquote(text: &str) -> String {
     text.trim().trim_matches(['"', '\'']).trim().to_owned()
 }
@@ -406,7 +451,8 @@ mod tests {
   --color-brand: oklch(0.6 0.2 250);
 }
 .button { --pad: 4px; color: var(--text); background: url("data:image/png;base64,AA;B"); }
-@font-face { font-family: "Acme Sans"; src: url(a.woff2); }
+@font-face { font-family: "Acme Sans"; src: url(a.woff2) format("woff2"), url('a.woff'); font-weight: 400 700; }
+body, h1 { font-family: var(--font-sans); }
 "#,
         );
         assert!(s.tailwind);
@@ -436,9 +482,19 @@ mod tests {
         );
         assert!(s.vars[6].tailwind);
         let decls: Vec<_> = s.decls.iter().map(|d| (d.prop.as_str(), d.line)).collect();
-        assert_eq!(decls, [("color", 15), ("background", 15)]);
+        assert_eq!(
+            decls,
+            [("color", 15), ("background", 15), ("font-family", 17)]
+        );
         assert_eq!(s.decls[1].value, r#"url("data:image/png;base64,AA;B")"#);
-        assert_eq!(s.faces, [("Acme Sans".to_owned(), 16)]);
+        let face = &s.faces[0];
+        assert_eq!((face.family.as_str(), face.line), ("Acme Sans", 16));
+        assert_eq!(face.src, ["a.woff2", "a.woff"]);
+        assert_eq!(face.weight.as_deref(), Some("400 700"));
+        assert_eq!(
+            s.families,
+            [("body, h1".to_owned(), "var(--font-sans)".to_owned(), 17)]
+        );
     }
 
     #[test]
