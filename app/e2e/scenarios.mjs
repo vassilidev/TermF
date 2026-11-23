@@ -735,8 +735,9 @@ export const scenarios = [
       await t.project();
       await t.view("ops");
       await s.click(`${pane} .btn.primary`);
-      await s.type(`${pane} form.form input.field`, "acme-staging", 0);
-      await s.type(`${pane} form.form input.field`, "staging.acme.test", 1);
+      // Past the database URL at the top: the name, then the first field of an SSH connection, its host.
+      await s.type(`${pane} form.form .grid input.field`, "acme-staging", 0);
+      await s.type(`${pane} form.form .grid input.field`, "staging.acme.test", 1);
       await s.click(`${pane} form.form button[type=submit]:not([disabled])`);
       await s.waitGone(`${pane} form.form`);
       await s.wait(async () => (await s.text(`${pane}`))?.includes("acme-staging"), { what: "the connection in the list" });

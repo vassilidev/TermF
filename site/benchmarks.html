@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Benchmarks: the team against one Claude Code session · TermF</title>
+<meta name="description" content="TermF's agent team against one Claude Code session on quality, cost and time, the app's speed and memory, and what stays on your machine. Measured, with how.">
+<link rel="canonical" href="https://vassilidev.github.io/TermF/benchmarks.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="TermF">
+<meta property="og:title" content="TermF benchmarks: the team against one Claude Code session">
+<meta property="og:description" content="Quality, cost and time of the agent team against one Claude Code session, how fast the app opens and types, and what stays on your machine.">
+<meta property="og:url" content="https://vassilidev.github.io/TermF/benchmarks.html">
+<meta property="og:image" content="https://vassilidev.github.io/TermF/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="TermF. Stop using Claude Code (alone). Tickets in. Reviewed pull requests out.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="TermF benchmarks: the team against one Claude Code session">
+<meta name="twitter:description" content="Quality, cost and time of the agent team against one Claude Code session, how fast the app opens and types, and what stays on your machine.">
+<meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
+<meta name="twitter:image:alt" content="TermF. Stop using Claude Code (alone). Tickets in. Reviewed pull requests out.">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b12" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="sitemap" type="application/xml" title="Sitemap" href="sitemap.xml">
+<link rel="preload" href="fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="site.css">
+<script>try{const t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch{}</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://vassilidev.github.io/TermF/benchmarks.html",
+      "name": "TermF benchmarks",
+      "url": "https://vassilidev.github.io/TermF/benchmarks.html",
+      "description": "TermF's agent team against one Claude Code session on quality, cost and time, the app's speed and memory, and what stays on your machine.",
+      "dateModified": "2026-11-23",
+      "about": {"@id": "https://vassilidev.github.io/TermF/#app"},
+      "isPartOf": {"@id": "https://vassilidev.github.io/TermF/#site"}
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "TermF", "item": "https://vassilidev.github.io/TermF/"},
+        {"@type": "ListItem", "position": 2, "name": "Benchmarks", "item": "https://vassilidev.github.io/TermF/benchmarks.html"}
+      ]
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="26" height="26"><span>TermF</span></a>
+    <nav class="nav-links" id="menu" aria-label="Main" popover>
+      <a href="docs/">Docs</a>
+      <a href="./#team">The team</a>
+      <a class="gh" href="https://github.com/vassilidev/TermF"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg><span class="vh">GitHub</span></a>
+    </nav>
+    <button class="theme" type="button" aria-label="Switch to dark theme"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.99 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.79 9.8Z"/></svg><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button>
+    <a class="btn small" href="download.html">Download</a>
+    <button class="menu-btn" type="button" popovertarget="menu" aria-label="Menu"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </div>
+</header>
+
+<main id="main">
+<div class="rail">
+  <header class="page-head">
+    <p class="crumbs"><a href="./">TermF</a><span aria-hidden="true">/</span><span>Benchmarks</span></p>
+    <img class="appicon" src="icon.svg" alt="" width="60" height="60">
+    <h1>Benchmarks</h1>
+    <p class="lead">Is the team worth what it costs? Is the app quick? Is your code safe? Here is what was measured, how, when and on what machine.</p>
+  </header>
+
+  <!-- Bar widths are each value over the larger of the two, so a bar reads against its pair only -->
+  <section class="row" id="team-vs-solo" aria-labelledby="tvs-h">
+    <div class="head">
+      <h2 id="tvs-h">The team against one session.</h2>
+      <p>The same tickets, given to TermF's team and to one plain Claude Code session: same model, same starting code, same budget. Hidden tests the agents never see, and a judge who does not know which side wrote what.</p>
+      <p class="key" aria-hidden="true"><span class="team">The team</span><span>One session</span></p>
+    </div>
+    <div class="versus">
+      <section aria-labelledby="small-h">
+        <h3 id="small-h">A small, clear ticket</h3>
+        <p class="what">Averages of three tickets: a bug, a new field with its migration, error messages.</p>
+        <div class="metric">
+          <h4>Quality, from the judge</h4>
+          <dl class="duel">
+            <div class="team"><dt>The team</dt><dd><i class="meter" style="--v:90%"></i><b>9.0 / 10</b></dd></div>
+            <div><dt>One session</dt><dd><i class="meter" style="--v:90%"></i><b>9.0 / 10</b></dd></div>
+          </dl>
+        </div>
+        <div class="metric">
+          <h4>Cost</h4>
+          <dl class="duel">
+            <div class="team"><dt>The team</dt><dd><i class="meter" style="--v:100%"></i><b>$0.34</b></dd></div>
+            <div><dt>One session</dt><dd><i class="meter" style="--v:29%"></i><b>$0.10</b></dd></div>
+          </dl>
+        </div>
+        <div class="metric">
+          <h4>Time</h4>
+          <dl class="duel">
+            <div class="team"><dt>The team</dt><dd><i class="meter" style="--v:100%"></i><b>69 s</b></dd></div>
+            <div><dt>One session</dt><dd><i class="meter" style="--v:38%"></i><b>26 s</b></dd></div>
+          </dl>
+        </div>
+        <p class="verdict">Same quality, and both pass every hidden test. On a ticket like this, one session is enough: the team costs 3.4 times more.</p>
+      </section>
+      <section aria-labelledby="complex-h">
+        <h3 id="complex-h">A complex, realistic ticket</h3>
+        <p class="what">Averages of three tickets on a 2,100-line app: sharing with roles, slow big lists, edits that disappear.</p>
+        <div class="metric">
+          <h4>What the ticket left unsaid, done right</h4>
+          <dl class="duel">
+            <div class="team"><dt>The team</dt><dd><i class="meter" style="--v:90%"></i><b>90 %</b></dd></div>
+            <div><dt>One session</dt><dd><i class="meter" style="--v:72%"></i><b>72 %</b></dd></div>
+          </dl>
+        </div>
+        <div class="metric">
+          <h4>Cost</h4>
+          <dl class="duel">
+            <div class="team"><dt>The team</dt><dd><i class="meter" style="--v:100%"></i><b>$2.14</b></dd></div>
+            <div><dt>One session</dt><dd><i class="meter" style="--v:21%"></i><b>$0.45</b></dd></div>
+          </dl>
+        </div>
+        <div class="metric">
+          <h4>Time</h4>
+          <dl class="duel">
+            <div class="team"><dt>The team</dt><dd><i class="meter" style="--v:100%"></i><b>8 min 12 s</b></dd></div>
+            <div><dt>One session</dt><dd><i class="meter" style="--v:27%"></i><b>2 min 12 s</b></dd></div>
+          </dl>
+        </div>
+        <p class="verdict">Both pass every hidden test, but the judge finds more of the hard part done by the team (security, robustness, edge cases), for 4.8 times the cost.</p>
+      </section>
+    </div>
+    <div class="split method">
+      <div class="text">
+        <h3>How it was measured</h3>
+        <p>Small samples on small projects: a first look, not a verdict. The page of the docs has every table, each ticket and the limits.</p>
+        <p class="links"><a class="more" href="docs/team-vs-solo.html"><span>The team or one session?</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a><a class="more" href="https://github.com/vassilidev/TermF/blob/main/docs/BENCHMARK.md"><span>Raw results, and how to run it again</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></p>
+      </div>
+      <div class="reqs">
+        <dl>
+          <div><dt>When</dt><dd>22 November 2026, with Claude Code 2.1.330.</dd></div>
+          <div><dt>Model</dt><dd>Sonnet on both sides, and for the judge.</dd></div>
+          <div><dt>Projects</dt><dd>A task tracker of 340 lines, then a shared task-list app of 2,100 lines with planted problems.</dd></div>
+          <div><dt>Quality</dt><dd>Hidden tests copied in once the agent is done, the project's own tests, a strict typecheck, and a judge that sees only the ticket and the change.</dd></div>
+          <div><dt>Cost</dt><dd>What Claude Code reports, at API prices. With a Claude subscription nothing extra is billed: the work counts toward your usage limits.</dd></div>
+          <div><dt>Trials</dt><dd>One to three per ticket and side.</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="row" id="app" aria-labelledby="app-h">
+    <div class="head">
+      <h2 id="app-h">The app itself.</h2>
+      <p>Five measures of the release build, from launch to the last keystroke.</p>
+    </div>
+    <div class="perf">
+      <div><p class="v">417<small>ms</small></p><h3>Cold start</h3><p>From launch to a window you can use. The median of five starts.</p></div>
+      <div><p class="v">7<small>ms</small></p><h3>A keystroke on screen</h3><p>The median of 30 keys in a terminal.</p>
+        <div class="frame" aria-hidden="true"><div class="bar team"><span>TermF</span><b>7 ms</b><i class="meter" style="--v:42%"></i></div><div class="bar"><span>One frame at 60 Hz</span><b>16.7 ms</b><i class="meter" style="--v:100%"></i></div></div></div>
+      <div><p class="v">0.1<small>%</small></p><h3>CPU at rest</h3><p>Window open, no agent at work, over 10 seconds.</p></div>
+      <div><p class="v">452.5<small>MB</small></p><h3>Memory at rest</h3><p>TermF's own processes, its web view included, window open, no agent. Your shells are not counted.</p></div>
+      <div><p class="v">18.6<small>MB</small></p><h3>Each hidden terminal</h3><p>What one more terminal costs while you look at another view, with 10,000 lines in it.</p></div>
+    </div>
+    <p class="cond">Measured on 23 November 2026 by our CI (<a href="https://github.com/vassilidev/TermF/actions/runs/45128105211/job/137537021845">the run</a>, commit <a href="https://github.com/vassilidev/TermF/commit/545275f078031a4281e7e972365ecda4fc30917a">545275f</a>): the release build on Linux, Ubuntu 24.04, on a standard GitHub-hosted machine with a virtual display. macOS and Windows are not in these figures yet.</p>
+  </section>
+
+  <section class="row" id="safe" aria-labelledby="safe-h">
+    <div class="head">
+      <h2 id="safe-h">Your code stays yours.</h2>
+      <p>Nothing to measure here: facts you can check in the source.</p>
+    </div>
+    <ul class="facts">
+      <li><span class="ico" aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z"/><path d="M20.054 15.987H3.946"/></svg></span><h3>Runs on your machine</h3><div><p>No TermF server and no telemetry. Projects, runs and logs stay on your computer, and your code goes where Claude Code sends it, as it would without TermF.</p><a class="more" href="docs/security.html#local"><span>Security and privacy</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div></li>
+      <li><span class="ico" aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg></span><h3>Open source, MIT</h3><div><p>Every line is on GitHub. The downloads are built by CI from that public source, with their SHA-256 sums.</p><a class="more" href="https://github.com/vassilidev/TermF"><span>Read the source</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div></li>
+      <li><span class="ico" aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m17 8 5 5m0-5-5 5"/></svg></span><h3>No TermF account</h3><div><p>Nothing to sign up for, and no paid tier. The agents run on your own Claude Code, with your subscription or your API key.</p><a class="more" href="download.html#req"><span>What you need</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div></li>
+      <li><span class="ico" aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span><h3>Secrets hidden from agents</h3><div><p>Passwords and keys live in an encrypted vault that agents cannot read. A key reaches an agent only when you hand it over, and stays masked in what the session shows.</p><a class="more" href="docs/vault.html"><span>How the vault works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div></li>
+      <li><span class="ico" aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></span><h3>Nothing ships without your OK</h3><div><p>In a run, a guard refuses the agents' pushes and pull requests. The team stops at the delivery, and shipping it is your click.</p><a class="more" href="docs/security.html#delivery"><span>Delivery in two steps</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div></li>
+    </ul>
+  </section>
+
+  <section class="row last" aria-labelledby="last-h">
+    <h2 id="last-h">Install in <span class="grad">one command.</span></h2>
+    <div class="cmd" id="install"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code><button class="copy" type="button" aria-label="Copy the install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+    <div class="ctas">
+      <a class="btn" href="download.html">Every download</a>
+      <a class="btn ghost" href="docs/installation.html">Installation guide</a>
+    </div>
+    <p>Needs Claude Code. Early version: the builds are not signed by Apple or Microsoft yet, the one-line install avoids their warning.</p>
+  </section>
+</div>
+</main>
+
+<footer class="foot">
+  <div class="foot-in">
+    <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="24" height="24"><span>TermF</span></a>
+    <nav aria-label="Footer"><a href="docs/">Docs</a><a href="download.html">Download</a><a href="benchmarks.html" aria-current="page">Benchmarks</a><a href="https://github.com/vassilidev/TermF">GitHub</a><a href="https://github.com/vassilidev/TermF/releases">Releases</a><a href="https://github.com/vassilidev/TermF/issues">Report an issue</a><a href="https://github.com/vassilidev/TermF/blob/main/LICENSE">MIT license</a></nav>
+    <p>© 2026 TermF contributors</p>
+  </div>
+</footer>
+
+<script>
+const root = document.documentElement;
+const themeBtn = document.querySelector('.theme');
+const dark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+const syncTheme = () => themeBtn.setAttribute('aria-label', dark() ? 'Switch to light theme' : 'Switch to dark theme');
+themeBtn.addEventListener('click', () => { root.dataset.theme = dark() ? 'light' : 'dark'; try { localStorage.setItem('theme', root.dataset.theme); } catch {} syncTheme(); });
+syncTheme();
+const menu = document.getElementById('menu');
+menu.addEventListener('click', e => { try { if (e.target.closest('a') && menu.matches(':popover-open')) menu.hidePopover(); } catch {} });
+
+const cmd = document.querySelector('#install');
+if (/win/i.test(navigator.userAgentData?.platform || navigator.platform || '')) cmd.querySelector('code').textContent = 'irm https://vassilidev.github.io/TermF/install.ps1 | iex';
+cmd.querySelector('.copy').addEventListener('click', async e => {
+  const b = e.currentTarget;
+  try { await navigator.clipboard.writeText(cmd.querySelector('code').textContent); } catch { return; }
+  b.classList.add('ok'); b.lastChild.textContent = 'Copied';
+  setTimeout(() => { b.classList.remove('ok'); b.lastChild.textContent = 'Copy'; }, 1600);
+});
+// The install scripts refuse a release without SHA256SUMS: then the command gives way to the download page
+fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=20')
+  .then(r => r.ok ? r.json() : Promise.reject())
+  .then(list => {
+    const shown = list.filter(r => !r.draft), latest = shown.find(r => !r.prerelease) ?? shown[0];
+    if (latest?.assets?.some(a => a.name === 'SHA256SUMS')) return;
+    cmd.classList.add('link'); cmd.innerHTML = '<code><a href="download.html">Every file for your system, on the download page</a></code>';
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>
