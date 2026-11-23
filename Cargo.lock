@@ -5839,10 +5839,13 @@ name = "termf-ci"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "jiff 1.0.1",
  "serde",
  "serde_json",
  "termf-core",
  "termf-tickets",
+ "toml 1.2.2+spec-1.1.0",
+ "toml_edit 0.25.20+spec-1.1.0",
  "yaml-rust2",
 ]
 
