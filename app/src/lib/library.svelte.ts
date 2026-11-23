@@ -70,7 +70,11 @@ export const library = $state({
   get scope(): string {
     return this.global ? "" : (app.project ?? "");
   },
-  tab: "skill" as Kind | "conventions" | "worktrees",
+  tab: "items" as "items" | "conventions" | "worktrees",
+  /** The kind the list shows, or all of them. */
+  kind: "all" as Kind | "plugin" | "all",
+  /** The details' switch acts on every project instead of the current one. */
+  everywhere: false,
   panel: null as Panel,
   /** Bumped when the library changed on disk, to reload it. */
   version: 0,

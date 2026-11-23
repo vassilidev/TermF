@@ -3,7 +3,8 @@
 // of its `--plugin-dir` and `--settings` as the real one does, so TermF sees its status.
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 const VERSION = "2.1.330";
@@ -207,8 +208,29 @@ function hooks() {
   return out;
 }
 
+/** What the session got from TermF's library: the skills, commands and agents of its plugins, the sections of its prompt. */
+export function received(list = args) {
+  const of = (name) => list.flatMap((a, i) => (a === name ? [list[i + 1]] : []));
+  const names = (dir, sub) => {
+    try {
+      return readdirSync(join(dir, sub)).map((n) => n.replace(/\.md$/, ""));
+    } catch {
+      return [];
+    }
+  };
+  const dirs = of("--plugin-dir");
+  const prompt = of("--append-system-prompt-file").flatMap((f) => [...readFileSync(f, "utf8").matchAll(/^## (.+)$/gm)].map((m) => m[1].trim()));
+  return {
+    skills: dirs.flatMap((d) => names(d, "skills")).sort(),
+    commands: dirs.flatMap((d) => names(d, "commands")).sort(),
+    agents: dirs.flatMap((d) => names(d, "agents")).sort(),
+    prompt,
+  };
+}
+
 function interactive() {
   const sid = flag("--session-id") ?? flag("--resume") ?? randomUUID();
+  if (process.env.TERMF_E2E_LOG) appendFileSync(process.env.TERMF_E2E_LOG, `received ${JSON.stringify(received())}\n`);
   const registered = hooks();
   const fire = (event, extra = {}) => {
     const payload = JSON.stringify({ session_id: sid, cwd: process.cwd(), hook_event_name: event, transcript_path: "", ...extra });

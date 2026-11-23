@@ -814,7 +814,7 @@ export const scenarios = [
     },
   },
   {
-    name: "library: a skill switched off for the project, written in its file",
+    name: "library: a skill switched off for the project, written in its file, then undone",
     views: [],
     async run(t) {
       const { s, box } = t;
@@ -823,18 +823,60 @@ export const scenarios = [
       await t.ready();
       await t.project();
       await t.view("library");
-      const row = `${pane} .list li.row`;
-      const { name, on } = await s.wait(() =>
-        s.exec((css) => {
-          const li = document.querySelector(css);
-          return li && { name: li.querySelector(".name").textContent, on: li.querySelector("input.switch").checked };
-        }, row),
-      );
-      const before = read(file);
-      await s.click(`${row} input.switch:not([disabled])`);
-      await s.wait(() => s.exec((css, was) => document.querySelector(`${css} input.switch`)?.checked === !was, row, on), { what: "the switch flipped" });
-      await s.wait(() => read(file) !== before && read(file).includes(name), { what: `${name} in acme.toml` });
+      const row = `${pane} [data-group="on"] [data-key^="skill/"]`;
+      const key = await s.wait(() => s.exec((css) => document.querySelector(css)?.dataset.key, row));
+      const name = key.slice("skill/".length);
+      await s.click(`${pane} [data-key="${key}"] input.switch:not([disabled])`);
+      // Off here at once, said by a toast that undoes it.
+      await s.waitFor(`${pane} [data-group="off"] [data-key="${key}"]`);
+      await s.wait(() => read(file).includes(`-${name}`), { what: `-${name} in acme.toml` });
+      await s.exec(() => [...document.querySelectorAll(".toast-card button")].find((b) => b.querySelector("kbd"))?.click());
+      await s.waitFor(`${pane} [data-group="on"] [data-key="${key}"]`);
+      await s.wait(() => !read(file).includes(`-${name}`), { what: `-${name} gone from acme.toml` });
       await t.settled("library");
+      await t.clean();
+    },
+  },
+  {
+    name: "library: a session started after a switch gets exactly what the Library shows (fake 2.1.330)",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("library");
+      // A skill the repository offers: off until switched on, and shown so (the layer the recette never saw).
+      const offered = join(box.acme, ".termf", "library", "skills", "acme-greeting");
+      mkdirSync(offered, { recursive: true });
+      writeFileSync(join(offered, "SKILL.md"), "---\nname: acme-greeting\ndescription: How Acme greets its users\n---\nSay hello the Acme way.\n");
+      await t.ready();
+      await t.project();
+      await t.view("library");
+      const at = (group, key) => `${pane} [data-group="${group}"] [data-key="${key}"]`;
+      await s.waitFor(at("offered", "skill/acme-greeting"));
+      // One gesture each: the offered skill on, a shipped one off, a preference on.
+      for (const [key, to] of [["skill/acme-greeting", "on"], ["skill/git", "off"], ["preference/conventional-commits", "on"]]) {
+        await s.click(`${pane} [data-key="${key}"] input.switch:not([disabled])`);
+        await s.waitFor(at(to, key));
+      }
+      const keys = (css) => s.exec((c) => [...document.querySelectorAll(c)].map((li) => li.dataset.key), css);
+      const on = await keys(`${pane} [data-group="on"] [data-key]`);
+      const all = await keys(`${pane} [data-key]`);
+      const names = (list, kinds) => list.filter((k) => kinds.includes(k.split("/")[0])).map((k) => k.slice(k.indexOf("/") + 1)).sort();
+
+      const before = existsSync(box.calls) ? read(box.calls).length : 0;
+      await t.command("launcher");
+      await s.click("section.launcher .segmented.agents:not(.place) label:first-child span");
+      await s.click(`section.launcher label.row[title=${JSON.stringify(box.acme)}] input`);
+      await s.click("section.launcher button.open:not([disabled])");
+      const line = await s.wait(() => existsSync(box.calls) && read(box.calls).slice(before).match(/^received (.*)$/m)?.[1], { what: "the session's library read by the fake" });
+      const got = JSON.parse(line);
+      const same = (what, a, b) => check(JSON.stringify(a) === JSON.stringify(b), `${what}: the session got ${JSON.stringify(a)}, the Library shows ${JSON.stringify(b)}`);
+      same("skills", got.skills, names(on, ["skill"]));
+      same("commands", got.commands, names(on, ["command"]));
+      same("agents", got.agents, names(on, ["role"]));
+      // The prompt's sections that are items of the Library: the preferences and rules on.
+      same("instructions", got.prompt.filter((p) => names(all, ["preference", "rule"]).includes(p)).sort(), names(on, ["preference", "rule"]));
+      check(got.skills.includes("acme-greeting") && !got.skills.includes("git"), `the switches did not reach the session: ${line}`);
+      await t.tile();
       await t.clean();
     },
   },
