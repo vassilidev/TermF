@@ -258,7 +258,11 @@ pub fn run() {
     let builder = match e2e::plugin() {
         Some(bridge) => builder.plugin(bridge),
         None => builder,
-    };
+    }
+    .plugin(e2e::quiet());
+    // The test app runs while the user works: it never becomes the active app (see `window::open`).
+    #[cfg(all(feature = "e2e", target_os = "macos"))]
+    let builder = builder.activate_ignoring_other_apps(false);
     builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -269,6 +273,8 @@ pub fn run() {
         .on_menu_event(window::on_menu)
         // One setup: a second call to `setup` would replace this one.
         .setup(move |app| {
+            #[cfg(all(feature = "e2e", target_os = "macos"))]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             window::open(app.handle(), &data_dir);
             let settings = termf_core::load_settings(&config_dir).unwrap_or_default();
             termf_core::agent_env::configure(config_dir.clone(), api::termf_binary());
