@@ -345,6 +345,9 @@ export type Kit = {
   border: string;
   accent: string;
   onAccent: string;
+  /** A quiet filled ground (a secondary button), and the text on it. */
+  soft: string;
+  onSoft: string;
   danger: string;
   success: string;
   warning: string;
@@ -363,9 +366,9 @@ export function kit(tokens: Token[], dark: boolean): Kit {
   const parts = (t: Token) => t.name.toLowerCase().replace(/^(--|\$)(color-|colors?\.)?/, "").split(/[-._]/);
   const step = (t: Token) => Number(parts(t).at(-1)) || 0;
   const color = (t: Token) => (dark ? (t.darkColor ?? t.color) : t.color) as string;
-  const find = (key: keyof Kit, words: string[], avoid: string[]) => {
+  const find = (key: keyof Kit, words: string[], avoid: string[], ok: (c: string) => boolean = () => true) => {
     for (const w of words) {
-      const hits = colors.filter((t) => parts(t).includes(w) && !parts(t).some((p) => avoid.includes(p)));
+      const hits = colors.filter((t) => parts(t).includes(w) && !parts(t).some((p) => avoid.includes(p)) && ok(color(t)));
       // Of a scale, the step a filled control uses.
       hits.sort((a, b) => Math.abs(step(a) - 600) - Math.abs(step(b) - 600) || a.name.length - b.name.length);
       if (hits[0]) {
@@ -397,7 +400,10 @@ export function kit(tokens: Token[], dark: boolean): Kit {
     bg,
     surface: find("surface", ["card", "surface", "panel", "raised", "popover", "elevated"], fills) ?? bg,
     text,
-    muted: find("muted", ["muted", "subtle", "secondary", "placeholder"], ["bg", "background", "surface", "border"]) ?? `color-mix(in srgb, ${text} 62%, ${bg})`,
+    // A `--muted` may be a quiet ground rather than a quiet text: only one that reads on the ground counts.
+    muted: find("muted", ["muted", "subtle", "secondary", "placeholder"], ["bg", "background", "surface", "border"], (c) => contrast(c, bg) >= 3) ?? `color-mix(in srgb, ${text} 62%, ${bg})`,
+    soft: find("soft", ["secondary", "muted", "subtle"], [...ink, "border"], (c) => contrast(c, bg) < 1.6) ?? `color-mix(in srgb, ${text} 8%, ${bg})`,
+    onSoft: colors.filter((t) => /secondary[-_.]?(foreground|fg|text|ink)$/i.test(t.name)).map(color)[0] ?? text,
     border: find("border", ["border", "line", "stroke", "divider", "outline", "input"], states) ?? `color-mix(in srgb, ${text} 16%, ${bg})`,
     accent,
     onAccent,
@@ -410,6 +416,12 @@ export function kit(tokens: Token[], dark: boolean): Kit {
     shadow: shadow?.value ?? "0 1px 2px rgb(0 0 0 / 0.08)",
     own,
   };
+}
+
+/** WCAG contrast ratio of two `#rrggbb` colors. */
+export function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
 }
 
 /** Relative luminance of a `#rrggbb` color, 0 (black) to 1 (white); anything else counts as mid-gray. */

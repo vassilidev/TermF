@@ -200,6 +200,18 @@ test("kit: the project's colors, radius and shadow by their names, in each theme
   assert.deepEqual([light.bg, light.text, light.accent, light.onAccent, light.border, light.radius, light.radiusLarge], ["#ffffff", "#0a0a0a", "#2563eb", "#ffffff", "#e5e7eb", "8px", "16px"]);
   assert.deepEqual([kit(tokens, true).bg, kit(tokens, true).text], ["#0a0a0a", "#fafafa"]);
   assert.ok(!light.own.includes("danger") && light.own.includes("accent"));
+  const quiet = kit(
+    [
+      ...tokens,
+      token({ name: "--muted", value: "#f3f4f6", color: "#f3f4f6" }),
+      token({ name: "--muted-foreground", value: "#5b6170", color: "#5b6170" }),
+      token({ name: "--secondary", value: "#eef1fb", color: "#eef1fb" }),
+      token({ name: "--secondary-foreground", value: "#1d2a5c", color: "#1d2a5c" }),
+    ],
+    false,
+  );
+  // A `--muted` ground is never taken for a quiet text.
+  assert.deepEqual([quiet.muted, quiet.soft, quiet.onSoft], ["#5b6170", "#eef1fb", "#1d2a5c"]);
   const bare = kit([token({ name: "--color-brand-500", value: "#16a34a", color: "#16a34a" })], false);
   assert.deepEqual([bare.accent, bare.bg, bare.radius], ["#16a34a", "#ffffff", "6px"]);
 });
