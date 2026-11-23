@@ -629,8 +629,16 @@ export const scenarios = [
       await s.waitGone("dialog.finder[open]");
       await s.wait(async () => (await s.text(`${pane} .cm-content`))?.includes("greet"), { what: "src/app.js in the editor" });
       await s.click(`${pane} .segmented button:nth-child(2)`);
+      // Until the search answers, a skeleton stands for its hits.
+      await s.exec((css) => {
+        const root = document.querySelector(css);
+        window.__e2e.searchPending = false;
+        new MutationObserver(() => (window.__e2e.searchPending ||= !!root.querySelector("[data-skeleton]"))).observe(root, { subtree: true, childList: true });
+      }, `${pane} .search`);
       await s.type(`${pane} .search input.field`, "The API of Acme");
       await s.wait(async () => (await s.text(`${pane} .search .hit`))?.includes("The API of Acme"), { what: "the README line found" });
+      check(await s.exec(() => window.__e2e.searchPending), "no loading state while the search ran");
+      check(!(await s.exec((css) => !!document.querySelector(css), `${pane} .search [data-skeleton]`)), "the skeleton stays after the hits");
       await t.clean();
     },
   },
