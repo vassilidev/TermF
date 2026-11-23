@@ -250,8 +250,8 @@
       ArrowLeft: () => act("rejected"),
       ArrowUp: () => act("changes"),
       ArrowDown: () => act("skip"),
-      " ": () => !e.repeat && (before = true),
-      b: () => (before = !before),
+      " ": () => !e.repeat && !!card?.before && (before = true),
+      b: () => (before = !before && !!card?.before),
       z: toggleZoom,
       Escape: () => (composing ? closeComposer() : zoomed && toggleZoom()),
     };
@@ -366,16 +366,19 @@
         <ArrowUp size={15} aria-hidden="true" />{t("review5bChange")}
       </button>
       <span class="tools">
-        <button
-          class="btn sm quiet"
-          aria-pressed={before}
-          onpointerdown={(e) => (e.preventDefault(), (before = true))}
-          onpointerup={() => (before = false)}
-          onpointerleave={() => (before = false)}
-          onclick={(e) => e.detail === 0 && (before = !before)}
-        >
-          <Eye size={14} aria-hidden="true" />{t("review5bHoldBefore")}<kbd>␣</kbd>
-        </button>
+        <!-- Nothing before to show for a page the base could not serve. -->
+        {#if card.before}
+          <button
+            class="btn sm quiet"
+            aria-pressed={before}
+            onpointerdown={(e) => (e.preventDefault(), (before = true))}
+            onpointerup={() => (before = false)}
+            onpointerleave={() => (before = false)}
+            onclick={(e) => e.detail === 0 && (before = !before)}
+          >
+            <Eye size={14} aria-hidden="true" />{t("review5bHoldBefore")}<kbd>␣</kbd>
+          </button>
+        {/if}
         <button class="btn sm quiet" aria-pressed={zoomed} onclick={toggleZoom}>
           <ZoomIn size={14} aria-hidden="true" />{t("review5bZoomToggle")}<kbd>Z</kbd>
         </button>

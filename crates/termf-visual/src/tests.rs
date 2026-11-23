@@ -492,6 +492,48 @@ fn a_dev_server_that_does_not_answer_fails_the_version() {
 }
 
 #[test]
+fn a_base_without_a_dev_server_gets_the_after_alone() {
+    let _serial = serial();
+    let env = Env::new("alone", "[visual]\nroutes = [\"/\"]\n");
+    let file = env.config.join("projects/acme.toml");
+    let text = fs::read_to_string(&file).unwrap().replace(
+        &dev(&env.root),
+        "[ -f serve.py ] || { echo 'Missing script: dev'; exit 1; }; exec python3 serve.py {{ port }}",
+    );
+    fs::write(&file, text).unwrap();
+    // The dev server comes with the change, as a new project's first page.
+    fs::write(env.repo.join("serve.py"), SERVE).unwrap();
+    git(&env.repo, &env.env, &["add", "serve.py"]);
+    let head = env.commit(PAGE_AFTER);
+    let visual = env.visual();
+    let review = visual
+        .start(Request {
+            repo: Some(env.repo.clone()),
+            base: Some("HEAD~1".into()),
+            head: Some(head),
+            ..Request::default()
+        })
+        .unwrap();
+    let v = captured(&visual, review.id);
+    assert_eq!(v.state, VersionState::Ready, "{v:#?}");
+    let missing = v.before_missing.as_deref().unwrap();
+    assert!(missing.contains("Missing script: dev"), "{missing}");
+    let screen = &v.screens[0];
+    assert!(screen.after.is_some() && screen.before.is_none() && screen.heatmap.is_none());
+    assert!(screen.changed && screen.error.is_none() && screen.texts.is_empty());
+    assert!(visual.image(review.id, 1, &screen.id, "after").is_ok());
+    let decided = visual
+        .decide(review.id, "all", Decision::Approved, None, None)
+        .unwrap();
+    let v = decided.versions.last().unwrap();
+    assert_eq!(
+        (v.state, v.outcome),
+        (VersionState::Done, Some(Decision::Approved))
+    );
+    let _ = fs::remove_dir_all(&env.root);
+}
+
+#[test]
 fn a_capture_of_another_programs_server_fails_the_version() {
     let _serial = serial();
     let env = Env::new("foreign", "[visual]\nroutes = [\"/\"]\n");
@@ -579,13 +621,16 @@ fn a_capture_of_another_programs_server_fails_the_version() {
     let v = captured(&visual, review.id);
     let _foreign = foreign.join().unwrap();
     assert_eq!(v.state, VersionState::Failed, "{v:#?}");
-    let error = v.error.unwrap();
+    // The other program's screens are never kept as the before; the after then fails on its own.
+    let missing = v.before_missing.unwrap();
     assert!(
-        error.starts_with(
+        missing.starts_with(
             "before: the dev server ended during the capture, and another server answered on its port"
         ),
-        "{error}"
+        "{missing}"
     );
+    assert!(v.error.unwrap().starts_with("after"));
+    assert!(v.screens.iter().all(|s| s.before.is_none()));
     let _ = fs::remove_dir_all(&env.root);
 }
 
