@@ -207,6 +207,9 @@
     mcp__termf__ask_expert: "expertToolAsk",
     mcp__termf__memory_search: "expertToolSearch",
     mcp__termf__memory_read: "expertToolRead",
+    mcp__termf__usage: "recetteCtoToolUsage",
+    mcp__termf__ops_recipes: "recetteCtoToolOpsRecipes",
+    mcp__termf__ops_run: "recetteCtoToolOpsRun",
   };
   const toolName = (name: string) => (termfTools[name] ? t(termfTools[name]) : name);
   const asks = (tool: string) =>

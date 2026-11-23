@@ -15,9 +15,8 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use termf_core::process::run;
 #[cfg(target_os = "macos")]
-use termf_core::process::{scratch_dir, tail};
+use termf_core::process::{run, scratch_dir, tail};
 
 use crate::{
     Item, Kind, Layer, Scope, library_dir, read_toggles, resolve, set_toggle, toggle,
@@ -451,6 +450,18 @@ pub fn propose(
     answers: Vec<Answer>,
     claude: &[String],
 ) -> Result<Convention> {
+    propose_with(config_dir, project, slug, answers, claude, &mut |_| {})
+}
+
+/// [`propose`], with what Claude Code reads as it goes.
+pub fn propose_with(
+    config_dir: &Path,
+    project: &str,
+    slug: &str,
+    answers: Vec<Answer>,
+    claude: &[String],
+    progress: &mut dyn FnMut(Step),
+) -> Result<Convention> {
     let dir = dir(config_dir, project, slug)?;
     let source = fs::read_to_string(dir.join("source.md")).unwrap_or_default();
     ensure!(!source.trim().is_empty(), "write the conventions first");
@@ -469,7 +480,15 @@ pub fn propose(
     let context = Grounding::new(config_dir, project, owned_items(&dir)?)?;
     let (model, effort) = settings(config_dir);
     let prompt = context.prompt(&source, &given, None);
-    let (answer, cost) = ask(claude, &context.repos, &model, &effort, &prompt, &schema())?;
+    let (answer, cost) = ask_with(
+        claude,
+        &context.repos,
+        &model,
+        &effort,
+        &prompt,
+        &schema(),
+        progress,
+    )?;
 
     let mut next = Pack {
         model,
@@ -1268,11 +1287,37 @@ pub fn ask(
     prompt: &str,
     schema: &Value,
 ) -> Result<(Value, Option<f64>)> {
+    ask_with(claude, repos, model, effort, prompt, schema, &mut |_| {})
+}
+
+/// A file read or a search Claude Code makes while it proposes, as its tool call.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Step {
+    pub name: String,
+    pub input: Value,
+}
+
+/// [`ask`], with each of Claude Code's tool calls as it makes it.
+pub fn ask_with(
+    claude: &[String],
+    repos: &[(String, PathBuf)],
+    model: &str,
+    effort: &str,
+    prompt: &str,
+    schema: &Value,
+    progress: &mut dyn FnMut(Step),
+) -> Result<(Value, Option<f64>)> {
     let (program, lead) = claude.split_first().context("no Claude Code command")?;
     let claude = termf_core::claude::binary(program)?;
     let mut cmd = Command::new(&claude.path);
     cmd.args(lead)
-        .args(["-p", "--output-format", "json", "--json-schema"])
+        .args([
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--json-schema",
+        ])
         .arg(schema.to_string())
         .args(["--model", model, "--effort", effort])
         .args(["--tools", "Read,Grep,Glob", "--permission-mode", "dontAsk"])
@@ -1288,9 +1333,32 @@ pub fn ask(
     }
     termf_core::agent_env::for_dir(&repos[0].1)
         .apply(&mut cmd, Some(termf_core::claude::Tool::Claude));
-    let (status, stdout, stderr) = run(cmd, prompt.as_bytes(), PROPOSE_TIMEOUT)
+    let (status, stdout, stderr) =
+        termf_core::process::stream(cmd, prompt.as_bytes(), PROPOSE_TIMEOUT, &mut |line| {
+            steps_of(line).into_iter().for_each(&mut *progress)
+        })
         .with_context(|| format!("cannot run Claude Code {claude}"))?;
     termf_core::claude::structured_output(&claude, status, &stdout, &stderr)
+}
+
+/// The tool calls of a `stream-json` line.
+fn steps_of(line: &str) -> Vec<Step> {
+    let Ok(event) = serde_json::from_str::<Value>(line) else {
+        return Vec::new();
+    };
+    if event["type"] != "assistant" {
+        return Vec::new();
+    }
+    let blocks = event["message"]["content"].as_array().into_iter().flatten();
+    blocks
+        .filter(|b| b["type"] == "tool_use")
+        .filter_map(|b| {
+            Some(Step {
+                name: b["name"].as_str()?.to_owned(),
+                input: b["input"].clone(),
+            })
+        })
+        .collect()
 }
 
 /// Everything is denied but what a check needs: reading files, running programs, writing to a private temporary
@@ -1421,12 +1489,14 @@ mod tests {
     /// A stand-in for Claude Code that records its arguments and stdin, then prints `answer` as Claude Code would.
     #[cfg(unix)]
     fn fake_claude(dir: &Path, answer: &Value) -> Vec<String> {
+        let read = json!({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Read", "input": {"file_path": "src/app.css"}}]}});
         let out = json!({ "type": "result", "is_error": false, "total_cost_usd": 0.25, "structured_output": answer });
         let script = dir.join("fake-claude.sh");
         put(
             &script,
             &format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"{0}/args.txt\"\ncat > \"{0}/prompt.txt\"\necho 'profile noise'\ncat <<'EOF'\n{1}\nEOF\n",
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"{0}/args.txt\"\ncat > \"{0}/prompt.txt\"\necho 'profile noise'\ncat <<'EOF'\n{read}\n{1}\nEOF\n",
                 dir.display(),
                 out
             ),
@@ -1540,9 +1610,22 @@ mod tests {
         ]});
         let claude = fake_claude(&dir, &answer);
 
-        let convention = propose(&config, "acme", "front", Vec::new(), &claude).unwrap();
+        let mut steps = Vec::new();
+        let convention = propose_with(&config, "acme", "front", Vec::new(), &claude, &mut |s| {
+            steps.push(s)
+        })
+        .unwrap();
+        assert_eq!(
+            steps,
+            [Step {
+                name: "Read".into(),
+                input: json!({"file_path": "src/app.css"})
+            }],
+            "what Claude Code reads shows as it goes"
+        );
         let args = fs::read_to_string(dir.join("args.txt")).unwrap();
         for flag in [
+            "--output-format\nstream-json\n",
             "--tools\nRead,Grep,Glob\n",
             "--restricted",
             "--safe-mode",

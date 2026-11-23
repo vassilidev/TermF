@@ -4067,6 +4067,9 @@ const fr = {
   proportionateTaskRole: "Rôle",
   proportionateTaskGoal: "Objectif",
   proportionateTaskMissing: "Donne le rôle et l'objectif de la tâche.",
+  recetteCtoToolUsage: "Lire ton usage de Claude Code",
+  recetteCtoToolOpsRecipes: "Lire les recettes Ops",
+  recetteCtoToolOpsRun: "Lancer une recette Ops",
 };
 
 type Key = keyof typeof fr;
@@ -8107,6 +8110,9 @@ const en: Record<Key, string> = {
   proportionateTaskRole: "Role",
   proportionateTaskGoal: "Goal",
   proportionateTaskMissing: "Give the task's role and goal.",
+  recetteCtoToolUsage: "Read your Claude Code usage",
+  recetteCtoToolOpsRecipes: "Read the Ops recipes",
+  recetteCtoToolOpsRun: "Run an Ops recipe",
 };
 
 const messages = { fr, en };

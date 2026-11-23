@@ -128,6 +128,11 @@ async function headless() {
   }
   const prompt = positional() ?? readFileSync(0, "utf8");
   const events = turn(sid, prompt.trim(), schema);
+  // "slowly": a file read that takes a while before the answer, as a real one-shot run streams it.
+  if (flag("--output-format") === "stream-json" && /\bslowly\b/i.test(prompt)) {
+    say({ type: "assistant", message: { content: [{ type: "tool_use", id: "toolu_read", name: "Read", input: { file_path: "README.md" } }] } });
+    await pause(3000);
+  }
   if (flag("--output-format") === "stream-json") events.forEach(say);
   else if (flag("--output-format") === "json") say(events.at(-1));
   else process.stdout.write(events.at(-1).result + "\n");

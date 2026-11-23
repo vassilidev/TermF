@@ -798,6 +798,29 @@ export const scenarios = [
     },
   },
   {
+    name: "conventions: what Claude Code (fake) reads shows while it proposes",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      const pane = t.shown("library");
+      await t.ready();
+      await t.project();
+      await t.view("library");
+      await s.click(`${pane} [data-tab="conventions"]`);
+      await s.type(`${pane} .conventions form.new input`, "style");
+      await s.click(`${pane} .conventions form.new button[type=submit]:not([disabled])`);
+      await s.type(`${pane} .conventions textarea.text`, "Read the README slowly.");
+      await s.click(`${pane} .conventions .step .row-end button.primary:not([disabled])`);
+      const read = await s.wait(() => s.exec((css) => document.querySelector(`${css} .conventions .feed li`)?.textContent, pane), {
+        what: "the file read shown while Claude Code proposes",
+      });
+      check(/README\.md/.test(read), `the read is not said: ${read}`);
+      // The fake's empty answer proposes nothing, which the page says.
+      await s.waitGone(`${pane} .conventions .notice.working`);
+      await t.clean({ allow: [/proposed nothing/] });
+    },
+  },
+  {
     name: "shortcuts: the palette moved to Mod+Shift+Y, saved in termf.toml, and it opens the palette",
     views: [],
     async run(t) {

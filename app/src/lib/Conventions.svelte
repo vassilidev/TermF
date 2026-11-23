@@ -2,6 +2,8 @@
   import { approxUsd } from "$lib/usage.svelte";
   import { onMount, type Component } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
+  import Action from "$lib/Action.svelte";
   import Check from "@lucide/svelte/icons/check";
   import FileCog from "@lucide/svelte/icons/file-cog";
   import Gauge from "@lucide/svelte/icons/gauge";
@@ -88,6 +90,14 @@
   let answers = $state<Record<string, string>>({});
   let comments = $state<Record<string, string>>({});
   let impact = $state<Impact[] | null>(null);
+  /** What Claude Code reads while it proposes, the latest last. */
+  let steps = $state<{ name: string; input: unknown }[]>([]);
+  $effect(() => {
+    const off = listen<{ project: string; slug: string; name: string; input: unknown }>("conventions-progress", (e) => {
+      if (e.payload.project === project.id && e.payload.slug === slug) steps = [...steps, e.payload].slice(-6);
+    });
+    return () => void off.then((f) => f());
+  });
 
   const current = $derived(list.find((c) => c.slug === slug));
   const draft = $derived(current?.draft ?? null);
@@ -191,6 +201,7 @@
   async function propose(withAnswers = false) {
     if (dirty && !(await save())) return;
     impact = null;
+    steps = [];
     const given = withAnswers
       ? (draft?.questions ?? []).map((question) => ({ question, answer: answers[question] ?? "" }))
       : [];
@@ -376,6 +387,11 @@
           <p class="notice working" role="status">
             <LoaderCircle size={14} aria-hidden="true" class="spin" />{t("convRunning", { model })}
           </p>
+          {#if steps.length}
+            <ol class="feed">
+              {#each steps as step, i (i)}<li><Action act={{ kind: "tool", name: step.name, input: step.input }} /></li>{/each}
+            </ol>
+          {/if}
         {/if}
       </section>
 
@@ -895,6 +911,22 @@
     align-items: center;
     background: var(--working-soft);
     color: var(--working);
+  }
+
+  .feed {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 8px 0 0;
+    padding: 0 0 0 10px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    list-style: none;
+  }
+
+  .feed li {
+    display: flex;
+    min-width: 0;
   }
 
   .question {
