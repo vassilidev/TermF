@@ -1177,6 +1177,38 @@ fn asks_the_last_task_again_from_the_visual_gate() {
 }
 
 #[test]
+fn a_page_changed_by_the_back_developer_still_waits_for_the_visual_review() {
+    let env = Env::new("visual-back");
+    fs::write(
+        env.config.join("library/workflows/visual.toml"),
+        "[steps.plan]\ntype = \"agent\"\nrole = \"orchestrator\"\n[steps.implement]\ntype = \"foreach\"\nover = \"plan.tasks\"\nneeds = [\"plan\"]\n[steps.rules]\ntype = \"rules\"\nneeds = [\"implement\"]\n[steps.visual]\ntype = \"visual\"\nneeds = [\"rules\"]\n",
+    )
+    .unwrap();
+    env.answer(
+        "plan.json",
+        env.plan(json!([task("T1", "back", &["public"], &[])])),
+    );
+    env.script(
+        "implement:T1",
+        "mkdir -p public; echo '<b>calc</b>' > public/index.html\n",
+    );
+    let options = Options {
+        workflow: Some("visual".into()),
+        rules: [("visual-review".to_owned(), Level::Warn)].into(),
+        ..Options::default()
+    };
+    env.team.start(env.target.clone(), options).unwrap();
+    let run = env.until("the visual gate or the end", |r| {
+        matches!(
+            r.steps.last().unwrap().state,
+            StepState::Waiting | StepState::Skipped
+        )
+    });
+    assert!(run.ui_changed);
+    assert_eq!(run.steps.last().unwrap().state, StepState::Waiting);
+}
+
+#[test]
 fn shares_the_run_budget_between_parallel_sessions() {
     let env = Env::new("share");
     env.answer(
@@ -2433,7 +2465,11 @@ fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     let run = env.until("the delivery", delivery);
     let planned = run.plan.as_ref().unwrap();
     let ids: Vec<&str> = planned.acceptance.iter().map(|c| c.id.as_str()).collect();
-    assert_eq!(ids, ["AC1", "AC2", "AC3", "AC4"], "every criterion of the ticket");
+    assert_eq!(
+        ids,
+        ["AC1", "AC2", "AC3", "AC4"],
+        "every criterion of the ticket"
+    );
     assert_eq!(planned.acceptance[2].text, "Dates in ISO 8601.");
     assert_eq!(planned.acceptance[3].text, "A JSON export too.");
     assert_eq!(planned.tasks[0].covers, ["AC1", "AC2", "AC3", "AC4"]);

@@ -3417,10 +3417,13 @@ impl Inner {
         });
         let writes = role.map(|r| list(r.meta.get("writes"))).unwrap_or_default();
         let paths = squad.map(|s| s.paths).unwrap_or_default();
-        for rule in rules
-            .iter()
-            .filter(|r| r.level >= Level::Warn && r.applies(&task.role, squad_id.as_deref()))
-        {
+        // A screen changed by any role reaches the visual review: its check reads the diff, not who wrote it (a back
+        // developer builds the page of a project with no front role).
+        for rule in rules.iter().filter(|r| {
+            r.level >= Level::Warn
+                && (r.applies(&task.role, squad_id.as_deref())
+                    || r.check.as_deref() == Some("ui-changed"))
+        }) {
             let found = match rule.check.as_deref() {
                 Some("scope") => rules::check_scope(&task, &writes, &paths, &report, &files, lines),
                 Some("text-changes") => rules::check_texts(&diff, &run.target.brief, &report),

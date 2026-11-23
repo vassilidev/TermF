@@ -861,7 +861,8 @@ fn cycle(tasks: &[Task]) -> bool {
 pub fn criterion_with_text(said: &str) -> Option<(String, String)> {
     let rest = said.strip_prefix("AC")?;
     let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-    let text = rest[digits..].trim_start_matches(|c: char| c == ':' || c == '-' || c == '—' || c.is_whitespace());
+    let text = rest[digits..]
+        .trim_start_matches(|c: char| c == ':' || c == '-' || c == '—' || c.is_whitespace());
     (digits > 0 && text.len() < rest.len() - digits && !text.is_empty())
         .then(|| (format!("AC{}", &rest[..digits]), text.to_owned()))
 }
