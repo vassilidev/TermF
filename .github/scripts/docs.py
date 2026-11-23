@@ -628,8 +628,8 @@ filled = source
 for key, value in fills.items():
     filled, n = re.subn(rf"(<!-- gen:{key} -->).*?(<!-- /gen:{key} -->)", lambda m: m.group(1) + value + m.group(2), filled, flags=re.S)
     assert n, f"index.html: no <!-- gen:{key} --> … <!-- /gen:{key} --> marker"
-# The launch video plays over the screenshot only once site/media/ has it, so the page never asks for a missing file
-video = ' data-video' if os.path.exists(os.path.join(SITE, "media", "launch.mp4")) else ""
+# The film plays only once site/media/ has it, so the page never asks for a missing file
+video = ' data-video' if os.path.exists(os.path.join(SITE, "media", "termf-launch.mp4")) else ""
 filled = re.sub(r'id="film"( data-video)?', f'id="film"{video}', filled)
 if filled != source:
     open(path, "w", encoding="utf-8").write(filled)

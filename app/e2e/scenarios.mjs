@@ -614,6 +614,28 @@ export const scenarios = [
     },
   },
   {
+    name: "expert: a question in its conversation finds what was committed just before",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      await t.ready();
+      await t.project();
+      writeFileSync(join(box.acme, "DECISIONS.md"), "# Decisions\n\nA failed webhook is replayed 4 times.\n");
+      box.git("add", "-A");
+      box.git("commit", "-q", "-m", "Record the webhook decision");
+      await t.command("expert");
+      const panel = t.shown("conversations");
+      await s.type(`${panel} form.composer textarea`, "How many times is a webhook replayed?");
+      await s.click(`${panel} form.composer button[type=submit]:not([disabled])`);
+      await s.wait(async () => (await s.text(panel))?.includes("Fake Claude received: How many times"), { what: "the expert's answer" });
+      // Long before the first background indexing (60 s after the start): only the question brought the memory up to date.
+      const status = await s.exec(() => window.__TAURI_INTERNALS__.invoke("memory_status", { project: "acme" }));
+      const docs = status.sources.find((x) => x.source === "docs").docs;
+      check(docs === 2, `the expert searched a memory not brought up to date: ${docs} documents instead of README.md and DECISIONS.md`);
+      await t.clean();
+    },
+  },
+  {
     name: "files: find a file by name, then a text across the repository",
     views: [],
     async run(t) {
@@ -782,6 +804,51 @@ export const scenarios = [
       await s.wait(() => s.exec((css, was) => document.querySelector(`${css} input.switch`)?.checked === !was, row, on), { what: "the switch flipped" });
       await s.wait(() => read(file) !== before && read(file).includes(name), { what: `${name} in acme.toml` });
       await t.settled("library");
+      await t.clean();
+    },
+  },
+  {
+    name: "conventions: what Claude Code (fake) reads shows while it proposes",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      const pane = t.shown("library");
+      await t.ready();
+      await t.project();
+      await t.view("library");
+      await s.click(`${pane} [data-tab="conventions"]`);
+      await s.type(`${pane} .conventions form.new input`, "style");
+      await s.click(`${pane} .conventions form.new button[type=submit]:not([disabled])`);
+      await s.type(`${pane} .conventions textarea.text`, "Read the README slowly.");
+      await s.click(`${pane} .conventions .step .row-end button.primary:not([disabled])`);
+      const read = await s.wait(() => s.exec((css) => document.querySelector(`${css} .conventions .feed li`)?.textContent, pane), {
+        what: "the file read shown while Claude Code proposes",
+      });
+      check(/README\.md/.test(read), `the read is not said: ${read}`);
+      // The fake's empty answer proposes nothing, which the page says.
+      await s.waitGone(`${pane} .conventions .notice.working`);
+      await t.clean({ allow: [/proposed nothing/] });
+    },
+  },
+  {
+    name: "scout: each library item to pick reads on one line, its name whole",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      const pane = t.shown("library");
+      await t.ready();
+      await t.project();
+      await t.view("library");
+      await s.exec((css, label) => [...document.querySelectorAll(`${css} button`)].find((b) => b.textContent.trim() === label).click(), pane, text("en", "scoutOpen"));
+      await s.click(`${pane} [role=radio]:not([aria-checked=true])`);
+      const rows = await s.wait(() =>
+        s.exec((css) => {
+          const rows = [...document.querySelectorAll(`${css} .picker label`)].slice(0, 20).map((l) => [l.querySelector(".item-name").textContent, l.getBoundingClientRect().height]);
+          return rows.length && rows;
+        }, pane),
+      );
+      const tall = rows.filter(([, h]) => h > 40);
+      check(rows.length && !tall.length, `names broken over several lines: ${JSON.stringify(tall)}`);
       await t.clean();
     },
   },

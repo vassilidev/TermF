@@ -52,6 +52,7 @@ pub fn state(
                 handle.emit("agent-event", event)
             }
             Update::Session(session) => {
+                crate::memory::delivering(&handle, &session);
                 team.session(session.id);
                 if let Some(state) = handle.try_state::<AppState>() {
                     let working = session.state == termf_agents::State::Working;
@@ -203,6 +204,7 @@ pub fn call(app: &AppHandle, call: AgentCall) -> Result<Value> {
             serde_json::to_value(agents.start(serde_json::from_value(spec)?, prompt.as_deref())?)?
         }
         AgentCall::Send { session, text } => {
+            crate::memory::before_expert(app, &agents.session(session)?, &text);
             agents.send(session, &text)?;
             Value::Null
         }
@@ -238,7 +240,12 @@ pub async fn agent_start(
 
 #[tauri::command]
 pub async fn agent_send(app: AppHandle, id: i64, text: String) -> CmdResult<()> {
-    blocking(app, move |app| agents(app).send(id, &text)).await
+    blocking(app, move |app| {
+        let agents = agents(app);
+        crate::memory::before_expert(app, &agents.session(id)?, &text);
+        agents.send(id, &text)
+    })
+    .await
 }
 
 #[tauri::command]

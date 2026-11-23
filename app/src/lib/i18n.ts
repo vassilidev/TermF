@@ -4389,6 +4389,9 @@ const fr = {
   uiF1CheckAction: "Brancher",
   uiF1CheckRun: "Lancer un premier run",
   uiF1CheckReview: "Relire une livraison",
+  recetteCtoToolUsage: "Lire ton usage de Claude Code",
+  recetteCtoToolOpsRecipes: "Lire les recettes Ops",
+  recetteCtoToolOpsRun: "Lancer une recette Ops",
   recetteChecks: "Vérification avant livraison",
   recetteChecksHint: "La commande que l'équipe lance avant de livrer, par exemple npm test. Vide : rien n'est vérifié.",
 };
@@ -8751,6 +8754,9 @@ const en: Record<Key, string> = {
   uiF1CheckAction: "Connect",
   uiF1CheckRun: "Start a first run",
   uiF1CheckReview: "Review a delivery",
+  recetteCtoToolUsage: "Read your Claude Code usage",
+  recetteCtoToolOpsRecipes: "Read the Ops recipes",
+  recetteCtoToolOpsRun: "Run an Ops recipe",
   recetteChecks: "Check before delivery",
   recetteChecksHint: "The command the team runs before delivering, for example npm test. Empty: nothing is checked.",
 };
