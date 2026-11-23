@@ -411,7 +411,7 @@
   );
   const tabs = $derived([
     { id: "runs", label: t("ciRuns") },
-    { id: "deploys", label: t("cvDeploys"), count: deploys.targets?.length ? deployCount : null },
+    { id: "deploys", label: t("cvDeploys"), count: deploys.targets?.length && (deploys.tokensRead || !deploys.targets.some((x) => x.token)) ? deployCount : null },
     { id: "hooks", label: t("cvHooks"), count: deploys.hooksOf === ci.repo && !deploys.hooksError ? (deploys.hooks?.length ?? null) : null },
     { id: "tools", label: t("cvTools"), count: deploys.targets?.length || null },
   ]);

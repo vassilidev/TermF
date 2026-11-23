@@ -51,7 +51,8 @@
   const from = $derived(item ? originIn(item.target, repo, item.d, runs, tickets.runs) : { pr: null, run: null, here: false });
 
   // A token in a locked vault, or a prod one: the master password here, as in Ops, then the targets are read again.
-  const vaultAsk = $derived(failures.find((f) => /the vault is locked|needs the master password again/.test(f.error)));
+  const asksVault = (error: string) => /the vault is locked|needs the master password again/.test(error);
+  const vaultAsk = $derived(failures.find((f) => asksVault(f.error)));
   const locked = $derived(/the vault is locked/.test(vaultAsk?.error ?? ""));
   let password = $state("");
   let passwordError = $state("");
@@ -135,13 +136,13 @@
     <div class="list">
       {#if vaultAsk}
         <form class="vault" onsubmit={(e) => (e.preventDefault(), givePassword())}>
-          <span>{locked ? t("cvVaultLocked", { target: vaultAsk.target.name }) : t("opsPasswordReauth")}</span>
+          <span>{locked ? t("cvVaultLocked", { target: failures.filter((f) => asksVault(f.error)).map((f) => f.target.name).join(", ") }) : t("opsPasswordReauth")}</span>
           <input class="field" type="password" autocomplete="current-password" placeholder={t("opsPassword")} aria-label={t("opsPassword")} bind:value={password} />
           {#if passwordError}<span class="bad small">{passwordError}</span>{/if}
           <Button size="sm" variant="primary" type="submit" disabled={!password}>{t("opsContinue")}</Button>
         </form>
       {/if}
-      {#each failures.filter((f) => f !== vaultAsk) as f (f.target.name)}
+      {#each failures.filter((f) => !asksVault(f.error)) as f (f.target.name)}
         <p class="notice error small"><CircleAlert size={13} aria-hidden="true" /><span><b>{f.target.name} · {deployLabel[f.target.tool]}</b> {f.error}</span></p>
       {/each}
       {#if loading && !items.length}
