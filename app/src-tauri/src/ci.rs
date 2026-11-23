@@ -7,8 +7,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Manager, State};
+use anyhow::{Context, Result, bail};
+use termf_ci::deploy::{Deploy, Deployment, Target, ToolInfo};
 use termf_ci::{
-    AgentMessage, Ci, Filter, Input, JobLog, RunDetail, RunPage, Watch, Workflow, WorkflowRun,
+    AgentMessage, Ci, Delivery, Filter, Hook, Input, JobLog, Node, RunDetail, RunPage, Watch,
+    Workflow, WorkflowRun,
 };
 use termf_core::CiNotify;
 use termf_tickets::Tickets;
@@ -19,6 +22,7 @@ use crate::{AppState, CmdResult, err};
 pub struct CiState {
     ci: Arc<Ci>,
     watch: Mutex<Watch>,
+    deploy: Deploy,
 }
 
 impl CiState {
@@ -26,6 +30,7 @@ impl CiState {
         Self {
             ci: Arc::new(Ci::new(Tickets::new(config_dir, data_dir))),
             watch: Mutex::default(),
+            deploy: Deploy::default(),
         }
     }
 }
@@ -204,4 +209,147 @@ pub fn ci_notify_set(app: AppHandle, notify: CiNotify) -> CmdResult<CiNotify> {
         app.state::<CiState>().watch.lock().unwrap().clear();
     }
     Ok(notify)
+}
+
+#[tauri::command]
+pub async fn ci_graph(app: AppHandle, repo: String, path: String, sha: String) -> CmdResult<Vec<Node>> {
+    blocking(app, move |app| ci(app).graph(&repo, &path, &sha)).await
+}
+
+#[tauri::command]
+pub async fn ci_hooks(app: AppHandle, repo: String) -> CmdResult<Vec<Hook>> {
+    blocking(app, move |app| ci(app).hooks(&repo)).await
+}
+
+#[tauri::command]
+pub async fn ci_deliveries(app: AppHandle, repo: String, hook: u64) -> CmdResult<Vec<Delivery>> {
+    blocking(app, move |app| ci(app).deliveries(&repo, hook)).await
+}
+
+#[tauri::command]
+pub async fn ci_redeliver(app: AppHandle, repo: String, hook: u64, delivery: u64) -> CmdResult<()> {
+    blocking(app, move |app| ci(app).redeliver(&repo, hook, delivery)).await
+}
+
+/// Asked to the user first, in the UI.
+#[tauri::command]
+pub async fn ci_hook_create(
+    app: AppHandle,
+    repo: String,
+    url: String,
+    events: Vec<String>,
+) -> CmdResult<Hook> {
+    blocking(app, move |app| ci(app).create_hook(&repo, &url, &events)).await
+}
+
+/// Asked to the user first, in the UI.
+#[tauri::command]
+pub async fn ci_hook_delete(app: AppHandle, repo: String, hook: u64) -> CmdResult<()> {
+    blocking(app, move |app| ci(app).delete_hook(&repo, hook)).await
+}
+
+#[tauri::command]
+pub async fn deploy_tools(app: AppHandle) -> CmdResult<Vec<ToolInfo>> {
+    blocking(app, |app| Ok(app.state::<CiState>().deploy.tools())).await
+}
+
+#[tauri::command]
+pub fn deploy_targets(state: State<AppState>, project: String) -> CmdResult<Vec<Target>> {
+    termf_ci::deploy::targets(&state.config_dir, &project).map_err(err)
+}
+
+#[tauri::command]
+pub fn deploy_target_save(
+    state: State<AppState>,
+    project: String,
+    target: Target,
+    previous: Option<String>,
+) -> CmdResult<Vec<Target>> {
+    termf_ci::deploy::save_target(&state.config_dir, &project, &target, previous.as_deref())
+        .map_err(err)
+}
+
+#[tauri::command]
+pub fn deploy_target_delete(
+    state: State<AppState>,
+    project: String,
+    name: String,
+) -> CmdResult<Vec<Target>> {
+    termf_ci::deploy::delete_target(&state.config_dir, &project, &name).map_err(err)
+}
+
+/// The target, and its token from the vault when it names one: the project's secret, else the global one.
+fn target_and_token(
+    app: &AppHandle,
+    project: &str,
+    name: &str,
+) -> Result<(Target, Option<termf_vault::Secret>)> {
+    let config = &app.state::<AppState>().config_dir;
+    let target = termf_ci::deploy::targets(config, project)?
+        .into_iter()
+        .find(|t| t.name == name)
+        .with_context(|| format!("no deploy target named {name}"))?;
+    let Some(secret) = target.token.clone() else {
+        return Ok((target, None));
+    };
+    let vault = crate::vault::shared(app);
+    if !vault.initialized() {
+        bail!("there is no vault yet: create it in the Vault view, then add {secret} there");
+    }
+    let scope = termf_vault::Scope::parse(&target.env)?;
+    let human = termf_vault::Actor::human();
+    let id = termf_vault::SecretId::new(&secret, scope, Some(project))?;
+    let token = match vault.value(&human, &id, termf_vault::Access::Use) {
+        Err(e) if format!("{e:#}").starts_with("no secret") => {
+            let global = termf_vault::SecretId::new(&secret, scope, None)?;
+            vault
+                .value(&human, &global, termf_vault::Access::Use)
+                .with_context(|| format!("no secret {secret} in the vault ({})", target.env))?
+        }
+        other => other?,
+    };
+    Ok((target, Some(token)))
+}
+
+/// What a tool printed, without the vault's values nor the token it was given.
+fn masked(app: &AppHandle, token: Option<&termf_vault::Secret>, text: String) -> String {
+    let mut masker = crate::vault::masker(app).unwrap_or_else(|| termf_vault::Masker::new([]));
+    if let Some(token) = token {
+        masker.add(token);
+    }
+    masker.mask(&text).text
+}
+
+#[tauri::command]
+pub async fn deploy_list(app: AppHandle, project: String, name: String) -> CmdResult<Vec<Deployment>> {
+    blocking(app, move |app| {
+        let (target, token) = target_and_token(app, &project, &name)?;
+        let expose = token.as_ref().map(termf_vault::Secret::expose);
+        app.state::<CiState>().deploy.list(&target, expose)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn deploy_logs(app: AppHandle, project: String, name: String, id: String) -> CmdResult<Vec<String>> {
+    blocking(app, move |app| {
+        let (target, token) = target_and_token(app, &project, &name)?;
+        let expose = token.as_ref().map(termf_vault::Secret::expose);
+        let lines = app.state::<CiState>().deploy.logs(&target, &id, expose)?;
+        let text = masked(app, token.as_ref(), lines.join("\n"));
+        Ok(text.lines().map(str::to_owned).collect())
+    })
+    .await
+}
+
+/// Approved by the user first, in the UI: a deployment does not come undone.
+#[tauri::command]
+pub async fn deploy_redeploy(app: AppHandle, project: String, name: String, id: String) -> CmdResult<String> {
+    blocking(app, move |app| {
+        let (target, token) = target_and_token(app, &project, &name)?;
+        let expose = token.as_ref().map(termf_vault::Secret::expose);
+        let out = app.state::<CiState>().deploy.redeploy(&target, &id, expose)?;
+        Ok(masked(app, token.as_ref(), out))
+    })
+    .await
 }
