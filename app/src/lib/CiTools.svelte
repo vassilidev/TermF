@@ -112,24 +112,24 @@
     <h2 id="tools-title">{t("cvToolsTitle")}</h2>
     <p class="muted lead">{t("cvToolsText")}</p>
     {#if deploys.tools === null}
-      <Skeleton shape="cards" rows={5} label={t("cvToolsLoading")} />
+      <Skeleton shape="list" rows={5} label={t("cvToolsLoading")} />
     {:else}
-      <ul class="grid">
+      <ul class="targets">
         {#each order as tool (tool)}
           {@const i = info(tool)}
-          <li class="tool" class:missing={!i?.path}>
-            <div class="top">
-              <span class="logo" aria-hidden="true">{deployMark[tool]}</span>
+          <li class:missing={!i?.path}>
+            <span class="logo" aria-hidden="true">{deployMark[tool]}</span>
+            <span class="what">
               <b>{deployLabel[tool]}</b>
-              {#if i?.path}<span class="ok" title={i.path}><CircleCheck size={13} aria-hidden="true" />{t("cvInstalled")}</span>{:else}<span class="muted small">{t("cvNotInstalled")}</span>{/if}
-            </div>
-            {#if i && !i.path}
-              <div class="install">
-                <code>{i.install}</code>
-                <button class="icon-btn sm" aria-label={t("cvCopyCommand")} title={t("cvCopyCommand")} onclick={() => copy(i.install)}><Copy size={13} aria-hidden="true" /></button>
-              </div>
+              {#if i}<span class="muted small">{t("cvTokenVar", { name: i.tokenVar })}</span>{/if}
+            </span>
+            {#if i?.path}
+              <span class="ok" title={i.path}><CircleCheck size={13} aria-hidden="true" />{t("cvInstalled")}</span>
+            {:else if i}
+              <span class="muted small">{t("cvNotInstalled")}</span>
+              <code>{i.install}</code>
+              <button class="icon-btn sm" aria-label={t("cvCopyCommand")} title={t("cvCopyCommand")} onclick={() => copy(i.install)}><Copy size={13} aria-hidden="true" /></button>
             {/if}
-            {#if i}<span class="muted small">{t("cvTokenVar", { name: i.tokenVar })}</span>{/if}
           </li>
         {/each}
       </ul>
@@ -235,39 +235,6 @@
     margin-bottom: 12px;
   }
 
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 12px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .tool {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--panel);
-  }
-
-  .tool.missing {
-    background: var(--well);
-  }
-
-  .top {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .top b {
-    flex: 1;
-  }
-
   .ok {
     display: inline-flex;
     align-items: center;
@@ -277,17 +244,12 @@
     font-weight: 600;
   }
 
-  .install {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+  .missing {
+    background: var(--well);
   }
 
   code {
-    flex: 1;
-    min-width: 0;
-    padding: 4px 8px;
-    overflow-wrap: anywhere;
+    padding: 3px 8px;
     border-radius: var(--radius);
     background: var(--panel);
     border: 1px solid var(--border);

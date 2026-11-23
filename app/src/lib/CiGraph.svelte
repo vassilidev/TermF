@@ -84,15 +84,13 @@
               onclick={() => onselect(job)}
             >
               <Icon size={15} aria-hidden="true" class={state === "running" ? "spin" : ""} />
-              <span class="name">{job.name}</span>
-              <span class="d num">{time(job, state)}</span>
+              <span class="text"><span class="name">{job.name}</span><span class="d num">{time(job, state) || t(labels[state])}</span></span>
             </button>
           {/each}
         {:else}
           <div class="job waiting" data-key={cell.key} title={cell.name}>
             <CircleDashed size={15} aria-hidden="true" />
-            <span class="name">{cell.name}</span>
-            <span class="d">{t("cvWaiting")}</span>
+            <span class="text"><span class="name">{cell.name}</span><span class="d">{t("cvWaiting")}</span></span>
           </div>
         {/if}
       {/each}
@@ -104,9 +102,10 @@
   .dag {
     position: relative;
     display: grid;
-    grid-auto-columns: minmax(170px, 1fr);
+    grid-auto-columns: minmax(120px, max-content);
     grid-auto-flow: column;
-    gap: 44px;
+    justify-content: space-between;
+    gap: 40px;
     padding: 20px;
     overflow-x: auto;
     border: 1px solid var(--border);
@@ -146,9 +145,9 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    height: var(--h-lg);
+    min-height: 44px;
     min-width: 0;
-    padding: 0 10px;
+    padding: 5px 12px 5px 10px;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     background: var(--panel);
@@ -175,16 +174,21 @@
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
-  .name {
-    flex: 1;
+  .text {
+    display: flex;
+    flex-direction: column;
     min-width: 0;
+    line-height: 1.3;
+  }
+
+  .name {
+    max-width: 220px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .d {
-    flex-shrink: 0;
     color: var(--muted);
     font-size: var(--text-xs);
     font-weight: 400;

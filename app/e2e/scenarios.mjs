@@ -724,15 +724,37 @@ export const scenarios = [
         actor: { login: "alex" },
         pull_requests: [],
         html_url: "https://github.com/acme/api/actions/runs/4242",
+        path: ".github/workflows/ci.yml",
         created_at: "2026-11-22T09:00:00Z",
         updated_at: "2026-11-22T09:05:00Z",
         run_started_at: "2026-11-22T09:00:05Z",
       };
+      const job = (id, name, conclusion, steps = []) => ({
+        id, name, status: "completed", conclusion, started_at: "2026-11-22T09:00:10Z", completed_at: "2026-11-22T09:02:00Z",
+        html_url: `https://github.com/acme/api/actions/runs/4242/job/${id}`, steps,
+      });
       writeFileSync(join(box.root, "gh-runs.json"), JSON.stringify([run]));
+      writeFileSync(join(box.root, "gh-jobs.json"), JSON.stringify([
+        job(1, "lint", "success"),
+        job(2, "test (ubuntu-latest)", "failure", [{ number: 1, name: "Run cargo test", status: "completed", conclusion: "failure" }]),
+        job(3, "build", "skipped"),
+      ]));
+      writeFileSync(join(box.root, "gh-workflow.yml"), "jobs:\n  lint: {}\n  test:\n    needs: lint\n  build:\n    needs: test\n");
+      writeFileSync(join(box.root, "gh-log.txt"), "2026-11-22T09:01:00.0000000Z running 3 tests\n2026-11-22T09:01:01.0000000Z test export::csv ... FAILED\n2026-11-22T09:01:02.0000000Z error: test failed, to rerun pass `--lib`\n");
+      const pane = t.shown("ci");
       await t.ready();
       await t.project();
       await t.view("ci");
-      await s.wait(async () => (await s.text(t.shown("ci")))?.includes("Fix the login button on Safari"), { what: "the run in the list" });
+      await s.wait(async () => (await s.text(pane))?.includes("Fix the login button on Safari"), { what: "the run in the list" });
+      // The graph: lint, then test that failed, then build skipped because of it.
+      await s.wait(async () => (await s.text(`${pane} .dag`))?.includes("build"), { what: "the job graph" });
+      check((await s.text(`${pane} .dag .job.failed`))?.includes("test (ubuntu-latest)"), "the failed job is marked in the graph");
+      check((await s.text(`${pane} .dag .job.skipped`))?.includes("build"), "the skipped job is marked in the graph");
+      // The first error, its line from the log, and "Why?" for devops.
+      await s.wait(async () => (await s.text(`${pane} .first .excerpt .hl`))?.includes("error: test failed"), { what: "the failing line" });
+      // Webhooks: the fake gh is no admin of acme/api, and the view says so.
+      await s.click(`${pane} [role=tab][data-tab=hooks]`);
+      await s.wait(async () => (await s.text(pane))?.includes("admin:repo_hook"), { what: "the admin rights asked for the webhooks" });
       await t.clean();
     },
   },

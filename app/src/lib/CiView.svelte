@@ -168,11 +168,11 @@
     untrack(() => loadBranch());
   });
 
+  // Read again when the run shown changes, not each time its object is replaced by the same run.
+  const currentKey = $derived(current ? `${current.id}:${current.updated}:${current.status}` : "");
   $effect(() => {
-    const r = current;
-    void r?.updated;
-    void r?.status;
-    untrack(() => loadDetail(r));
+    void currentKey;
+    untrack(() => loadDetail(current));
   });
 
   // The first failed job's log, once per job: the line at fault.
@@ -189,10 +189,10 @@
     return () => clearInterval(timer);
   });
 
+  const working = $derived(!!run && run.status !== "completed");
   $effect(() => {
-    const r = run;
-    if (!onScreen("ci") || ci.tab !== "runs" || !r || r.status === "completed") return;
-    const timer = setInterval(() => document.visibilityState === "visible" && untrack(() => loadDetail(r, true)), 5_000);
+    if (!onScreen("ci") || ci.tab !== "runs" || !working) return;
+    const timer = setInterval(() => document.visibilityState === "visible" && untrack(() => loadDetail(current, true)), 5_000);
     return () => clearInterval(timer);
   });
 
@@ -267,7 +267,8 @@
       if (n !== detailRequest) return;
       detail = found;
       // The squares follow the run as it moves.
-      if (branchRuns) branchRuns = branchRuns.map((b) => (b.id === found.run.id ? found.run : b));
+      const moved = (b: WorkflowRun) => b.id === found.run.id && (b.status !== found.run.status || b.updated !== found.run.updated);
+      if (branchRuns?.some(moved)) branchRuns = branchRuns.map((b) => (moved(b) ? found.run : b));
     } catch (e) {
       if (n === detailRequest && !quiet) detailError = String(e);
     }
@@ -534,7 +535,7 @@
                 {@const last = g.runs[0]}
                 <div class="branch">
                   <div class="b-top">
-                    <span class="b-name mono">{g.branch || "—"}</span>
+                    <span class="b-name">{g.branch || "—"}</span>
                     {#each g.prs.slice(0, 2) as n (n)}<span class="pr">#{n}</span>{/each}
                   </div>
                   <div class="b-sub">
@@ -687,7 +688,7 @@
                     {#each deploys.hooks.slice(0, 3) as h (h.id)}
                       <button class="mini-row" onclick={() => (ci.tab = "hooks")}>
                         <span class="logo" aria-hidden="true"><WebhookIcon size={12} /></span>
-                        <span class="mt"><span class="t mono">{hookHost(h.url)}</span><span class="muted">{h.events.join(", ")}{h.lastCode !== null ? ` · ${h.lastCode}` : ""}</span></span>
+                        <span class="mt"><span class="t">{hookHost(h.url)}</span><span class="muted">{h.events.join(", ")}{h.lastCode !== null ? ` · ${h.lastCode}` : ""}</span></span>
                         <span class="dot {h.lastCode === null ? '' : h.lastCode < 300 ? 'done' : 'failed'}" aria-hidden="true"></span>
                       </button>
                     {/each}
@@ -754,8 +755,9 @@
 
   .branch {
     display: flex;
+    flex: 1;
     flex-direction: column;
-    gap: 4px;
+    gap: 5px;
     min-width: 0;
   }
 
@@ -770,7 +772,6 @@
     flex: 1;
     min-width: 0;
     overflow: hidden;
-    font-size: var(--text-sm);
     font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;

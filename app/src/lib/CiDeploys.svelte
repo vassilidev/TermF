@@ -91,7 +91,7 @@
 
   const tone = (d: Deployment) => (d.state === "passed" ? "done" : d.state === "failed" ? "failed" : d.state === "running" || d.state === "queued" ? "working" : "");
   const stateLabel = (d: Deployment) =>
-    ({ passed: t("cvDeployLive"), failed: t("ciFailed"), running: t("cvDeployBuilding"), queued: t("ciQueued"), stopped: t("ciStopped"), unknown: t("cvDeployLatest") })[d.state];
+    ({ passed: t("cvDeployLive"), failed: t("cvDeployFailed"), running: t("cvDeployBuilding"), queued: t("ciQueued"), stopped: t("ciStopped"), unknown: t("cvDeployLatest") })[d.state];
   const sub = (i: Item) =>
     [i.d.environment, i.d.description ?? i.d.branch, i.d.created ? ago(Date.parse(i.d.created) / 1000) : null].filter(Boolean).join(" · ");
 </script>
