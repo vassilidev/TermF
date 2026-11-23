@@ -1,11 +1,11 @@
 <script lang="ts">
+  import { broke } from "$lib/live-logic";
+
   /** What a command printed, as a terminal shows it: the command first when known, the lines that say what broke marked. */
   let { text, command }: { text: string; command?: string } = $props();
-
-  const BROKE = /\b(fail(ed|ure)?|error|assert(ion)?error|panic(ked)?)\b|✗|×/i;
 </script>
 
-<pre class="out">{#if command}<span class="line cmd">$ {command}</span>{/if}{#each text.split("\n") as line, i (i)}<span class="line" class:broke={BROKE.test(line)}>{line || " "}</span>{/each}</pre>
+<pre class="out">{#if command}<span class="line cmd">$ {command}</span>{/if}{#each text.split("\n") as line, i (i)}<span class="line" class:broke={broke(line)}>{line || " "}</span>{/each}</pre>
 
 <style>
   .out {

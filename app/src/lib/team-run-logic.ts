@@ -317,12 +317,24 @@ export function progress(run: TeamRun): { over: number; total: number; left: num
 }
 
 /**
- * What a team at work would spend in all at its pace so far: its cost over the share of its steps already over. Null
- * before its first step is over, once all are, or when it no longer works.
+ * What a run spent so far: what its steps added up, and what the sessions of the steps at work spent since (a step
+ * adds its session's cost up when it ends).
  */
-export function projected(run: TeamRun): number | null {
+export function liveCost(run: TeamRun, sessionCost: (session: number) => number): number {
+  const extra = run.steps
+    .filter((s) => s.state === "running" && s.session !== null)
+    .reduce((n, s) => n + Math.max(0, sessionCost(s.session as number) - s.cost), 0);
+  return run.cost + extra;
+}
+
+/**
+ * What a team at work would spend in all at its pace so far: `cost` (what it spent, by default what its steps added
+ * up) over the share of its steps already over. Null before its first step is over, once all are, or when it no
+ * longer works.
+ */
+export function projected(run: TeamRun, cost = run.cost): number | null {
   const { over, total } = progress(run);
-  return working(run) && over > 0 && over < total ? (run.cost * total) / over : null;
+  return working(run) && over > 0 && over < total ? (cost * total) / over : null;
 }
 
 export type Notice = { kind: "gate" | "blocked" | "done" | "budget"; step?: string };

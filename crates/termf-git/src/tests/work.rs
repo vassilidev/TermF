@@ -994,7 +994,7 @@ fn force_pushes_with_a_lease_never_on_the_default_branch() {
 }
 
 #[test]
-fn diff_since_a_base_counts_commits_and_the_work_tree_not_the_base_moving_on() {
+fn diff_since_a_base_counts_commits_the_work_tree_and_new_files_not_the_base_moving_on() {
     let sb = Sandbox::new("since");
     let repo = sb.clone("acme");
     sb.git(&repo, &["switch", "-q", "-c", "termf/1-export"]);
@@ -1006,13 +1006,31 @@ fn diff_since_a_base_counts_commits_and_the_work_tree_not_the_base_moving_on() {
     sb.commit(&repo, "later.md", "later\n", "Later on main");
     sb.git(&repo, &["switch", "-q", "termf/1-export"]);
     sb.git(&repo, &["stash", "pop", "-q"]);
+    // A new file the agent has not added yet is part of the run's work; an ignored one is not.
+    fs::create_dir_all(repo.join("tests")).unwrap();
+    fs::write(repo.join("tests/test_export.py"), "def test():\n    pass\n").unwrap();
+    fs::write(repo.join(".gitignore"), "*.log\n").unwrap();
+    fs::write(repo.join("run.log"), "noise\n").unwrap();
 
     let files = sb.git.diff_since(&repo, "main").unwrap();
     let got: Vec<(&str, u32, u32)> = files
         .iter()
         .map(|f| (f.path.as_str(), f.added, f.removed))
         .collect();
-    assert_eq!(got, [("README.md", 1, 0), ("export.py", 2, 0)]);
+    assert_eq!(
+        got,
+        [
+            (".gitignore", 1, 0),
+            ("README.md", 1, 0),
+            ("export.py", 2, 0),
+            ("tests/test_export.py", 2, 0)
+        ]
+    );
+    let new = files
+        .iter()
+        .find(|f| f.path == "tests/test_export.py")
+        .unwrap();
+    assert_eq!((new.status, new.hunks.len()), ('A', 1), "{new:?}");
     assert!(
         sb.git.diff_since(&repo, "-x").is_err(),
         "an option is no base"

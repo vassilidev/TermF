@@ -39,12 +39,13 @@
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
-  import { apiUsd, budgetUsd } from "$lib/agents.svelte";
+  import { agents, apiUsd, budgetUsd } from "$lib/agents.svelte";
   import { budgetLabel, costHelp } from "$lib/usage.svelte";
   import { closeRun, showReview } from "$lib/commands";
   import { reviewOf } from "$lib/visual.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import {
+    defaultStage,
     expected,
     mergeRequest,
     named,
@@ -58,7 +59,7 @@
     type StageState,
   } from "$lib/run-logic";
   import { repoName, shortPath } from "$lib/state.svelte";
-  import { TRIAGE, asks, budgetError, progress, projected, type TeamRun } from "$lib/team-run-logic";
+  import { TRIAGE, asks, budgetError, liveCost, progress, projected, type TeamRun } from "$lib/team-run-logic";
   import NextStep from "$lib/ui/NextStep.svelte";
   import { askAI, provide } from "$lib/ask.svelte";
   import { runNext } from "$lib/guide-logic";
@@ -128,10 +129,11 @@
   const firstAsk = $derived(waits[0]);
   const next = $derived(run ? runNext({ expected: wants, blocked: firstAsk?.kind === "blocked", working: teamRun?.state === "running" }) : null);
   const timeline = $derived(run ? stages(run, teamRun) : []);
-  /** The stage of the timeline whose steps show under it: the tasks unless one of this run is picked. */
+  /** The stage of the timeline whose steps show under it: one of this run picked, else where it stopped or its tasks. */
   let picked = $state<{ run: number; stage: string } | null>(null);
-  const stage = $derived(picked?.run === id ? picked.stage : "tasks");
-  const pickStage = (s: string) => (picked = { run: id, stage: s === stage ? "tasks" : s });
+  const fallback = $derived(teamRun ? defaultStage(teamRun, timeline) : "tasks");
+  const stage = $derived(picked?.run === id ? picked.stage : fallback);
+  const pickStage = (s: string) => (picked = s === stage ? null : { run: id, stage: s });
   const tasks = $derived(teamRun?.steps.filter((s) => s.kind === "task") ?? []);
   /** The lanes: what waits and what works while the team is at work, the delivery once it is done. */
   const live = $derived(
@@ -160,12 +162,15 @@
     const timer = setInterval(() => (now = Date.now() / 1000), 30_000);
     return () => clearInterval(timer);
   });
+  // Measured to its end once the team no longer works.
   const age = $derived.by(() => {
     if (!run) return "";
-    const { key, vars } = elapsed(now - run.created);
+    const { key, vars } = elapsed((active || !teamRun ? now : teamRun.updated) - run.created);
     return t(key as Parameters<typeof t>[0], vars);
   });
-  const pace = $derived(teamRun ? projected(teamRun) : null);
+  /** What the steps at work spent this far counts before they add it up. */
+  const spentNow = $derived(teamRun ? liveCost(teamRun, (s) => agents.sessions.find((a) => a.id === s)?.cost ?? 0) : 0);
+  const pace = $derived(teamRun ? projected(teamRun, spentNow) : null);
   // A change over several repositories: each with its own pull request.
   const repos = $derived(repoRuns(tickets.runs, id));
   const repoLabel: Record<RepoState, [Status, Parameters<typeof t>[0]]> = {
@@ -375,7 +380,7 @@
     {/snippet}
     {#if pill}<StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />{/if}
     {#snippet actions()}
-      {#if teamRun && !narrow}<span class="tally num" title={costHelp()}>{age} · {budgetUsd(teamRun.cost)}</span>{/if}
+      {#if teamRun && !narrow}<span class="tally num" title={costHelp()}>{age} · {budgetUsd(spentNow)}</span>{/if}
       <!-- A narrow page keeps the delivery and the stop in the header, the rest goes to the menu. -->
       {#if run && session && !narrow}
         <button class="btn sm" onclick={() => openTile(run)}>
@@ -431,8 +436,8 @@
             ? t("uiRunTasksDone", { done: tasks.filter((x) => x.state === "done").length, total: tasks.length })
             : ""}
         <li class={s.state} aria-current={s.state === "waiting" || s.state === "working" ? "step" : undefined}>
-          {#if teamRun && s.id !== "deliver"}
-            <button class="st" class:picked={stage === s.id && s.id !== "tasks"} aria-pressed={stage === s.id} onclick={() => pickStage(s.id)} title={t("uiRunStageSteps", { stage: label })}>
+          {#if teamRun}
+            <button class="st" class:picked={picked?.run === id && picked.stage === s.id} aria-pressed={stage === s.id} onclick={() => pickStage(s.id)} title={t("uiRunStageSteps", { stage: label })}>
               <Icon size={14} aria-hidden="true" /><span class="label">{label}{count ? ` · ${count}` : ""}</span><span class="sr-only">, {t(said)}</span>
             </button>
           {:else}
@@ -687,7 +692,7 @@
             <div class="panel ci"><CiChecks {run} {session} /></div>
           {/if}
 
-          {#if run.status === "running" || run.status === "delivered"}<RunChanges {run} version={Math.max(run.updated, teamRun?.updated ?? 0)} />{/if}
+          {#if run.status === "running" || run.status === "delivered"}<RunChanges {run} version={`${run.updated}:${teamRun?.steps.filter((s) => s.finished !== null).length ?? 0}`} />{/if}
 
           {#if teamRun && spent}
             <section class="panel" aria-labelledby="run-budget">

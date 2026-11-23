@@ -58,9 +58,9 @@
   const given = $derived(withOthers(questions, answers, others));
   const missing = $derived(unanswered(questions, given));
 
-  /** On a lane, Enter in a one-line field sends, as the button says. */
+  /** On a lane, Enter in a one-line text field sends, as the button says; never on a box to tick. */
   function enter(e: KeyboardEvent) {
-    if (!lane || e.key !== "Enter" || e.isComposing || !(e.target instanceof HTMLInputElement)) return;
+    if (!lane || e.key !== "Enter" || e.isComposing || !(e.target instanceof HTMLInputElement) || e.target.type !== "text") return;
     e.preventDefault();
     if (!busy && !missing.length) send();
   }

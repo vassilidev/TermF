@@ -35,24 +35,25 @@
   import TeamRouting from "$lib/TeamRouting.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { showConversation } from "$lib/agents.svelte";
-  import { named, stageNames, stageOf } from "$lib/run-logic";
+  import { named, stageNames, stageOfStep, stuck } from "$lib/run-logic";
   import { ROUTE, asks, escalations, held, rounds, tally, type Finding, type Review, type TeamRun } from "$lib/team-run-logic";
 
   /**
    * A team run's own part of the Run page: the steps of one stage of its timeline (`stage`; the tasks by default, as a
-   * list), the plan, why this path and the answers given.
+   * list), where a team no longer at work stopped if that is elsewhere, the plan, why this path and the answers given.
    */
   let { run, stage = "tasks" }: { run: TeamRun; stage?: string } = $props();
 
   const waits = $derived(asks(run));
-  /** The CTO's escalation sits under the step it decides on, in that step's stage. */
-  const stageOfStep = (s: Step) => stageOf(run.steps.find((x) => x.key === s.escalates) ?? s);
-  /** The tasks stage lists its tasks; any other its steps. */
-  const top = $derived(
-    stage === "tasks"
-      ? run.steps.filter((s) => s.kind === "task")
-      : run.steps.filter((s) => s.kind !== "task" && !s.escalates && stageOfStep(s) === stage),
-  );
+  /** The tasks stage lists its tasks; any other its steps, the CTO's escalation under the step it decides on. */
+  const inStage = (s: Step) => (stage === "tasks" ? s.kind === "task" : s.kind !== "task" && !s.escalates && stageOfStep(run, s) === stage);
+  const top = $derived(run.steps.filter(inStage));
+  /** Where a team no longer at work stopped, outside the stage shown: always in sight. */
+  const stopped = $derived(stuck(run).filter((s) => !s.escalates && !inStage(s)));
+  const stageName = (id: string) => {
+    const name = named(stageNames, id);
+    return name ? t(name) : id;
+  };
   const waiting = (id: string) => run.steps.some((s) => s.task === id && s.state !== "done" && s.state !== "skipped");
   const planFirst = $derived(!run.steps.some((s) => s.kind === "task" && s.state !== "pending"));
   /** The plan waiting for approval is read in its card. */
@@ -227,13 +228,12 @@
   {/if}
 {/snippet}
 
-{#snippet stepsSection()}
-  {#if top.length}
-    {@const name = named(stageNames, stage)}
-    <section class="stage" aria-labelledby="team-steps">
-      <h3 id="team-steps" class="h-sec">{name ? t(name) : stage} <span class="n">{top.length}</span></h3>
+{#snippet stepsSection(id: string, title: string, steps: Step[])}
+  {#if steps.length}
+    <section class="stage" aria-labelledby={id}>
+      <h3 {id} class="h-sec">{title} <span class="n">{steps.length}</span></h3>
       <ol class="steps">
-        {#each top as step (step.key)}
+        {#each steps as step (step.key)}
           <li class="step">{@render stepRow(step)}</li>
         {/each}
       </ol>
@@ -241,11 +241,13 @@
   {/if}
 {/snippet}
 
+{#if stopped.length}{@render stepsSection("team-stopped", stageName(stageOfStep(run, stopped[0])), stopped)}{/if}
+
 <!-- Until a task starts, the plan is what to read (it lists the tasks); then the tasks at work are, the plan folded under them. -->
 {#if planFirst && stage === "tasks" && run.plan}
   {@render planSection()}
 {:else}
-  {@render stepsSection()}
+  {@render stepsSection("team-steps", stageName(stage), top)}
   {#if !planAsked && run.plan && stage === "tasks"}
     <details class="panel plan">
       <summary>{t("teamRunsPlan")}</summary>

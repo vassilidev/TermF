@@ -54,6 +54,13 @@ export function follow(activity: Activity | undefined, e: StoredEvent): Activity
   }
 }
 
+const FAILURE = /\b(fail(ed|ures?)?|errors?|assert(ion)?error|panic(ked)?)\b|✗|×/i;
+/** "0 failed", "no errors": a count of failures that says there are none. */
+const NONE = /\b(0|no)\s+(fail(ed|ures?)?|errors?)\b/gi;
+
+/** Whether a line a command printed says something broke: a failure or an error, not a count of none. */
+export const broke = (line: string) => FAILURE.test(line.replace(NONE, ""));
+
 /** A phrase key and its values: `target` is what to show as code. */
 export type Phrase = { key: string; target?: string; vars?: Record<string, string | number> };
 

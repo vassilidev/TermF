@@ -10,14 +10,16 @@
 
   /**
    * What a ticket run changed against the branch it started from, committed or not: its files with the lines they add
-   * and remove, the diff of each one in a dialog. Read again whenever `version` moves (the run or its team updated).
+   * and remove, the diff of each one in a dialog. Read again whenever `version` moves: the ticket run changed, or a step
+   * of its team ended (not at each of the team's events).
    */
-  let { run, version }: { run: Run; version: number } = $props();
+  let { run, version }: { run: Run; version: string } = $props();
 
   const SHOWN = 5;
   let files = $state<FileDiff[] | null>(null);
   let failed = $state(false);
-  let picked = $state(0);
+  /** The file the dialog shows, by its path: a reload keeps it, or falls back to the first one. */
+  let picked = $state("");
   let dialog = $state<HTMLDialogElement>();
   let request = 0;
 
@@ -36,8 +38,10 @@
   const removed = $derived((files ?? []).reduce((n, f) => n + f.removed, 0));
   const name = (path: string) => path.split("/").slice(-2).join("/");
 
-  function show(i: number) {
-    picked = i;
+  const shown = $derived(files?.find((f) => f.path === picked) ?? files?.[0]);
+
+  function show(path: string) {
+    picked = path;
     dialog?.showModal();
   }
 </script>
@@ -56,9 +60,9 @@
       <Skeleton rows={3} />
     {:else}
       <ul class="files">
-        {#each files.slice(0, SHOWN) as f, i (f.path)}
+        {#each files.slice(0, SHOWN) as f (f.path)}
           <li>
-            <button class="file" onclick={() => show(i)} title={f.path}>
+            <button class="file" onclick={() => show(f.path)} title={f.path}>
               <FileText size={13} aria-hidden="true" />
               <span class="path mono">{name(f.path)}</span>
               {#if f.added}<span class="add num">+{f.added}</span>{/if}
@@ -68,7 +72,7 @@
         {/each}
       </ul>
       {#if files.length > SHOWN}<p class="muted more">{t("uiRunMoreFiles", { count: files.length - SHOWN })}</p>{/if}
-      <button class="btn sm wide" onclick={() => show(0)}>{t("uiRunSeeDiff")}</button>
+      <button class="btn sm wide" onclick={() => show(files?.[0]?.path ?? "")}>{t("uiRunSeeDiff")}</button>
     {/if}
   </section>
 {/if}
@@ -82,9 +86,9 @@
     </header>
     <div class="split">
       <ul class="list" aria-label={t("uiRunChanges")}>
-        {#each files as f, i (f.path)}
+        {#each files as f (f.path)}
           <li>
-            <button class="file" aria-current={i === picked ? "true" : undefined} onclick={() => (picked = i)} title={f.path}>
+            <button class="file" aria-current={f === shown ? "true" : undefined} onclick={() => (picked = f.path)} title={f.path}>
               <span class="path mono">{f.path}</span>
               {#if f.added}<span class="add num">+{f.added}</span>{/if}
               {#if f.removed}<span class="del num">−{f.removed}</span>{/if}
@@ -92,7 +96,7 @@
           </li>
         {/each}
       </ul>
-      <div class="view">{#key picked}<GitDiff diff={files[picked]} />{/key}</div>
+      {#if shown}<div class="view">{#key shown.path}<GitDiff diff={shown} />{/key}</div>{/if}
     </div>
   {/if}
 </dialog>

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { elapsed, follow, phrase, replay } from "../src/lib/live-logic.ts";
+import { broke, elapsed, follow, phrase, replay } from "../src/lib/live-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}, at = 0) => ({ id: ++n, session: 1, at, kind, ...fields });
@@ -60,4 +60,13 @@ test("a session's past read after it was heard live counts each call once", () =
   const a = replay([use, done], [done, later, writing]);
   assert.deepEqual(a.recent.map((c) => c.call), ["r1", "r2"]);
   assert.equal(a.now.kind, "writing");
+});
+
+test("a line that says something broke, not a count of none", () => {
+  for (const line of ["FAILED tests/test_export.py::test_rounding", "1 failed, 3 passed in 0.42s", "0 failed, 2 errors", "error[E0425]: cannot find value", "thread 'main' panicked at src/main.rs", "✗ invoices › paginates"]) {
+    assert.ok(broke(line), line);
+  }
+  for (const line of ["0 failed, 3 passed in 0.42s", "Tests  128 passed (128)", "no errors found", "..F."]) {
+    assert.ok(!broke(line), line);
+  }
 });
