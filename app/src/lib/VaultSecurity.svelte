@@ -48,6 +48,7 @@
       keys = await invoke<KeyInfo[]>("vault_keys");
     } catch (e) {
       error = failed(e);
+      errorAt = "";
     }
   }
 
@@ -286,7 +287,7 @@
           </div>
           {#if error && errorAt === "password"}<p class="notice error" role="alert">{error}</p>{/if}
           <div class="buttons">
-            <button type="button" class="btn" onclick={() => ((changing = false), (current = password = again = ""), (error = ""))} disabled={!!busy}>
+            <button type="button" class="btn" onclick={() => ((changing = false), (current = password = again = ""), (error = ""), (errorAt = ""))} disabled={!!busy}>
               {t("cancel")}
             </button>
             <button type="submit" class="btn primary" disabled={!!busy || !current || !password}>{@render spinner("password")}{t("vault2ChangePassword")}</button>

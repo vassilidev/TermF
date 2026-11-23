@@ -280,7 +280,8 @@
     {/if}
   {/if}
 
-  <div class="host" bind:this={host} hidden={tab?.content.kind !== "text" || tab.diff}></div>
+  <!-- `data-picks`: this editor gives its selected lines to the ⌘I panel itself (`files.picked`). -->
+  <div class="host" data-picks bind:this={host} hidden={tab?.content.kind !== "text" || tab.diff}></div>
   {#if tab?.content.kind === "text" && tab.diff && !headIssue}
     <div class="sides muted">
       <span>{t("fileHead")}</span><span>{t("fileWorkingCopy")}</span>

@@ -13,7 +13,7 @@
   import { lang, t } from "$lib/i18n";
   import { shortPath } from "$lib/state.svelte";
   import { failed, say } from "$lib/vault.svelte";
-  import type { AuditCheck, AuditEntry } from "$lib/vault-logic";
+  import { auditOf, type AuditCheck, type AuditEntry } from "$lib/vault-logic";
 
   /** The vault's audit log: who opened, read or changed what, its chain checked, exported as JSON lines. */
   let {
@@ -26,6 +26,8 @@
   let entries = $state<AuditEntry[] | null>(null);
   let check = $state<AuditCheck | null>(null);
   let error = $state("");
+  /** The chain could not be checked: said instead of a check that never ends. */
+  let checkError = $state("");
   let exporting = $state(false);
 
   const actions: Record<string, Parameters<typeof t>[0]> = {
@@ -74,7 +76,7 @@
   });
 
   const chain = $derived(
-    !check ? t("restVaultAuditChecking") : check.ok ? t("restVaultAuditIntact", { n: check.entries }) : t("restVaultAuditBroken", { id: check.broken ?? "?" }),
+    checkError ? t("restVaultAuditUnchecked", { error: checkError }) : !check ? t("restVaultAuditChecking") : check.ok ? t("restVaultAuditIntact", { n: check.entries }) : t("restVaultAuditBroken", { id: check.broken ?? "?" }),
   );
 
   // The ⌘I panel gets what was done, never a value (the log holds none) nor the details (an Ops call's parameters).
@@ -89,12 +91,9 @@
 
   async function load() {
     error = "";
-    try {
-      [entries, check] = await Promise.all([invoke<AuditEntry[]>("vault_audit", { limit: LIMIT }), invoke<AuditCheck>("vault_audit_verify")]);
-    } catch (e) {
-      error = failed(e) || String(e);
-      entries ??= [];
-    }
+    checkError = "";
+    const [log, verify] = await Promise.allSettled([invoke<AuditEntry[]>("vault_audit", { limit: LIMIT }), invoke<AuditCheck>("vault_audit_verify")]);
+    ({ entries, check, error, checkError } = auditOf(log, verify, (e) => failed(e) || String(e)));
   }
 
   async function exportLog() {
@@ -127,8 +126,12 @@
       <h2 id="vault-audit-title">{t("restVaultAudit")}</h2>
       <!-- Broken, the banner below says it, with what to do. -->
       {#if !check || check.ok}
-        <p class="chain" class:ok={check?.ok} role="status">
-          {#if check}<ShieldCheck size={13} aria-hidden="true" />{:else}<LoaderCircle size={13} class="spin" aria-hidden="true" />{/if}
+        <p class="chain" class:ok={check?.ok} class:unchecked={!!checkError} role="status">
+          {#if checkError}<ShieldX size={13} aria-hidden="true" />{:else if check}<ShieldCheck size={13} aria-hidden="true" />{:else}<LoaderCircle
+              size={13}
+              class="spin"
+              aria-hidden="true"
+            />{/if}
           {chain}
         </p>
       {/if}
@@ -226,6 +229,10 @@
 
   .chain.ok {
     color: var(--done);
+  }
+
+  .chain.unchecked {
+    color: var(--danger);
   }
 
   .intro {

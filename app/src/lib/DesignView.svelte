@@ -71,7 +71,7 @@
   import { lang, t } from "$lib/i18n";
   import { app, onScreen, setProject } from "$lib/state.svelte";
   import { askAI, provide } from "$lib/ask.svelte";
-  import { showConfig } from "$lib/project.svelte";
+  import { editProject } from "$lib/project.svelte";
 
   type Key = Parameters<typeof t>[0];
 
@@ -559,7 +559,7 @@
       icon={Palette}
       title={t("designNoRepo")}
       text={t("designNoRepoHelp")}
-      action={app.project ? { label: t("restDesignAddRepo"), run: showConfig } : undefined}
+      action={app.project ? { label: t("restDesignAddRepo"), run: () => app.project && editProject(app.project, "project") } : undefined}
     />
   {:else if !data}
     {#if loading}

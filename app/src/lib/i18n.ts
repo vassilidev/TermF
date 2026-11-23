@@ -4832,6 +4832,7 @@ const fr = {
   restVaultAuditExport: "Exporter",
   restVaultAuditExported: "Journal exporté : {n} entrées dans {path}",
   restVaultAuditChecking: "Vérification de la chaîne…",
+  restVaultAuditUnchecked: "Chaîne non vérifiée : {error}",
   restVaultAuditIntact: "Chaîne intacte : {n} entrées vérifiées",
   restVaultAuditBroken: "Chaîne rompue à l'entrée {id} : le journal a été modifié ou abîmé après coup.",
   restVaultAuditBrokenDraft:
@@ -9897,6 +9898,7 @@ const en: Record<Key, string> = {
   restVaultAuditExport: "Export",
   restVaultAuditExported: "Log exported: {n} entries in {path}",
   restVaultAuditChecking: "Checking the chain…",
+  restVaultAuditUnchecked: "Chain not checked: {error}",
   restVaultAuditIntact: "Chain intact: {n} entries checked",
   restVaultAuditBroken: "Chain broken at entry {id}: the log was changed or damaged afterwards.",
   restVaultAuditBrokenDraft: "The vault's audit log chain is broken at entry {id}. What should I check on this machine, and what do I do now?",

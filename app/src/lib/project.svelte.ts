@@ -50,7 +50,7 @@ export type ConfigSection = "project" | "setup" | "tickets" | "team" | "library"
 
 /** Each section of a project's Configuration, with the texts its search looks into. */
 export const configSections: { id: ConfigSection; label: Key; icon: Component; words: Key[] }[] = [
-  { id: "project", label: "runMetaProject", icon: Folder, words: ["projectName", "repos", "t5AddRepos", "stackOffersTitle"] },
+  { id: "project", label: "runMetaProject", icon: Folder, words: ["projectName", "repos", "t5AddRepos", "stackOffersTitle", "t5DeleteProject", "restConfigDanger"] },
   { id: "setup", label: "ux3t3Setup", icon: WandSparkles, words: ["obConfigure", "obConfigureHint", "obJournal"] },
   {
     id: "tickets",

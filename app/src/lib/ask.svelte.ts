@@ -145,7 +145,7 @@ export function toggleAsk() {
 
 /**
  * The text selected on the screen shown, as a chip: what ⌘I asks about. A terminal's selection is xterm's, out of the
- * page's; the Files editor gives its selected lines itself (the page only holds the lines in sight).
+ * page's; the Files editor (`[data-picks]`) gives its selected lines itself, the page only holding the lines in sight.
  */
 function selection(): Chip[] | undefined {
   const s = window.getSelection();
@@ -153,7 +153,7 @@ function selection(): Chip[] | undefined {
   const node = s?.anchorNode;
   const el = term ?? (node instanceof Element ? node : node?.parentElement);
   const text = (term ? selectionOf(Number(term.dataset.term)) : s?.toString())?.trim();
-  if (!text || !el?.closest(`[data-panel="${ui.view}"]`) || (!term && el.closest(".cm-editor"))) return undefined;
+  if (!text || !el?.closest(`[data-panel="${ui.view}"]`) || (!term && el.closest("[data-picks]"))) return undefined;
   return [selectionChip(text)];
 }
 

@@ -96,20 +96,23 @@
 
   /** The connections whose last test failed, with what failed (codes only: never a host, a user or a secret). */
   let failures = $state<Record<string, string>>({});
-  const failed = $derived(ops.connections.find((c) => failures[c.name] !== undefined));
+  /** By project and connection: the same name in another project is another server. */
+  const failKey = (name: string) => `${project?.id ?? ""}\n${name}`;
+  const failed = $derived(ops.connections.find((c) => failures[failKey(c.name)] !== undefined));
 
   async function test(c: Connection) {
     testing = true;
     checks = null;
     busyError = "";
+    const key = failKey(c.name);
     try {
       checks = await invoke<Check[]>("ops_test", { project: project?.id, connection: c, previous: c.name });
       const bad = checks.filter((x) => !x.ok && !x.warn);
-      if (bad.length) failures[c.name] = bad.map((x) => `${x.code}: failed${x.hint ? ` (${x.hint})` : ""}`).join("\n");
-      else delete failures[c.name];
+      if (bad.length) failures[key] = bad.map((x) => `${x.code}: failed${x.hint ? ` (${x.hint})` : ""}`).join("\n");
+      else delete failures[key];
     } catch (e) {
       busyError = String(e);
-      failures[c.name] = "the test did not run";
+      failures[key] = "the test did not run";
     } finally {
       testing = false;
     }
@@ -118,7 +121,7 @@
   function whyFailed(name: string) {
     askAI({
       role: "devops",
-      chips: [{ id: "ops-test", kind: "selection", label: t("restOpsTestFailedBadge"), text: `${kindLabel(ops.connections.find((c) => c.name === name)?.kind ?? "ssh")}\n${failures[name]}` }],
+      chips: [{ id: "ops-test", kind: "selection", label: t("restOpsTestFailedBadge"), text: `${kindLabel(ops.connections.find((c) => c.name === name)?.kind ?? "ssh")}\n${failures[failKey(name)]}` }],
       draft: t("restOpsWhyDraft", { name }),
     });
   }
@@ -385,7 +388,7 @@
                     <span class="name mono">{c.name}</span>
                     <span class="desc">{kindLabel(c.kind)}</span>
                   </button>
-                  {#if failures[c.name] !== undefined}
+                  {#if failures[failKey(c.name)] !== undefined}
                     <span class="failed" title={t("restOpsTestFailedBadge")}><CircleAlert size={14} aria-hidden="true" /><span class="sr-only">{t("restOpsTestFailedBadge")}</span></span>
                   {/if}
                   <span class="badge env" class:prod={c.env === "prod"}>{c.env}</span>

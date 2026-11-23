@@ -56,6 +56,23 @@ export type AuditEntry = {
 };
 export type AuditCheck = { ok: boolean; entries: number; broken: number | null; error: string | null };
 
+/**
+ * The log and its chain's check, each on its own: one failing leaves the other shown, and the check that failed says
+ * so instead of spinning. `reason` reads an error for the user.
+ */
+export function auditOf(
+  log: PromiseSettledResult<AuditEntry[]>,
+  verify: PromiseSettledResult<AuditCheck>,
+  reason: (e: unknown) => string,
+): { entries: AuditEntry[]; check: AuditCheck | null; error: string; checkError: string } {
+  return {
+    entries: log.status === "fulfilled" ? log.value : [],
+    check: verify.status === "fulfilled" ? verify.value : null,
+    error: log.status === "rejected" ? reason(log.reason) : "",
+    checkError: verify.status === "rejected" ? reason(verify.reason) : "",
+  };
+}
+
 export const secretKey = (s: SecretInfo) => `secret:${s.scope}:${s.project ?? ""}:${s.name}`;
 
 export function entries(items: ItemInfo[], secrets: SecretInfo[]): Entry[] {

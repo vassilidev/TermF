@@ -188,7 +188,6 @@ export const claudeView = $state({
   overview: null as Overview | null,
   loading: false,
   error: "",
-  done: "",
   artifacts: null as Artifacts | null,
 });
 
