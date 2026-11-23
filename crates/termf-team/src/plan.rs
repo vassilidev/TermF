@@ -270,7 +270,7 @@ pub fn question_schema() -> Value {
         "implications": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "What each option implies, in the order of options (for bool: yes then no), or none",
+            "description": "What each option implies, in the order of options (for bool: yes then no, yes restating the question in its own sense), or none",
         },
     }))
 }

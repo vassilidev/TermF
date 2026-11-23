@@ -50,6 +50,8 @@ export type Routing = {
   add: string[];
   efforts: { step: string; effort: string }[];
   squads: string[];
+  /** Roles the project's team lacks, added for this run. */
+  roles?: string[];
   questions: Question[];
   budget_usd: number;
   /** The user changed it, or set it. */
@@ -129,6 +131,8 @@ export type Step = {
   repo?: string | null;
   session: number | null;
   sessions: number[];
+  /** Its own folder (a task's, a review's copy), gone once it is done; none: the run's worktree. */
+  worktree?: string | null;
   attempt: number;
   feedback: string | null;
   /** What a task changed; for an update step, the files its merge left in conflict. */
@@ -371,6 +375,25 @@ export function implications(q: Question): { option: string | null; text: string
     .filter((row) => row.text);
 }
 
+// Bounds of words in any script: `\b` ends a word at "î" or "é", and finds "ne" in "chaîne". No lookbehind: WebKit
+// before Safari 16.4 (macOS 11) cannot load a module that has one.
+const NEGATION =
+  /(?:^|[^\p{L}\p{N}])(?:not|no|never|without|none|nothing|cannot|nor|ne|pas|jamais|sans|aucun|aucune|rien|non)(?![\p{L}\p{N}])|n['’]t(?!\p{L})|(?:^|[^\p{L}])n['’](?=\p{L})/iu;
+
+/** Whether a yes/no question's implications seem the wrong way round: the form warns, and shows them as they are. */
+export function reversed(q: Question): boolean {
+  return q.kind === "bool" && q.implications.length === 2 && swapped(q.question, q.implications[0], q.implications[1]);
+}
+
+/**
+ * A yes/no question whose implications read the wrong way round (agents swap them): yes's flips the question's
+ * sense and no's keeps it, as their negations say. Heuristic: wordings with no negation are taken as they come.
+ */
+export function swapped(question: string, yes: string, no: string): boolean {
+  const asked = NEGATION.test(question);
+  return NEGATION.test(yes) !== asked && NEGATION.test(no) === asked;
+}
+
 /** Whether the questions make a form: each has an id (one stored before the questionnaire is a bare sentence). */
 export function isForm(questions: Question[]): boolean {
   return questions.length > 0 && questions.every((q) => q.id);
@@ -508,4 +531,47 @@ export function tally(review: Review): {
  */
 export function held(run: TeamRun, step: Step, review: Review): boolean {
   return step.state === "blocked" && rounds(run, step.key).at(-1) === review && review.findings.some((f) => f.fate === "asked");
+}
+
+/**
+ * The steps whose agent hears a message from the Run page, at work first: one at work, at the end of its turn; a
+ * finished agent step that worked in the run's own worktree, while it is still there (`open`) and the run does not go
+ * on. Picked up again with all its tools, it would change that worktree under the steps at work, unreviewed.
+ */
+export function tellable(run: TeamRun, open: boolean): Step[] {
+  return run.steps
+    .filter((s) => s.session !== null && s.kind !== "foreach")
+    .filter((s) => s.state === "running" || (open && run.state !== "running" && s.kind === "agent" && !s.worktree))
+    .sort((a, b) => Number(b.state === "running") - Number(a.state === "running"));
+}
+
+/** The answer to `sent`, a message from the Run page: what its conversation said since, and how its turn ended. */
+export type Reply = { session: number; who: string; sent: string; text: string; heard: boolean; done: boolean; error: string | null };
+/** What `hear` reads of an agent's event (a `StoredEvent`). */
+type HeardEvent = { session: number; kind: string; text?: string; parent?: string; message?: string | null; error?: string | null };
+
+/**
+ * `reply` once the agent's event `e` came. A process that ends before the message is heard ends the turn under way,
+ * after which the session takes the message up; an error ends the wait at any time.
+ */
+export function hear(reply: Reply, e: HeardEvent): void {
+  if (e.session !== reply.session) return;
+  // A process that ends during a turn says so after it ends.
+  if (e.kind === "error") {
+    reply.done = true;
+    reply.error ??= e.message ?? null;
+  } else if (reply.done && reply.heard) return;
+  else if (e.kind === "user") {
+    // A turn TermF or another message starts first is not the answer; queued messages go together.
+    if (!e.text?.includes(reply.sent)) return;
+    reply.heard = true;
+    reply.done = false;
+    reply.error = null;
+  } else if (!reply.heard) return;
+  else if (e.kind === "delta") reply.text += e.text ?? "";
+  else if (e.kind === "text" && !e.parent) reply.text = e.text ?? "";
+  else if (e.kind === "turn_end" || e.kind === "exited") {
+    reply.done = true;
+    reply.error = e.error ?? null;
+  }
 }

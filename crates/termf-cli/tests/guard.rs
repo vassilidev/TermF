@@ -434,3 +434,42 @@ fn a_session_that_read_prod_asks_before_its_ways_out() {
     assert_eq!(code, 2, "an agent's recipe goes through ops_run");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A team's step reads and runs its tests without asking (`--worktree`), but never once a recipe read prod for its
+/// session: then the user approves each command, as the trifecta rule wants (the review of PR #135).
+#[test]
+fn a_session_that_read_prod_runs_nothing_unasked_not_even_its_tests() {
+    let root = scratch("taint-reads");
+    let (data, repo) = (root.join("data"), root.join("repo"));
+    termf_core::taint::mark_session(&data, "0f6c1d2e-prod").unwrap();
+    let allowed = |session: &str, command: &str| -> bool {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_termf"))
+            .args([
+                "guard",
+                "--worktree",
+                &repo.to_string_lossy(),
+                "--allow",
+                "npm test",
+            ])
+            .env("TERMF_DATA_DIR", &data)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let call = json!({"hook_event_name": "PreToolUse", "session_id": session, "cwd": repo,
+            "tool_name": "Bash", "tool_input": {"command": command}});
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(call.to_string().as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        String::from_utf8_lossy(&out.stdout).contains(r#""permissionDecision":"allow""#)
+    };
+    for command in ["npm test", "git status", "cat README.md"] {
+        assert!(allowed("a1b2-clean", command), "{command}");
+        assert!(!allowed("0f6c1d2e-prod", command), "{command} after prod");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}

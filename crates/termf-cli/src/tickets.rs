@@ -168,8 +168,17 @@ fn confirmed(question: &str) -> Result<bool> {
 }
 
 /// A Claude Code `PreToolUse` hook (JSON on stdin): exit code 2 refuses the Bash command, and Claude reads why
-/// on stderr. Anything it cannot read lets the command run.
-pub fn guard() -> ExitCode {
+/// on stderr. Anything it cannot read lets the command run. With `--worktree <dir>` (a team's step), a command
+/// that only reads there, or runs one of the `--allow` commands, runs without asking (`termf_tickets::reads`).
+pub fn guard(args: &[&str]) -> ExitCode {
+    let (mut worktree, mut allowed) = (None, Vec::new());
+    for pair in args.chunks(2) {
+        match pair {
+            ["--worktree", dir] => worktree = Some(std::path::Path::new(*dir)),
+            ["--allow", command] => allowed.push(command.to_string()),
+            _ => {}
+        }
+    }
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
     let payload: Value = serde_json::from_str(&input).unwrap_or(Value::Null);
@@ -187,8 +196,9 @@ pub fn guard() -> ExitCode {
     let data = std::env::var_os(termf_core::ipc::ENV_DATA_DIR)
         .map(std::path::PathBuf::from)
         .or_else(|| termf_core::default_data_dir().ok());
+    let tainted = data.is_some_and(|d| termf_core::taint::session(&d, session));
     if let Some(reason) = termf_tickets::egress(tool, command)
-        && data.is_some_and(|d| termf_core::taint::session(&d, session))
+        && tainted
     {
         let ask = serde_json::json!({ "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -196,6 +206,19 @@ pub fn guard() -> ExitCode {
             "permissionDecisionReason": reason,
         } });
         println!("{ask}");
+    } else if let Some(worktree) = worktree
+        // Once it read prod, the user approves every command (the trifecta rule), its tests included.
+        && !tainted
+        && tool == "Bash"
+        && let Some(cwd) = payload["cwd"].as_str()
+        && termf_tickets::reads(command, worktree, std::path::Path::new(cwd), &allowed)
+    {
+        let allow = serde_json::json!({ "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "permissionDecisionReason": "TermF: it reads, or runs the repository's checks, in the step's worktree",
+        } });
+        println!("{allow}");
     }
     ExitCode::SUCCESS
 }
