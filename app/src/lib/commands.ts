@@ -14,6 +14,11 @@ import Keyboard from "@lucide/svelte/icons/keyboard";
 import Coffee from "@lucide/svelte/icons/coffee";
 import Columns2 from "@lucide/svelte/icons/columns-2";
 import Equal from "@lucide/svelte/icons/equal";
+import EyeOff from "@lucide/svelte/icons/eye-off";
+import PanelLeft from "@lucide/svelte/icons/panel-left";
+import Undo2 from "@lucide/svelte/icons/undo-2";
+import ZoomIn from "@lucide/svelte/icons/zoom-in";
+import ZoomOut from "@lucide/svelte/icons/zoom-out";
 import FileDown from "@lucide/svelte/icons/file-down";
 import FileSearch from "@lucide/svelte/icons/file-search";
 import FileUp from "@lucide/svelte/icons/file-up";
@@ -42,6 +47,7 @@ import Workflow from "@lucide/svelte/icons/workflow";
 import { agents, conversation, showConversation, showExpert, waitingAgents } from "$lib/agents.svelte";
 import { showClaude } from "$lib/claude.svelte";
 import { goToWait, home, projectWaits, talkCto } from "$lib/home.svelte";
+import { toggleAsk } from "$lib/ask.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { terminalReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
@@ -84,6 +90,8 @@ import { launchTicket, tickets } from "$lib/tickets.svelte";
 import { team, waitingRuns } from "$lib/team.svelte";
 import { startTour } from "$lib/tour.svelte";
 import { dispatchWorkflow } from "$lib/ci.svelte";
+import { toast } from "$lib/ui/toast.svelte";
+import { foldNav, toggleNav, zoomBy } from "$lib/workspace.svelte";
 import { views } from "$lib/views";
 import { visual } from "$lib/visual.svelte";
 import { waiting as reviewsWaiting } from "$lib/visual-logic";
@@ -213,6 +221,24 @@ export async function openLauncher(side: Side | null = null) {
   else if (app.sessions.some(shown)) ui.launcher = !same;
 }
 
+/**
+ * ⌘D, ⌘⇧D: a split beside the active one, running the same tool in the same folder; the launcher when no split is
+ * there to copy.
+ */
+export async function splitActive(side: Side, id = activeSession()) {
+  const session = app.sessions.find((s) => s.id === id && shown(s));
+  if (!session) return openLauncher(side);
+  const opened = await tabs.splitSame(session.id, side);
+  if (opened !== null) focusSession(opened);
+}
+
+/** ⌘⇧T: the tab or split closed last, opened again. */
+export async function reopenTab(i = 0) {
+  if (!tabs.terminals.closed[i]) return void toast(t("wsNothingToReopen"), { kind: "info" });
+  const id = await tabs.reopenTab(i);
+  if (id !== null) focusSession(id);
+}
+
 const goTo = (tab: tabs.Tab | undefined) => tab && focusSession(tabs.entryOf(tab));
 
 function moveFocus(side: Side) {
@@ -246,14 +272,20 @@ export function onShortcut(e: KeyboardEvent) {
     launch_ticket: launchTicket,
     switch_project: () => (ui.switcher = !ui.switcher),
     talk_cto: app.project === null ? undefined : talkCto,
+    ask_ai: toggleAsk,
     new_session: () => openLauncher(),
+    reopen_tab: () => reopenTab(),
+    toggle_nav: toggleNav,
+    zoom_in: () => zoomBy(1),
+    zoom_out: () => zoomBy(-1),
+    zoom_reset: () => zoomBy(0),
     maximize: () => toggleMaximize(),
     tile: () => goTo(shownTabs[n - 1]),
     project: () => setProject(projects[n - 1].id),
     prev_tab: () => goTo(tabs.stepTab(-1)),
     next_tab: () => goTo(tabs.stepTab(1)),
-    split_right: () => openLauncher("right"),
-    split_down: () => openLauncher("down"),
+    split_right: () => splitActive("right"),
+    split_down: () => splitActive("down"),
     close_split: () => closeSplit(),
     equalize_splits: () => tabs.equalize(),
     focus_left: () => moveFocus("left"),
@@ -397,9 +429,10 @@ export function commands(): Command[] {
         keys: display(`split_${side}`),
         icon,
         group: "sessions",
-        run: () => openLauncher(side),
+        run: () => splitActive(side),
       });
     }
+    list.push({ id: "split-with", label: t("wsSplitWith"), icon: Columns2, group: "sessions", run: () => openLauncher("right") });
     list.push({
       id: "equalize",
       label: t("t6aEqualize"),
@@ -517,6 +550,21 @@ export function commands(): Command[] {
   const action = (command: Omit<Command, "group">) => list.push({ ...command, group: "actions" });
   action({ id: "switcher", label: t("navSwitchProject"), keys: keys.switcher, icon: ArrowLeftRight, run: () => (ui.switcher = true) });
   action({ id: "launcher", label: t("navNewSession"), keys: keys.launcher, icon: Plus, run: openLauncher });
+  tabs.terminals.closed.forEach((layout, i) =>
+    action({
+      id: `reopen-${i}`,
+      label: t("wsReopenNamed", { name: layout.name || t("shell") }),
+      keys: i === 0 ? display("reopen_tab") : undefined,
+      icon: Undo2,
+      searchOnly: i > 0,
+      run: () => reopenTab(i),
+    }),
+  );
+  action({ id: "toggle-nav", label: t("wsToggleNav"), keys: display("toggle_nav"), icon: PanelLeft, run: toggleNav });
+  action({ id: "hide-nav", label: t("wsHideNav"), icon: EyeOff, searchOnly: true, run: () => foldNav("hidden") });
+  action({ id: "zoom-in", label: t("wsZoomIn"), keys: display("zoom_in"), icon: ZoomIn, searchOnly: true, run: () => zoomBy(1) });
+  action({ id: "zoom-out", label: t("wsZoomOut"), keys: display("zoom_out"), icon: ZoomOut, searchOnly: true, run: () => zoomBy(-1) });
+  action({ id: "zoom-reset", label: t("wsZoomReset"), keys: display("zoom_reset"), icon: ZoomIn, searchOnly: true, run: () => zoomBy(0) });
   action({
     id: "split-view",
     label: t("t6bSplitView"),
@@ -528,8 +576,9 @@ export function commands(): Command[] {
   if (panes.other) {
     action({ id: "other-panel", label: t("t6bOtherPanel"), keys: display("other_panel"), icon: ArrowLeftRight, run: otherPanel });
   }
+  action({ id: "ask-ai", label: t("aigShortcut"), keys: keys.ask, icon: Sparkles, run: toggleAsk });
   action({ id: "help", label: t("t6bHelp"), keys: keys.help, icon: CircleHelp, run: () => (ui.help = true) });
-  action({ id: "tour", label: t("t6bTour"), icon: Compass, run: startTour });
+  action({ id: "intro", label: t("wsIntroAgain"), icon: Compass, run: startTour });
   action({ id: "shortcuts", label: t("shortcuts"), icon: Keyboard, run: () => showSettings("keys") });
   action({ id: "release-check", label: t("releaseCmdCheck"), icon: CircleArrowUp, run: () => (showSettings("updates"), checkUpdates()) });
   action({ id: "release-needs", label: t("releaseCmdNeeds"), icon: ListChecks, run: () => showSettings("tools") });

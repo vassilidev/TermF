@@ -507,6 +507,7 @@ pub fn run() {
             cli_path::cli_install,
             cli_path::cli_uninstall,
             tools::tools_check,
+            window::menu_keys,
             tools::tools_chrome_install,
             git::git_state,
             git::git_graph,

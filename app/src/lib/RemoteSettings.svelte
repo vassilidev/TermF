@@ -53,6 +53,7 @@
 
 <h2 id="config-remote">{t("remoteControl")}</h2>
 <p class="help">{t("remoteSettingsIntro")}</p>
+<p class="help">{t("wsRemoteNeeds")}</p>
 {@render choice(policy.default, (m) => save({ ...policy, default: m }), t("remoteControl"))}
 <p class="help">{t("remoteModeHelp")}</p>
 
