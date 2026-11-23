@@ -173,22 +173,14 @@ p{margin:0 0 1em;text-wrap:pretty}
 .win-bar>i:nth-child(2){background:#febc2e}
 .win-bar>i:nth-child(3){background:#28c840}
 .win-bar>span{position:absolute;left:50%;transform:translateX(-50%);color:var(--win-title);font-size:.8rem;font-weight:600}
-.watch{position:absolute;left:50%;top:50%;z-index:1;display:inline-flex;align-items:center;gap:9px;min-height:34px;padding:0 14px 0 5px;border:0;border-radius:999px;background:#4446d6;box-shadow:0 6px 14px -6px rgb(13 13 20/.45),inset 0 1px rgb(255 255 255/.18);color:#fff;font:600 .88rem/1 var(--sans);white-space:nowrap;cursor:pointer;transform:translate(-50%,-50%);transition:background-color .2s}
-.watch:hover{background:#3a3cc4}
-.watch:active{transform:translate(-50%,-50%) scale(.97)}
-.watch i{display:grid;place-items:center;width:25px;height:25px;border-radius:50%;background:#fff;color:#4446d6}
-.watch svg{width:10px;height:10px;margin-left:2px;fill:currentColor}
-.watch small{color:rgb(255 255 255/.85);font:500 .78rem/1 var(--mono)}
-.watch:not([hidden])+span{display:none}
-.win .tools{display:flex;gap:2px;margin-left:auto}
-.win .tool{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:8px;background:none;color:var(--tool-ink);cursor:pointer;transition:background-color .2s,color .2s}
-.win .tool:hover{background:var(--hover);color:var(--ink)}
-.win .tool svg{width:13px;height:13px;fill:currentColor}
-.win .tool .i{width:15px;height:15px;fill:none}
-.pause svg+svg,.pause.paused svg{display:none}
-.pause.paused svg+svg{display:block}
 .win [hidden]{display:none}
-.win video{width:100%;aspect-ratio:16/9;border-radius:0 0 14px 14px;background:var(--win-bg)}
+.win video{display:block;width:100%;aspect-ratio:16/9;border-radius:0 0 14px 14px;background:var(--win-bg)}
+.screen{position:relative}
+.play{position:absolute;left:50%;top:50%;display:grid;place-items:center;width:88px;height:88px;border:0;border-radius:50%;background:#4446d6;color:#fff;box-shadow:0 0 0 12px rgb(68 70 214/.16),0 20px 44px -14px rgb(13 13 20/.55);cursor:pointer;transform:translate(-50%,-50%);transition:transform .22s cubic-bezier(.23,1,.32,1),background-color .2s,box-shadow .22s}
+.play:hover{background:#3a3cc4;box-shadow:0 0 0 16px rgb(68 70 214/.18),0 20px 44px -14px rgb(13 13 20/.55);transform:translate(-50%,-50%) scale(1.05)}
+.play:active{transform:translate(-50%,-50%) scale(.96)}
+.play svg{width:32px;height:32px;margin-left:5px;fill:currentColor}
+.win.playing .play{display:none}
 
 /* How it works: three steps, each with a fragment of the app */
 .steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin:0;padding:0;list-style:none;background:var(--line);border-top:1px solid var(--line)}
@@ -564,9 +556,9 @@ p{margin:0 0 1em;text-wrap:pretty}
   .win::before{inset:8% 6% -4%}
   .win-bar{padding:0 4px 0 10px;border-radius:0}
   .win-bar>i{display:none}
-  .watch{position:static;transform:none}
-  .watch:active{transform:scale(.97)}
   .win video{border-radius:0}
+  .play{width:68px;height:68px;box-shadow:0 0 0 9px rgb(68 70 214/.16),0 14px 30px -10px rgb(13 13 20/.55)}
+  .play svg{width:26px;height:26px;margin-left:4px}
   .deck{padding-inline:10px}
   .card{border-radius:20px}
   .card-vis{padding:18px;min-height:0}
@@ -590,10 +582,6 @@ p{margin:0 0 1em;text-wrap:pretty}
 }
 @media (pointer:coarse){
   .btn.small,.find{min-height:44px}
-  .watch{min-height:44px;padding:0 16px 0 7px}
-  .watch i{width:30px;height:30px}
-  .win-bar{height:56px}
-  .win .tool{width:44px;height:44px}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}

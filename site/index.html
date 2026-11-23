@@ -112,8 +112,8 @@
     </script>
     <p class="meta">Free and open source, for macOS, Windows and Linux.</p>
     <figure class="win" id="film" data-video>
-      <div class="win-bar"><i></i><i></i><i></i><button class="watch" type="button" hidden><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></i>Watch with sound<small>1:08</small></button><span aria-hidden="true">TermF</span><div class="tools"><button class="tool pause" type="button" aria-label="Pause the video" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg></button><button class="tool close" type="button" aria-label="Close the film" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><button class="tool full" type="button" aria-label="Watch in full screen, with sound" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button></div></div>
-      <video muted loop playsinline preload="none" poster="media/launch-light-poster.webp" width="1600" height="900" aria-label="TermF at work: you ask the CTO, a team of agents works on it live, and the pull request waits for you. Silent, sample data."><source src="media/launch-light.webm" type="video/webm"><source src="media/launch-light.mp4" type="video/mp4"></video>
+      <div class="win-bar"><i></i><i></i><i></i><span aria-hidden="true">TermF</span></div>
+      <div class="screen"><video playsinline preload="none" poster="media/termf-film-poster.webp" width="1600" height="900" aria-label="The TermF film, 68 seconds, with sound"><source src="media/termf-launch.mp4" type="video/mp4"></video><button class="play" type="button" aria-label="Play the film, 68 seconds, with sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/></svg></button></div>
     </figure>
   </section>
 
@@ -282,7 +282,7 @@
 <script>
 const root = document.documentElement, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// The theme switch; the screenshots and the film follow it
+// The theme switch; the screenshots follow it
 const themeBtn = document.querySelector('.theme');
 const dark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 const syncTheme = () => {
@@ -313,80 +313,13 @@ fetch('https://api.github.com/repos/vassilidev/TermF/releases?per_page=20')
 const menu = document.getElementById('menu');
 menu.addEventListener('click', e => { try { if (e.target.closest('a') && menu.matches(':popover-open')) menu.hidePopover(); } catch {} });
 
-// The silent loop, in the page's theme, starts once the page has loaded; with reduced motion, the poster. A pause
-// button either way: the loop never ends on its own. Browsers only allow sound after a click, so the full film with
-// sound waits for one
-const reel = document.getElementById('film'), video = reel.querySelector('video');
+// The film waits for a click, so it plays with sound; then the browser's own controls take over
+const reel = document.getElementById('film');
 if ('video' in reel.dataset) {
-  const [pause, watch, full, close] = ['.pause', '.watch', '.full', '.close'].map(s => reel.querySelector(s));
-  const loopLabel = video.getAttribute('aria-label');
-  const film = () => {
-    if (reel.classList.contains('sound')) return;
-    const name = dark() ? 'launch' : 'launch-light';
-    if (video.dataset.film === name) return;
-    const playing = video.dataset.film && !video.paused;
-    video.dataset.film = name;
-    video.poster = 'media/' + name + '-poster.webp';
-    const [webm, mp4] = video.querySelectorAll('source');
-    webm.src = 'media/' + name + '.webm'; mp4.src = 'media/' + name + '.mp4';
-    video.load();
-    if (playing) video.play().catch(() => {});
-  };
-  film();
-  themeBtn.addEventListener('click', film);
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', film);
-  const sync = () => { pause.classList.toggle('paused', video.paused); pause.setAttribute('aria-label', video.paused ? 'Play the video' : 'Pause the video'); };
-  video.addEventListener('play', sync);
-  video.addEventListener('pause', sync);
-  pause.addEventListener('click', () => video.paused ? video.play() : video.pause());
-  pause.hidden = watch.hidden = false;
-  sync();
-  if (!reduce) {
-    const start = () => { video.preload = 'auto'; video.play().catch(() => {}); };
-    if (document.readyState === 'complete') start(); else addEventListener('load', start, {once: true});
-  }
-
-  // The film plays in the window with its controls; on a phone, and from the full screen button, in full screen.
-  // Its end, the close button or leaving full screen bring the loop back. iPhones only know webkitEnterFullscreen
-  let fs = false;
-  const fullscreen = () => {
-    fs = true;
-    if (document.fullscreenEnabled) video.requestFullscreen().catch(() => { fs = false; });
-    else if (document.webkitFullscreenEnabled) video.webkitRequestFullscreen();
-    else try { video.webkitEnterFullscreen(); } catch { fs = false; }
-  };
-  const watchFilm = inFull => {
-    if (!reel.classList.contains('sound')) {
-      reel.classList.add('sound');
-      delete video.dataset.film;
-      Object.assign(video, {src: 'media/termf-launch.mp4', poster: 'media/termf-launch-poster.webp', muted: false, loop: false, controls: true});
-      video.setAttribute('aria-label', 'The TermF film, 68 seconds, with sound');
-      watch.hidden = pause.hidden = true; close.hidden = false;
-    }
-    video.play().catch(() => {});
-    if (inFull) fullscreen();
-  };
-  const backToLoop = () => {
-    if (!reel.classList.contains('sound')) return;
-    fs = false;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    reel.classList.remove('sound');
-    Object.assign(video, {muted: true, loop: true, controls: false});
-    video.removeAttribute('src');
-    video.setAttribute('aria-label', loopLabel);
-    watch.hidden = pause.hidden = false; close.hidden = true;
-    film();
-    if (!reduce) video.play().catch(() => {});
-  };
-  watch.addEventListener('click', () => watchFilm(matchMedia('(max-width: 640px)').matches));
-  full.addEventListener('click', () => watchFilm(true));
-  close.addEventListener('click', backToLoop);
-  video.addEventListener('ended', backToLoop);
-  const left = () => { if (fs && !(document.fullscreenElement || document.webkitFullscreenElement)) backToLoop(); };
-  document.addEventListener('fullscreenchange', left);
-  document.addEventListener('webkitfullscreenchange', left);
-  video.addEventListener('webkitendfullscreen', () => { if (fs) backToLoop(); });
-  full.hidden = !(document.fullscreenEnabled || document.webkitFullscreenEnabled || video.webkitEnterFullscreen);
+  const video = reel.querySelector('video');
+  reel.querySelector('.play').addEventListener('click', () => { video.controls = true; video.play().catch(() => {}); });
+  video.addEventListener('play', () => reel.classList.add('playing'));
+  video.addEventListener('ended', () => { reel.classList.remove('playing'); video.controls = false; video.load(); });
 }
 
 // The deck: a card the next one covers steps back a little, so the cards read as a stack. Only where they stack
