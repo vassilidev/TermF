@@ -306,11 +306,12 @@
       selected={ops.tab}
       onselect={(tab) => (ops.tab = tab as OpsTab)}
     >
-      {#if ops.error || busyError || ops.errors.length}
+      {#if ops.error || busyError || ops.errors.length || ops.queryErrors.length}
         <div class="banners">
           {#if ops.error}<Banner kind="error" ondismiss={() => (ops.error = "")}>{ops.error}</Banner>{/if}
           {#if busyError}<Banner kind="error" ondismiss={() => (busyError = "")}>{busyError}</Banner>{/if}
           {#if ops.errors.length}<Banner kind="warn">{t("opsRecipeErrors", { list: ops.errors.join(" · ") })}</Banner>{/if}
+          {#if ops.queryErrors.length}<Banner kind="warn">{t("opsdbQueryErrors", { list: ops.queryErrors.join(" · ") })}</Banner>{/if}
         </div>
       {/if}
 

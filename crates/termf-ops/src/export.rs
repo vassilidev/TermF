@@ -41,6 +41,20 @@ fn null(cell: &str) -> bool {
     cell == "NULL"
 }
 
+/// The columns as JSON keys, each once: a second `id` (`o.id`, `u.id`) is `id_2`.
+fn keys(columns: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for column in columns {
+        let (mut key, mut n) = (column.clone(), 2);
+        while out.contains(&key) {
+            key = format!("{column}_{n}");
+            n += 1;
+        }
+        out.push(key);
+    }
+    out
+}
+
 fn object(columns: &[String], row: &[String]) -> Value {
     let mut map = Map::new();
     for (column, cell) in columns.iter().zip(row) {
@@ -66,6 +80,16 @@ fn number(cell: &str) -> bool {
         && frac.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// A cell a spreadsheet would run as a formula (`=`, `+`, `-`, `@`, a tab or a carriage return first), kept as
+/// text by a leading `'`; a number stays a number.
+fn inert(cell: &str) -> String {
+    if cell.starts_with(['=', '+', '-', '@', '\t', '\r']) && !number(cell) {
+        format!("'{cell}")
+    } else {
+        cell.to_owned()
+    }
+}
+
 /// An identifier as the database quotes it.
 fn ident(kind: Kind, name: &str) -> String {
     match kind {
@@ -86,10 +110,11 @@ pub fn write(
     match format {
         Format::Csv => {
             let cell = |c: &String| {
+                let c = inert(c);
                 if c.contains([',', '"', '\n', '\r']) {
                     format!("\"{}\"", c.replace('"', "\"\""))
                 } else {
-                    c.clone()
+                    c
                 }
             };
             for row in std::iter::once(cols).chain(&table.rows) {
@@ -102,7 +127,7 @@ pub fn write(
         }
         Format::Tsv => {
             // As a spreadsheet pastes it: a cell's own tabs and line breaks as spaces.
-            let cell = |c: &String| c.replace(['\t', '\r', '\n'], " ");
+            let cell = |c: &String| inert(c).replace(['\t', '\r', '\n'], " ");
             for row in std::iter::once(cols).chain(&table.rows) {
                 writeln!(
                     out,
@@ -112,6 +137,7 @@ pub fn write(
             }
         }
         Format::Json => {
+            let cols = &keys(cols);
             write!(out, "[")?;
             for (i, row) in table.rows.iter().enumerate() {
                 let sep = if i == 0 { "\n  " } else { ",\n  " };
@@ -120,6 +146,7 @@ pub fn write(
             writeln!(out, "{}]", if table.rows.is_empty() { "" } else { "\n" })?;
         }
         Format::Ndjson => {
+            let cols = &keys(cols);
             for row in &table.rows {
                 writeln!(out, "{}", object(cols, row))?;
             }
@@ -334,6 +361,60 @@ mod tests {
             text(&empty, Format::Json, Kind::Postgres, "t").unwrap(),
             "[]\n"
         );
+    }
+
+    #[test]
+    fn columns_of_the_same_name_all_reach_json() {
+        let t = Table {
+            columns: vec!["id".into(), "id".into(), "id_2".into(), "id".into()],
+            rows: vec![vec!["1".into(), "2".into(), "3".into(), "4".into()]],
+        };
+        let json: Value =
+            serde_json::from_str(&text(&t, Format::Json, Kind::Postgres, "t").unwrap()).unwrap();
+        assert_eq!(
+            json[0],
+            serde_json::json!({"id": "1", "id_2": "2", "id_2_2": "3", "id_3": "4"})
+        );
+        let nd: Value = serde_json::from_str(
+            text(&t, Format::Ndjson, Kind::Postgres, "t")
+                .unwrap()
+                .trim(),
+        )
+        .unwrap();
+        assert_eq!(nd.as_object().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn a_cell_a_spreadsheet_would_run_stays_text() {
+        let t = Table {
+            columns: vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()],
+            rows: vec![vec![
+                "=HYPERLINK(\"http://evil\")".into(),
+                "+1+2".into(),
+                "-5".into(),
+                "@SUM(A1)".into(),
+                "-cmd|' /C calc'!A0".into(),
+            ]],
+        };
+        let csv = text(&t, Format::Csv, Kind::Postgres, "t").unwrap();
+        assert_eq!(
+            csv.lines().nth(1).unwrap(),
+            "\"'=HYPERLINK(\"\"http://evil\"\")\",'+1+2,-5,'@SUM(A1),'-cmd|' /C calc'!A0",
+            "a number stays a number"
+        );
+        let tsv = text(&t, Format::Tsv, Kind::Postgres, "t").unwrap();
+        assert!(
+            tsv.lines()
+                .nth(1)
+                .unwrap()
+                .split('\t')
+                .all(|c| c == "-5" || c.starts_with('\'')),
+            "{tsv}"
+        );
+        // Elsewhere a cell is data, never a formula: kept as it is.
+        let json: Value =
+            serde_json::from_str(&text(&t, Format::Json, Kind::Postgres, "t").unwrap()).unwrap();
+        assert_eq!(json[0]["b"], "+1+2");
     }
 
     #[test]

@@ -58,12 +58,30 @@ impl Query {
     }
 }
 
-/// The project's saved queries, as its file lists them.
-pub fn queries(config_dir: &Path, project: &str) -> Result<Vec<Query>> {
+/// The project's saved queries, as its file lists them, read apart from its connections: one that does not read is
+/// left out and said in the errors, never the others nor the connections.
+pub fn queries(config_dir: &Path, project: &str) -> Result<(Vec<Query>, Vec<String>)> {
     let file = termf_core::project_file(config_dir, project)?;
-    let ops: crate::ProjectOps = toml::from_str(&fs::read_to_string(&file)?)
+    let doc: toml::Table = toml::from_str(&fs::read_to_string(&file)?)
         .with_context(|| format!("invalid {}", file.display()))?;
-    Ok(ops.ops.queries)
+    let list = doc
+        .get("ops")
+        .and_then(|o| o.get("queries"))
+        .and_then(|q| q.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let (mut found, mut errors) = (Vec::new(), Vec::new());
+    for (i, item) in list.into_iter().enumerate() {
+        let read = item
+            .try_into::<Query>()
+            .map_err(anyhow::Error::from)
+            .and_then(|q| q.check().map(|()| q));
+        match read {
+            Ok(q) => found.push(q),
+            Err(e) => errors.push(format!("[[ops.queries]] #{}: {e:#}", i + 1)),
+        }
+    }
+    Ok((found, errors))
 }
 
 /// Adds a saved query, or replaces the one named `previous` (its name may change).
@@ -75,6 +93,7 @@ pub fn save_query(
 ) -> Result<Vec<Query>> {
     query.check()?;
     let taken = queries(config_dir, project)?
+        .0
         .iter()
         .any(|q| q.name == query.name && Some(q.name.as_str()) != previous);
     ensure!(!taken, "a saved query is already named {}", query.name);
@@ -105,7 +124,7 @@ pub fn save_query(
         }
         Ok(())
     })?;
-    queries(config_dir, project)
+    Ok(queries(config_dir, project)?.0)
 }
 
 pub fn delete_query(config_dir: &Path, project: &str, name: &str) -> Result<Vec<Query>> {
@@ -115,7 +134,7 @@ pub fn delete_query(config_dir: &Path, project: &str, name: &str) -> Result<Vec<
         ensure!(list.len() < before, "no saved query named {name}");
         Ok(())
     })?;
-    queries(config_dir, project)
+    Ok(queries(config_dir, project)?.0)
 }
 
 /// A recipe name from a query's: `query-` and its words.
@@ -136,6 +155,7 @@ fn recipe_name(name: &str) -> String {
 /// (`approval = "always"`), personal data masked for an agent: its name.
 pub fn query_recipe(config_dir: &Path, project: &str, name: &str) -> Result<String> {
     let query = queries(config_dir, project)?
+        .0
         .into_iter()
         .find(|q| q.name == name)
         .with_context(|| format!("no saved query named {name}"))?;

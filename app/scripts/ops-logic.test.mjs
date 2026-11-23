@@ -8,6 +8,9 @@ import {
   clean,
   completions,
   copyName,
+  engineRefused,
+  exportedQuery,
+  secretClash,
   firstTable,
   passwordName,
   prose,
@@ -281,4 +284,31 @@ test("a SQLite database is a file: no host to ask for", () => {
   assert.equal(target({ name: "lite", kind: "sqlite", env: "dev", database: "/srv/a.db" }, []), "/srv/a.db");
   const kept = clean({ name: "x", kind: "mariadb", env: "dev", database: "d", user: "u", host: "h", sslmode: "require" });
   assert.equal(kept.sslmode, "require");
+});
+
+test("an engine TermF refuses is said in the interface's words", () => {
+  assert.equal(engineRefused("redis"), "Redis");
+  assert.equal(engineRefused("rediss"), "Redis");
+  assert.equal(engineRefused("mongodb+srv"), "Mongodb");
+  assert.equal(engineRefused("MSSQL"), "Sqlserver");
+  assert.equal(engineRefused("cassandra"), "Other");
+  for (const taken of ["postgres", "mysql", "mariadb", "sqlite", "clickhouse"]) assert.equal(engineRefused(taken), null);
+});
+
+test("a secret the save would replace is asked for, with its owner", () => {
+  assert.deepEqual(
+    secretClash("the secret SHOP_DB_PASSWORD already holds the password of shop-db: name another secret, or replace it"),
+    { name: "SHOP_DB_PASSWORD", owner: "shop-db" },
+  );
+  assert.deepEqual(secretClash("the vault already has the secret OTHER_PASSWORD (prod): name another secret, or replace it"), {
+    name: "OTHER_PASSWORD",
+    owner: null,
+  });
+  assert.equal(secretClash("the vault is locked"), null);
+});
+
+test("a full export runs the query as it was launched, not the console's limited one", () => {
+  const plan = { params: { query: "SELECT * FROM orders LIMIT 500" } };
+  assert.equal(exportedQuery({ id: 1, plan, output: {}, query: "SELECT * FROM orders" }, "query"), "SELECT * FROM orders");
+  assert.equal(exportedQuery({ id: 1, plan, output: {} }, "query"), "SELECT * FROM orders LIMIT 500");
 });

@@ -357,7 +357,8 @@ fn published(entry: &Yaml, port: u16) -> Option<u16> {
     };
     let parts: Vec<&str> = text.split('/').next()?.split(':').collect();
     let (host, inner) = match parts.as_slice() {
-        [inner] => (*inner, *inner),
+        // The container's port alone: Docker publishes it on a port of its choosing.
+        [_] => return None,
         [host, inner] | [_, host, inner] => (*host, *inner),
         _ => return None,
     };
@@ -521,6 +522,22 @@ mod tests {
         );
         assert!(found.iter().all(|d| !d.source.ends_with(":web")));
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_compose_port_counts_only_when_published_on_a_port_of_the_host() {
+        let s = |text: &str| Yaml::String(text.into());
+        assert_eq!(published(&s("5433:5432"), 5432), Some(5433));
+        assert_eq!(published(&s("127.0.0.1:5433:5432/tcp"), 5432), Some(5433));
+        assert_eq!(
+            published(&s("5432"), 5432),
+            None,
+            "Docker picks the host's port"
+        );
+        assert_eq!(published(&Yaml::Integer(5432), 5432), None);
+        assert_eq!(published(&s("8080:80"), 5432), None);
+        let long = YamlLoader::load_from_str("target: 5432\npublished: 6432\n").unwrap();
+        assert_eq!(published(&long[0], 5432), Some(6432));
     }
 
     #[test]

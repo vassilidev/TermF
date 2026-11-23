@@ -659,12 +659,16 @@ impl Ops<'_> {
     /// console masks it, audited `export`.
     pub fn export(&self, project: &str, connection: &str, query: &str) -> Result<(Plan, Output)> {
         let limits = crate::Limits {
-            rows: Some(EXPORT_ROWS),
-            lines: EXPORT_ROWS,
+            // One row past the limit, to know whether some were left.
+            rows: Some(EXPORT_ROWS + 1),
+            // The header and the line breaks inside cells are lines too.
+            lines: EXPORT_ROWS * 4,
             bytes: EXPORT_BYTES,
             timeout_s: 300,
         };
-        let plan = self.sql_plan(project, connection, |_| query.to_owned(), limits, "export")?;
+        let mut plan =
+            self.sql_plan(project, connection, |_| query.to_owned(), limits, "export")?;
+        plan.limits.rows = Some(EXPORT_ROWS);
         let output = self.execute(project, &Actor::human(), &plan, "user", &plan.redact)?;
         Ok((plan, output))
     }

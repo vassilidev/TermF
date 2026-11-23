@@ -2053,6 +2053,18 @@ fn a_failure_says_what_is_missing() {
         ),
         ("Host key verification failed.", "hostKey"),
         (
+            "psql: error: connection to server at \"db\" failed: FATAL:  role \"reader\" does not exist",
+            "passwordRefused",
+        ),
+        (
+            "ERROR 2003 (HY000): Can't connect to MySQL server on 'db.acme.dev:3306' (110)",
+            "timeout",
+        ),
+        (
+            "ERROR 2003 (HY000): Can't connect to MySQL server on 'db.acme.dev:3306' (111)",
+            "portClosed",
+        ),
+        (
             "psql: error: FATAL:  password authentication failed for user \"ro\"",
             "passwordRefused",
         ),
@@ -2273,4 +2285,121 @@ fn real_dba() {
         crate::sql::render(&table)
     );
     assert_eq!(table.rows.len(), 2, "DE then FR: {table:?}");
+}
+
+/// A full export reaches its 100 000 rows, cells on several lines included, and says what it left.
+#[cfg(unix)]
+#[test]
+fn a_full_export_reaches_its_limit_of_rows() {
+    if !Path::new("/usr/bin/sqlite3").is_file() {
+        eprintln!("no /usr/bin/sqlite3: skipped");
+        return;
+    }
+    let env = Fixture::new("export-limit");
+    let db = env.root.join("big.db");
+    let seed = "CREATE TABLE t(id INTEGER PRIMARY KEY, note TEXT);\
+        WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 100005)\
+        INSERT INTO t SELECT x, 'a' || char(10) || 'b' FROM n;";
+    let made = std::process::Command::new("/usr/bin/sqlite3")
+        .arg(&db)
+        .arg(seed)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    env.connection(&format!(
+        "name = \"big\"\nkind = \"sqlite\"\nenv = \"dev\"\ndatabase = \"{}\"\n",
+        db.display()
+    ));
+    let vault = env.vault();
+    let runner = env.runner();
+    let (config, data) = (env.config(), env.data());
+    let ops = Ops {
+        config_dir: &config,
+        data_dir: &data,
+        vault: &vault,
+        runner: &runner,
+    };
+    let (_, out) = ops.export("acme", "big", "SELECT id, note FROM t").unwrap();
+    let table = out.table.unwrap();
+    assert_eq!(table.rows.len(), EXPORT_ROWS);
+    assert_eq!(table.rows[0], ["1", "a\nb"]);
+    assert!(out.truncated, "rows were left");
+}
+
+#[test]
+fn a_saved_query_that_does_not_read_hides_nothing_else() {
+    let env = Fixture::new("bad-query");
+    env.connection(
+        "name = \"shop\"\nkind = \"mysql\"\nenv = \"prod\"\nhost = \"db\"\nuser = \"ro\"\ndatabase = \"shop\"\n",
+    );
+    let config = env.config();
+    let file = config.join("projects/acme.toml");
+    let mut text = fs::read_to_string(&file).unwrap();
+    text.push_str(
+        "\n[[ops.queries]]\nname = \"Good\"\nsql = \"SELECT 1\"\n\n[[ops.queries]]\nname = \"Typo\"\nsql = \"SELECT 2\"\nfoldr = \"x\"\n\n[[ops.queries]]\nsql = \"SELECT 3\"\n",
+    );
+    fs::write(&file, text).unwrap();
+    assert_eq!(connections(&config, "acme").unwrap().len(), 1);
+    let (found, errors) = queries(&config, "acme").unwrap();
+    assert_eq!(
+        found.iter().map(|q| q.name.as_str()).collect::<Vec<_>>(),
+        ["Good"]
+    );
+    assert_eq!(errors.len(), 2, "{errors:?}");
+    assert!(
+        errors[0].contains("#2") && errors[0].contains("foldr"),
+        "{errors:?}"
+    );
+    // The project still takes new ones.
+    let q = Query {
+        name: "Another".into(),
+        description: String::new(),
+        folder: String::new(),
+        tags: Vec::new(),
+        connection: None,
+        sql: "SELECT 4".into(),
+    };
+    assert_eq!(save_query(&config, "acme", &q, None).unwrap().len(), 2);
+}
+
+#[test]
+fn a_connection_that_cannot_save_is_refused_before_anything_is_written() {
+    let env = Fixture::new("check-save");
+    env.connection(
+        "name = \"shop\"\nkind = \"mysql\"\nenv = \"prod\"\nhost = \"db\"\nuser = \"ro\"\ndatabase = \"shop\"\n",
+    );
+    let config = env.config();
+    let before = fs::read_to_string(config.join("projects/acme.toml")).unwrap();
+    let same: Connection = toml::from_str(
+        "name = \"shop\"\nkind = \"postgres\"\nenv = \"prod\"\nhost = \"db2\"\nuser = \"ro\"\ndatabase = \"shop\"\n",
+    )
+    .unwrap();
+    let e = check_save(&config, "acme", &same, None).unwrap_err();
+    assert!(
+        e.to_string()
+            .contains("already has a connection named shop"),
+        "{e:#}"
+    );
+    let via: Connection = toml::from_str(
+        "name = \"other\"\nkind = \"postgres\"\nenv = \"prod\"\nvia = \"nowhere\"\nuser = \"ro\"\ndatabase = \"shop\"\n",
+    )
+    .unwrap();
+    assert!(check_save(&config, "acme", &via, None).is_err());
+    assert!(check_save(&config, "acme", &via, Some("gone")).is_err());
+    assert_eq!(
+        fs::read_to_string(config.join("projects/acme.toml")).unwrap(),
+        before
+    );
+    // The secret another connection's password lives in, in the same environment.
+    let mut shop = connections(&config, "acme").unwrap();
+    shop[0]
+        .secrets
+        .insert("password".into(), "SHOP_PASSWORD".into());
+    let mut twin = shop[0].clone();
+    twin.name = "shop_2".into();
+    assert_eq!(
+        secret_owner(&shop, &twin, None).map(|c| c.name.as_str()),
+        Some("shop")
+    );
+    assert!(secret_owner(&shop, &shop[0].clone(), Some("shop")).is_none());
 }

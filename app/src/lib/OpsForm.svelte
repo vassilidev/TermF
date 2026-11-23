@@ -13,10 +13,12 @@
     KINDS,
     SSLMODES,
     clean,
+    engineRefused,
     isDb,
     isServer,
     missing,
     passwordName,
+    secretClash,
     target,
     type Candidate,
     type Check,
@@ -150,7 +152,9 @@
       checks = null;
       url = "";
     } catch (e) {
-      error = String(e);
+      const scheme = url.trim().split(":")[0] ?? "";
+      const why = engineRefused(scheme);
+      error = why && why !== "Other" ? refusedText(scheme, String(e)) : String(e);
     }
   }
 
@@ -175,12 +179,21 @@
     else c[f] = v;
   }
 
+  /** The password not yet in the vault, typed or found: the test uses it, the save puts it in the vault. */
+  function waiting() {
+    const hasPassword = FORM[c.kind].secrets.includes("password");
+    return {
+      password: hasPassword && password ? password : null,
+      found: hasPassword && !password && found ? found.id : null,
+    };
+  }
+
   async function test() {
     busy = "test";
     error = "";
     checks = null;
     try {
-      checks = await invoke<Check[]>("ops_test", { project, connection: clean(c), previous });
+      checks = await invoke<Check[]>("ops_test", { project, connection: clean(c), previous, ...waiting() });
     } catch (e) {
       if (!ask(e, test)) error = String(e);
     } finally {
@@ -188,18 +201,21 @@
     }
   }
 
-  async function save() {
+  /** A secret the save would replace: asked before. */
+  let clash = $state<{ name: string; owner: string | null } | null>(null);
+
+  async function save(replace = false) {
     busy = "save";
     error = "";
+    clash = null;
     const saved = clean(c);
-    const hasPassword = FORM[c.kind].secrets.includes("password");
     try {
       ops.connections = await invoke<Connection[]>("ops_connection_save", {
         project,
         connection: saved,
         previous,
-        password: hasPassword && password ? password : null,
-        found: hasPassword && !password && found ? found.id : null,
+        ...waiting(),
+        replace,
       });
       password = "";
       found = null;
@@ -212,10 +228,17 @@
       }
       onclose(saved.name);
     } catch (e) {
-      if (!ask(e, save)) error = String(e);
+      clash = secretClash(e);
+      if (!clash && !ask(e, () => save(replace))) error = String(e);
     } finally {
       busy = "";
     }
+  }
+
+  /** A refusal of an engine, in the interface's language. */
+  function refusedText(scheme: string, message: string): string {
+    const why = engineRefused(scheme);
+    return why ? t(`opsdbRefused${why}`, { scheme }) : message;
   }
 
   // Where a new database is: pasted or picked, its fields checked, tested, then saved.
@@ -290,7 +313,7 @@
                     <span class="kind">{kindLabel(x.connection.kind)}</span>
                     <span class="mono where">{target(x.connection, ops.connections)}</span>
                   {:else}
-                    <span class="muted">{x.refused}</span>
+                    <span class="muted">{refusedText(x.scheme, x.refused ?? "")}</span>
                   {/if}
                   <span class="mono source">{x.source}</span>
                 </div>
@@ -411,6 +434,16 @@
   </label>
 
   {#if error}<p class="notice error" role="alert">{error}</p>{/if}
+  {#if clash}
+    <div class="notice warn clash" role="alert">
+      <p>
+        {clash.owner
+          ? t("opsdbSecretOwned", { name: clash.name, owner: clash.owner })
+          : t("opsdbSecretHeld", { name: clash.name, env: c.env })}
+      </p>
+      <button type="button" class="btn sm" disabled={!!busy} onclick={() => save(true)}>{t("opsdbSecretReplace", { name: clash.name })}</button>
+    </div>
+  {/if}
   {#if checks}<OpsChecks {checks} />{/if}
   {#if lacks.length}<p class="muted small">{t("opsMissing", { fields: lacks.map((f) => label(f)).join(", ") })}</p>{/if}
 
@@ -615,6 +648,18 @@
 
   .source {
     color: var(--muted);
+  }
+
+  .clash {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .clash p {
+    flex: 1;
+    margin: 0;
   }
 
   .badge {

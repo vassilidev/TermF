@@ -394,17 +394,16 @@ impl Connection {
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct ProjectOps {
+struct ProjectOps {
     #[serde(default)]
-    pub(crate) ops: OpsTable,
+    ops: OpsTable,
 }
 
+/// Saved queries are read apart (`queries`): one that does not read never hides the connections.
 #[derive(Deserialize, Default)]
-pub(crate) struct OpsTable {
+struct OpsTable {
     #[serde(default)]
-    pub(crate) connections: Vec<Connection>,
-    #[serde(default)]
-    pub(crate) queries: Vec<Query>,
+    connections: Vec<Connection>,
 }
 
 /// The project's connections, as its file lists them.
@@ -419,6 +418,65 @@ pub fn connections(config_dir: &Path, project: &str) -> Result<Vec<Connection>> 
 /// Adds a connection, or replaces the one named `previous` (its name may change). Comments and the rest of the
 /// file stay as they are.
 pub fn save_connection(
+    config_dir: &Path,
+    project: &str,
+    connection: &Connection,
+    previous: Option<&str>,
+) -> Result<Vec<Connection>> {
+    check_save(config_dir, project, connection, previous)?;
+    let renamed = previous.filter(|p| *p != connection.name);
+    edit(config_dir, project, "connections", |list| {
+        if let Some(old) = renamed {
+            for table in list.iter_mut() {
+                if table.get("via").and_then(Item::as_str) == Some(old) {
+                    table["via"] = toml_edit::value(connection.name.as_str());
+                }
+            }
+        }
+        let mut table: Table = toml::to_string(connection)?
+            .parse::<DocumentMut>()?
+            .as_table()
+            .clone();
+        if let Some(Item::Table(secrets)) = table.remove("secrets") {
+            table.insert("secrets", toml_edit::value(secrets.into_inline_table()));
+        }
+        table.set_implicit(false);
+        let at = previous.and_then(|p| list.iter().position(|t| named(t, p)));
+        match at {
+            Some(i) => *list.get_mut(i).expect("found") = table,
+            None => {
+                ensure!(
+                    previous.is_none(),
+                    "no connection named {}",
+                    previous.unwrap_or_default()
+                );
+                list.push(table);
+            }
+        }
+        Ok(())
+    })?;
+    connections(config_dir, project)
+}
+
+/// The other connection of the project whose password is the vault's secret `connection` names for it, in the
+/// same environment: a password saved for `connection` would replace that one's.
+pub fn secret_owner<'a>(
+    all: &'a [Connection],
+    connection: &Connection,
+    previous: Option<&str>,
+) -> Option<&'a Connection> {
+    let name = connection.secrets.get("password")?;
+    all.iter().find(|c| {
+        Some(c.name.as_str()) != previous
+            && c.name != connection.name
+            && c.env == connection.env
+            && c.secrets.get("password") == Some(name)
+    })
+}
+
+/// What saving `connection` (in place of `previous`) checks against the project's connections, before anything is
+/// written, the vault included: the project's connections.
+pub fn check_save(
     config_dir: &Path,
     project: &str,
     connection: &Connection,
@@ -456,38 +514,10 @@ pub fn save_connection(
             previous.unwrap_or_default()
         );
     }
-    let renamed = previous.filter(|p| *p != connection.name);
-    edit(config_dir, project, "connections", |list| {
-        if let Some(old) = renamed {
-            for table in list.iter_mut() {
-                if table.get("via").and_then(Item::as_str) == Some(old) {
-                    table["via"] = toml_edit::value(connection.name.as_str());
-                }
-            }
-        }
-        let mut table: Table = toml::to_string(connection)?
-            .parse::<DocumentMut>()?
-            .as_table()
-            .clone();
-        if let Some(Item::Table(secrets)) = table.remove("secrets") {
-            table.insert("secrets", toml_edit::value(secrets.into_inline_table()));
-        }
-        table.set_implicit(false);
-        let at = previous.and_then(|p| list.iter().position(|t| named(t, p)));
-        match at {
-            Some(i) => *list.get_mut(i).expect("found") = table,
-            None => {
-                ensure!(
-                    previous.is_none(),
-                    "no connection named {}",
-                    previous.unwrap_or_default()
-                );
-                list.push(table);
-            }
-        }
-        Ok(())
-    })?;
-    connections(config_dir, project)
+    if let Some(p) = previous {
+        ensure!(all.iter().any(|c| c.name == p), "no connection named {p}");
+    }
+    Ok(all)
 }
 
 pub fn delete_connection(config_dir: &Path, project: &str, name: &str) -> Result<Vec<Connection>> {

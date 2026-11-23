@@ -344,12 +344,16 @@ pub fn diagnose(said: &str) -> Option<&'static str> {
             "authentication failed",
             "no password supplied",
             "using password: no",
-        ]) {
+        ]) || (said.contains("role \"") && said.contains("does not exist"))
+        {
             "passwordRefused"
+        } else if has(&["timed out", "timeout expired", "did not open within"])
+            // MySQL's and MariaDB's errno: ETIMEDOUT under Linux, macOS, Windows.
+            || (said.contains("can't connect to") && has(&["(110)", "(60)", "(10060)"]))
+        {
+            "timeout"
         } else if has(&["connection refused", "can't connect to", "network_error"]) {
             "portClosed"
-        } else if has(&["timed out", "timeout expired", "did not open within"]) {
-            "timeout"
         } else if has(&[
             "does not exist",
             "unknown database",

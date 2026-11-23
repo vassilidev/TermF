@@ -455,6 +455,8 @@ export type Candidate = {
   connection: Connection | null;
   refused: string | null;
   hasPassword: boolean;
+  /** Its engine as its URL names it, to word a refusal. */
+  scheme: string;
 };
 
 export type ExportFormat = "csv" | "tsv" | "json" | "ndjson" | "markdown" | "sql" | "xlsx";
@@ -556,4 +558,28 @@ export function completions(schema: SchemaTable[]): { label: string; type: "clas
 /** The secret's name a database's password goes under in the vault: `ACME_PROD_PASSWORD`. */
 export function passwordName(connection: string): string {
   return `${connection.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_PASSWORD`;
+}
+
+/** Why TermF takes no such database, as the interface says it (`opsdbRefused*`); `null` for a database it takes. */
+export function engineRefused(scheme: string): "Sqlserver" | "Mongodb" | "Redis" | "Other" | null {
+  const s = scheme.trim().toLowerCase();
+  if (s === "sqlserver" || s === "mssql") return "Sqlserver";
+  if (s === "mongodb" || s === "mongodb+srv") return "Mongodb";
+  if (s === "redis" || s === "rediss") return "Redis";
+  const taken = ["postgres", "postgresql", "pgsql", "mysql", "mysql2", "mariadb", "sqlite", "sqlite3", "file", "clickhouse"];
+  return taken.includes(s) ? null : "Other";
+}
+
+/** A password the backend would not put in the vault unasked: the secret it names, and the connection that has it. */
+export function secretClash(e: unknown): { name: string; owner: string | null } | null {
+  const text = String(e);
+  const owned = /the secret (\S+) already holds the password of (\S+?):/.exec(text);
+  if (owned) return { name: owned[1], owner: owned[2] };
+  const held = /the vault already has the secret (\S+) \(/.exec(text);
+  return held ? { name: held[1], owner: null } : null;
+}
+
+/** What a full export runs again: the query as the user launched it, without the console's `LIMIT`. */
+export function exportedQuery(result: Ran & { query?: string }, param: string): string {
+  return result.query ?? result.plan.params[param] ?? "";
 }

@@ -48,7 +48,7 @@ pub struct OpsState {
     /// A result's id → what `ops_reveal` and the `.env` commands take from it.
     kept: Mutex<BTreeMap<u64, Kept>>,
     /// A query result's id → its masked table, for `ops_sql_export`: the last [`TABLES`].
-    tables: Mutex<BTreeMap<u64, termf_ops::sql::Table>>,
+    tables: Mutex<BTreeMap<u64, KeptTable>>,
     /// The streams followed, by the id the front end chose: dropping one stops its client.
     follows: Mutex<BTreeMap<u64, Following>>,
     /// The passwords of the databases the last `ops_detect` found, by their rank: they go to the vault, never to
@@ -70,12 +70,11 @@ pub fn state(config_dir: PathBuf, data_dir: PathBuf) -> OpsState {
     }
 }
 
+/// A query's masked table and the database it came from: its export writes that database's SQL.
+type KeptTable = (termf_ops::sql::Table, termf_ops::Kind);
+
 /// Keeps a table for its export, the oldest dropped past [`TABLES`].
-fn keep_table(
-    tables: &mut BTreeMap<u64, termf_ops::sql::Table>,
-    id: u64,
-    table: termf_ops::sql::Table,
-) {
+fn keep_table(tables: &mut BTreeMap<u64, KeptTable>, id: u64, table: KeptTable) {
     tables.insert(id, table);
     while tables.len() > TABLES {
         tables.pop_first();
@@ -130,23 +129,73 @@ pub struct Overview {
     /// Recipe files that do not read.
     errors: Vec<String>,
     queries: Vec<termf_ops::Query>,
+    /// Saved queries that do not read, left out.
+    query_errors: Vec<String>,
 }
 
 #[tauri::command]
 pub fn ops_overview(state: State<OpsState>, project: String) -> CmdResult<Overview> {
     let connections = termf_ops::connections(&state.config_dir, &project).map_err(err)?;
     let (recipes, errors) = termf_ops::recipes(&state.config_dir, Some(&project));
-    let queries = termf_ops::queries(&state.config_dir, &project).map_err(err)?;
+    let (queries, query_errors) = termf_ops::queries(&state.config_dir, &project).map_err(err)?;
     Ok(Overview {
         connections,
         recipes,
         errors,
         queries,
+        query_errors,
+    })
+}
+
+/// The password waiting to go to the vault with a connection: typed or pasted in a URL, or found by `ops_detect`.
+fn pending(state: &OpsState, password: Option<String>, found: Option<usize>) -> Option<Secret> {
+    let value = match (password, found) {
+        (Some(p), _) => Some(Secret::new(p)),
+        (None, Some(i)) => state.found.lock().unwrap().get(i).cloned().flatten(),
+        (None, None) => None,
+    };
+    value.filter(|v| !v.expose().is_empty())
+}
+
+/// The password a connection's test uses for `name` before it is in the vault: the one waiting, for its own
+/// `password` secret.
+fn waiting_for(connection: &Connection, name: &str, waiting: Option<&Secret>) -> Option<Secret> {
+    waiting
+        .filter(|_| connection.secrets.get("password").map(String::as_str) == Some(name))
+        .cloned()
+}
+
+/// Why a password saved with `connection` must not go to the vault unless the user says to replace it: its secret
+/// is another connection's, or the vault already holds it (`exists`) and it was not this connection's.
+fn clash(
+    all: &[Connection],
+    connection: &Connection,
+    previous: Option<&str>,
+    exists: bool,
+) -> Option<String> {
+    let name = connection.secrets.get("password")?;
+    if let Some(owner) = termf_ops::secret_owner(all, connection, previous) {
+        return Some(format!(
+            "the secret {name} already holds the password of {}: name another secret, or replace it",
+            owner.name
+        ));
+    }
+    let mine = previous
+        .and_then(|p| all.iter().find(|c| c.name == p))
+        .is_some_and(|c| c.env == connection.env && c.secrets.get("password") == Some(name));
+    (exists && !mine).then(|| {
+        format!(
+            "the vault already has the secret {name} ({}): name another secret, or replace it",
+            connection.env.as_str()
+        )
     })
 }
 
 /// Saves a connection; `password` (typed or pasted in a URL) or `found` (a database `ops_detect` found) goes to
-/// the vault first, under the name its `password` secret gives, in its environment and the project.
+/// the vault under the name its `password` secret gives, in its environment and the project, once the connection
+/// is known to save; a secret that is another connection's, or already in the vault, is replaced only with
+/// `replace`.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn ops_connection_save(
     app: AppHandle,
@@ -155,15 +204,16 @@ pub async fn ops_connection_save(
     previous: Option<String>,
     password: Option<String>,
     found: Option<usize>,
+    replace: Option<bool>,
 ) -> CmdResult<Vec<Connection>> {
     blocking(app, move |_, state, vault| {
-        connection.check()?;
-        let value = match (password, found) {
-            (Some(p), _) => Some(Secret::new(p)),
-            (None, Some(i)) => state.found.lock().unwrap().get(i).cloned().flatten(),
-            (None, None) => None,
-        };
-        if let Some(value) = value.filter(|v| !v.expose().is_empty()) {
+        let all = termf_ops::check_save(
+            &state.config_dir,
+            &project,
+            &connection,
+            previous.as_deref(),
+        )?;
+        if let Some(value) = pending(state, password, found) {
             let name = connection
                 .secrets
                 .get("password")
@@ -172,6 +222,15 @@ pub async fn ops_connection_save(
                 vault.initialized(),
                 "there is no vault yet: create it in the Vault view, the password goes there"
             );
+            let exists = vault
+                .list(Some(connection.env), Some(&project))?
+                .iter()
+                .any(|s| &s.name == name && s.project.as_deref() == Some(project.as_str()));
+            if replace != Some(true)
+                && let Some(why) = clash(&all, &connection, previous.as_deref(), exists)
+            {
+                bail!(why);
+            }
             let id = termf_vault::SecretId::new(name, connection.env, Some(&project))?;
             vault.set(
                 &Actor::human(),
@@ -199,20 +258,26 @@ pub fn ops_connection_delete(
     termf_ops::delete_connection(&state.config_dir, &project, &name).map_err(err)
 }
 
-/// Tests a connection as the form holds it, saved or not.
+/// Tests a connection as the form holds it, saved or not; `password` or `found`: its password, not yet in the vault.
 #[tauri::command]
 pub async fn ops_test(
     app: AppHandle,
     project: String,
     connection: Connection,
     previous: Option<String>,
+    password: Option<String>,
+    found: Option<usize>,
 ) -> CmdResult<Vec<Check>> {
     blocking(app, move |_, state, vault| {
         let mut all = termf_ops::connections(&state.config_dir, &project)?;
         all.retain(|c| Some(&c.name) != previous.as_ref() && c.name != connection.name);
         all.push(connection.clone());
         let human = Actor::human();
+        let waiting = pending(state, password, found);
         let secret = |name: &str| -> Result<Secret> {
+            if let Some(value) = waiting_for(&connection, name, waiting.as_ref()) {
+                return Ok(value);
+            }
             if !vault.initialized() {
                 bail!("there is no vault yet: create it in the Vault view, then add {name} there");
             }
@@ -294,7 +359,11 @@ pub async fn ops_run(
         }
         let id = state.next.fetch_add(1, Ordering::Relaxed);
         if let Some(table) = &output.table {
-            keep_table(&mut state.tables.lock().unwrap(), id, table.clone());
+            keep_table(
+                &mut state.tables.lock().unwrap(),
+                id,
+                (table.clone(), plan.kind),
+            );
         }
         let mut kept = state.kept.lock().unwrap();
         kept.retain(|_, k| k.at.elapsed() < REVEALABLE);
@@ -497,21 +566,14 @@ pub async fn ops_env_compare(
     .await
 }
 
-fn kept_table(state: &OpsState, result: u64) -> Result<(termf_ops::sql::Table, termf_ops::Kind)> {
-    let table = state
+fn kept_table(state: &OpsState, result: u64) -> Result<KeptTable> {
+    state
         .tables
         .lock()
         .unwrap()
         .get(&result)
         .cloned()
-        .context("this result is no longer kept: run the query again")?;
-    let kind = state
-        .kept
-        .lock()
-        .unwrap()
-        .get(&result)
-        .map_or(termf_ops::Kind::Postgres, |k| k.plan.kind);
-    Ok((table, kind))
+        .context("this result is no longer kept: run the query again")
 }
 
 fn write_file(
@@ -1001,15 +1063,70 @@ mod tests {
                 columns: vec!["id".into(), "note".into()],
                 rows: vec![vec![id.to_string(), "a, \"b\"\nc".into()]],
             };
-            keep_table(&mut tables, id, table);
+            keep_table(&mut tables, id, (table, termf_ops::Kind::Mysql));
         }
         assert_eq!(tables.len(), TABLES);
         assert!(!tables.contains_key(&5) && tables.contains_key(&6));
+        let (table, kind) = &tables[&6];
         assert_eq!(
-            termf_ops::export::text(&tables[&6], Format::Csv, termf_ops::Kind::Postgres, "t")
-                .unwrap(),
+            termf_ops::export::text(table, Format::Csv, *kind, "t").unwrap(),
             "id,note\n6,\"a, \"\"b\"\"\nc\"\n",
             "quoted as a spreadsheet reads it"
         );
+        // Its database stays with it, whatever became of the result's revealable values.
+        let sql = termf_ops::export::text(table, Format::Sql, *kind, "t").unwrap();
+        assert!(sql.starts_with("INSERT INTO `t` (`id`, `note`)"), "{sql}");
+    }
+
+    fn db(name: &str, secret: &str, env: &str) -> Connection {
+        serde_json::from_value(serde_json::json!({
+            "name": name, "kind": "postgres", "env": env, "host": "h", "user": "u", "database": "d",
+            "secrets": { "password": secret },
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_password_never_replaces_another_connections_secret_unasked() {
+        let all = vec![db("shop-db", "SHOP_DB_PASSWORD", "prod")];
+        // shop_db names the secret shop-db's password lives in.
+        let new = db("shop_db", "SHOP_DB_PASSWORD", "prod");
+        let why = clash(&all, &new, None, true).unwrap();
+        assert!(
+            why.contains("already holds the password of shop-db"),
+            "{why}"
+        );
+        // In another environment, it is another secret.
+        assert_eq!(
+            clash(&all, &db("shop_db", "SHOP_DB_PASSWORD", "dev"), None, false),
+            None
+        );
+        // A secret already in the vault, but no connection's: asked too.
+        let why = clash(&all, &db("other", "OTHER_PASSWORD", "prod"), None, true).unwrap();
+        assert!(
+            why.contains("the vault already has the secret OTHER_PASSWORD"),
+            "{why}"
+        );
+        assert_eq!(
+            clash(&all, &db("other", "OTHER_PASSWORD", "prod"), None, false),
+            None
+        );
+        // Its own secret, changed or renamed: no question.
+        let same = db("shop-db", "SHOP_DB_PASSWORD", "prod");
+        assert_eq!(clash(&all, &same, Some("shop-db"), true), None);
+        let renamed = db("shop", "SHOP_DB_PASSWORD", "prod");
+        assert_eq!(clash(&all, &renamed, Some("shop-db"), true), None);
+    }
+
+    #[test]
+    fn a_new_databases_test_uses_its_password_before_the_vault_has_it() {
+        let c = db("shop", "SHOP_PASSWORD", "prod");
+        let waiting = Secret::new("s3cret".into());
+        assert_eq!(
+            waiting_for(&c, "SHOP_PASSWORD", Some(&waiting)).map(|s| s.expose().to_owned()),
+            Some("s3cret".into())
+        );
+        assert!(waiting_for(&c, "OTHER", Some(&waiting)).is_none());
+        assert!(waiting_for(&c, "SHOP_PASSWORD", None).is_none());
     }
 }

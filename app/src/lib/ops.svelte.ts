@@ -47,9 +47,11 @@ export const ops = $state({
   /** The proposal the run form answers. */
   proposal: null as number | null,
   /** The SQL console: its database, the query typed, its last result. */
-  sql: { connection: "", query: "", result: null as Ran | null },
+  sql: { connection: "", query: "", result: null as (Ran & { query?: string }) | null },
   /** The project's saved queries. */
   queries: [] as Query[],
+  /** Saved queries that do not read, left out. */
+  queryErrors: [] as string[],
   /** The database studio: each database's schema once read, the side panel shown, and the DBA's conversation per
    * database (its headless session). */
   studio: {
@@ -111,11 +113,12 @@ export function showOps() {
 
 export async function loadOps(project: string) {
   try {
-    const overview = await invoke<{ connections: Connection[]; recipes: Recipe[]; errors: string[]; queries: Query[] }>(
+    const overview = await invoke<{ connections: Connection[]; recipes: Recipe[]; errors: string[]; queries: Query[]; queryErrors: string[] }>(
       "ops_overview",
       { project },
     );
     ops.queries = overview.queries ?? [];
+    ops.queryErrors = overview.queryErrors ?? [];
     ops.project = project;
     ops.connections = overview.connections;
     ops.recipes = overview.recipes;

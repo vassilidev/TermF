@@ -37,6 +37,7 @@
     EXPORTS,
     EXTENSIONS,
     completions,
+    exportedQuery,
     firstTable,
     isSql,
     pastQueries,
@@ -277,14 +278,17 @@
     error = "";
     notice = "";
     try {
-      ops.sql.result = await invoke<Ran>("ops_run", {
+      const query = ops.sql.query;
+      const ran = await invoke<Ran>("ops_run", {
         project,
         recipe: recipe.name,
         connection: conn.name,
-        params: { [param]: ops.sql.query },
+        params: { [param]: query },
         confirm: null,
         proposal: null,
       });
+      // The query as launched, for a full export: the result's own carries the console's LIMIT.
+      ops.sql.result = { ...ran, query };
       sort = null;
       loadHistory(project);
     } catch (e) {
@@ -353,7 +357,7 @@
   async function exportAll() {
     exportOpen = false;
     if (!result) return;
-    const query = ops.sql.query.trim() || result.plan.params[param];
+    const query = exportedQuery(result, param);
     const name = firstTable(query);
     try {
       const path = await pick(exportFormat, `${result.plan.connection}-${name}`);

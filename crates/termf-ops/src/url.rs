@@ -139,6 +139,8 @@ pub struct Candidate {
     pub refused: Option<String>,
     /// It holds a password, which goes to the vault when it is added.
     pub has_password: bool,
+    /// Its engine as its URL names it (`redis`, `sqlserver`…), for the interface to word a refusal.
+    pub scheme: String,
     #[serde(skip)]
     pub password: Option<String>,
 }
@@ -152,6 +154,7 @@ pub fn declared(repos: &[(String, std::path::PathBuf)]) -> Vec<Candidate> {
             match from_url(&found.url) {
                 Ok(parsed) => out.push(Candidate {
                     source,
+                    scheme: found.url.scheme.clone(),
                     has_password: parsed.password.is_some(),
                     password: parsed.password,
                     connection: Some(parsed.connection),
@@ -159,6 +162,7 @@ pub fn declared(repos: &[(String, std::path::PathBuf)]) -> Vec<Candidate> {
                 }),
                 Err(e) => out.push(Candidate {
                     source,
+                    scheme: found.url.scheme.clone(),
                     connection: None,
                     refused: Some(format!("{e:#}")),
                     has_password: false,
