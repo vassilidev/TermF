@@ -48,7 +48,7 @@
         };
       }
       case "off":
-        return { icon: Power, title: t("watchTodoOff", { name: item.item.name }), detail: t("watchOffHint", { project: here }), action: t("watchActivate", { project: here }), run: () => switchOn(item.item), later: true };
+        return { icon: Power, title: t("watchTodoOff", { name: item.item.name }), detail: t("watchOffHint", { project: here }), action: t("watchActivate", { project: here }), run: () => switchOn(item.item, item.was), later: true };
       case "claude":
         return { icon: CircleArrowUp, title: t("watchTodoClaude", { now: item.now }), detail: t("watchTodoClaudeDetail", { seen: item.seen }), action: t("watchReviewWithScout"), run: () => openScout(false, true), later: true };
       case "never":

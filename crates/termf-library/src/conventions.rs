@@ -726,7 +726,7 @@ pub fn apply_with(config_dir: &Path, project: &str, slug: &str, repos: bool) -> 
     let accepted: Vec<Proposal> = draft
         .items
         .iter()
-        .filter(|i| i.review == Review::Accepted && (repos || i.kind != ItemKind::Repo))
+        .filter(|i| i.review == Review::Accepted)
         .cloned()
         .collect();
     let same = |a: &Proposal, b: &Proposal| a.kind == b.kind && a.name == b.name;
@@ -746,7 +746,10 @@ pub fn apply_with(config_dir: &Path, project: &str, slug: &str, repos: bool) -> 
                 "{} changed since the proposal: propose again",
                 item.path
             );
-            repo_writes.push((path, item));
+            // Left to the team, it is still checked: a file changed since the proposal stops the apply.
+            if repos {
+                repo_writes.push((path, item));
+            }
             continue;
         }
         context.check_owner(item)?;
@@ -785,7 +788,10 @@ pub fn apply_with(config_dir: &Path, project: &str, slug: &str, repos: bool) -> 
         write_file(&path, item.content.as_bytes())?;
     }
     let applied = Pack {
-        items: accepted,
+        items: accepted
+            .into_iter()
+            .filter(|i| repos || i.kind != ItemKind::Repo)
+            .collect(),
         dropped: Vec::new(),
         questions: Vec::new(),
         ..draft
@@ -1510,8 +1516,12 @@ fn paths(repo: &Path, commits: Option<usize>) -> Result<Vec<u8>> {
     );
     let mut seen = BTreeSet::new();
     let mut files = Vec::new();
+    // A file the latest commits deleted, or added then deleted, is no longer there to check.
+    let here = |path: &[u8]| {
+        commits.is_none() || repo.join(String::from_utf8_lossy(path).as_ref()).exists()
+    };
     for path in out.stdout.split(|b| *b == 0 || *b == b'\n') {
-        if !path.is_empty() && seen.insert(path) {
+        if !path.is_empty() && here(path) && seen.insert(path) {
             files.extend_from_slice(path);
             files.push(b'\n');
         }
@@ -2225,6 +2235,13 @@ mod tests {
         assert_eq!(paths(&repo, Some(1)).unwrap(), b"CHANGELOG.md\n");
         let all = String::from_utf8(paths(&repo, None).unwrap()).unwrap();
         assert_eq!(all.lines().count(), 3, "{all}");
+        git(&["rm", "-q", "package.json"]);
+        git(&["commit", "-qm", "three"]);
+        assert_eq!(
+            paths(&repo, Some(3)).unwrap(),
+            b"CHANGELOG.md\nsrc/App.tsx\n",
+            "a deleted file is not checked"
+        );
 
         save_source(&config, "acme", "front", TEXT).unwrap();
         let mut rule = item("rule", "changelog", "Pas de CSS inline.");
@@ -2267,6 +2284,17 @@ mod tests {
         )
         .unwrap();
         accept_all(&config);
+        put(&repo.join("package.json"), "{ \"name\": \"renamed\" }\n");
+        let err = apply_with(&config, "acme", "front", false).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("changed since the proposal"),
+            "{err:#}"
+        );
+        assert!(
+            load(&config, "acme", "front").unwrap().pack.is_none(),
+            "nothing applied"
+        );
+        put(&repo.join("package.json"), "{ \"name\": \"api\" }\n");
         let applied = apply_with(&config, "acme", "front", false).unwrap();
         let names: Vec<&str> = applied
             .pack

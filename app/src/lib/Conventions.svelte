@@ -198,6 +198,11 @@
     running = "team";
     error = "";
     try {
+      // Applied first: a file changed since the proposal stops everything, and once applied the draft is gone, so
+      // a run that fails below is never started twice by trying again.
+      const convention = await invoke<Convention>("conventions_apply", { project: project.id, slug, repos: false });
+      put(convention);
+      library.version++;
       const repos = [...new Set(files.map((f) => f.repo))];
       for (const repo of repos) {
         const text = t("watchTeamConvRequest", {
@@ -208,13 +213,17 @@
             .map((f) => t("watchTeamConvFile", { path: f.path, why: f.description, sentence: f.sentence, content: f.content.trimEnd() }))
             .join("\n\n"),
         });
-        const run = await invoke<TeamRun>("team_start", { run: null, request: { text, project: project.id, repo }, options: {} });
-        upsertRun(run);
-        toast(t("watchTeamStarted", { run: run.run }));
+        const run = await invoke<TeamRun>("team_start", { run: null, request: { text, project: project.id, repo }, options: {} }).catch(
+          (e) => {
+            toast(t("watchTeamFailed", { repo, error: String(e) }), { kind: "error" });
+            return null;
+          },
+        );
+        if (run) {
+          upsertRun(run);
+          toast(t("watchTeamStarted", { run: run.run }));
+        }
       }
-      const convention = await invoke<Convention>("conventions_apply", { project: project.id, slug, repos: false });
-      put(convention);
-      library.version++;
     } catch (e) {
       error = String(e);
     } finally {

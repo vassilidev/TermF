@@ -4,7 +4,7 @@ import { library, type Item, type Kind } from "$lib/library.svelte";
 import { runScout, type ScoutState } from "$lib/scout.svelte";
 import type { TaskEntry } from "$lib/schedule.svelte";
 import { app } from "$lib/state.svelte";
-import { todos, watches, type ConventionLike, type Todo } from "$lib/todo-logic";
+import { dismissKey, todos, watches, type ConventionLike, type Todo } from "$lib/todo-logic";
 import { toast } from "$lib/ui/toast.svelte";
 
 const DISMISSED = "termf.library.todo.dismissed";
@@ -24,8 +24,12 @@ export const todo = $state({
   watch: null as TaskEntry | null,
   /** What `claude --version` said, once per launch of TermF. */
   claude: undefined as string | null | undefined,
+  /** Watch results still to decide, for the project and for the global library: a full launch would replace them. */
+  pending: { project: 0, global: 0 },
   error: "",
 });
+
+const waiting = (s: ScoutState | null) => s?.draft?.entries.filter((e) => e.review === "pending").length ?? 0;
 
 const projectOf = (id: string) => app.workspace?.projects.find((p) => p.id === id) ?? null;
 
@@ -57,6 +61,7 @@ export async function loadTodo() {
     const repos = project?.repos.map((r) => r.path) ?? [];
     const all = (app.workspace?.projects ?? []).flatMap((p) => p.repos.map((r) => r.path));
     todo.watch = tasks.find((task) => watches(task, repos, all)) ?? null;
+    todo.pending = id ? { project: waiting(scout), global: waiting(globalScout) } : { project: 0, global: waiting(scout) };
     todo.list = todos({
       project: id || null,
       scout,
@@ -77,7 +82,7 @@ export async function loadTodo() {
 
 export function later(item: Todo) {
   try {
-    localStorage.setItem(DISMISSED, JSON.stringify([...dismissed(), item.id]));
+    localStorage.setItem(DISMISSED, JSON.stringify([...dismissed(), dismissKey(app.project, item.id)]));
   } catch {
     // Without storage, the line simply comes back next time.
   }
@@ -117,15 +122,15 @@ export async function scheduleWatch(budget: number | null): Promise<void> {
   await loadTodo();
 }
 
-/** Switches an item on for the current project (globally without one), one undo away. */
-export async function switchOn(item: { kind: string; name: string }) {
+/** Switches an item on for the current project (globally without one); undoing puts back the switch it had (`was`). */
+export async function switchOn(item: { kind: string; name: string }, was: boolean | null) {
   const project = projectOf(app.project ?? "");
   const set = (enabled: boolean | null) =>
     invoke("library_toggle", { kind: item.kind as Kind, name: item.name, project: project?.id ?? null, enabled });
   try {
     await set(true);
     toast(t("watchActivated", { name: item.name, project: project?.name ?? t("watchScheduleGlobal") }), {
-      undo: () => void set(null).finally(() => library.version++),
+      undo: () => void set(was).finally(() => library.version++),
     });
   } catch (e) {
     toast(String(e), { kind: "error" });
@@ -134,10 +139,12 @@ export async function switchOn(item: { kind: string; name: string }) {
   }
 }
 
-/** The watch's tab, at the scope of the line, its launch started when `run`. */
+/** The watch's tab, at the scope of the line, its launch started when `run`, unless that would replace results
+ * still to decide: the tab shows them first. */
 export function openScout(global = false, run = false) {
   library.global = global;
   library.panel = { kind: "scout" };
-  if (run) void runScout([]);
+  const replaces = global || !app.project ? todo.pending.global : todo.pending.project;
+  if (run && !replaces) void runScout([]);
 }
 

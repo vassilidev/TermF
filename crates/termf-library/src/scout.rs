@@ -304,9 +304,6 @@ pub fn run(
     );
     let cancel = options.cancel.clone().unwrap_or_default();
     let (answer, cost) = ask(claude, &model, budget, &prompt, progress, &cancel)?;
-    if let Some(version) = &version {
-        write_file(&config_dir.join(CLAUDE_SEEN), version.as_bytes())?;
-    }
     let mut next = Draft {
         model,
         budget,
@@ -332,7 +329,21 @@ pub fn run(
     }
     write_draft(&file, &saved)?;
     let _ = fs::remove_file(aside(&file));
+    // Only a launch that gave results has seen this version.
+    if let Some(version) = &version {
+        write_file(&config_dir.join(CLAUDE_SEEN), version.as_bytes())?;
+    }
     Ok(next)
+}
+
+/// The entries still to decide that a launch on `only` (the whole library when empty) would replace.
+pub fn would_replace(draft: &Draft, only: &[ItemRef]) -> usize {
+    draft
+        .entries
+        .iter()
+        .filter(|e| e.review == Review::Pending)
+        .filter(|e| only.is_empty() || only.iter().any(|r| r.kind == e.kind && r.name == e.name))
+        .count()
 }
 
 /// Asks again for one entry only, following the owner's comment; the others stay as they are.
@@ -1279,6 +1290,65 @@ mod tests {
             &mut |_| {},
         )?;
         state(config, project)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn counts_what_a_launch_would_replace_and_notes_the_version_once_it_gave_results() {
+        use std::os::unix::fs::PermissionsExt;
+        let config = setup("scout-replace");
+        put(
+            &config.join("projects/acme/library/preferences/tone.md"),
+            "---\ndescription: Tone\n---\nBe kind.\n",
+        );
+        // Answers `--version` as Claude Code does, and fails any launch.
+        let failing = config.parent().unwrap().join("bin/claude");
+        put(
+            &failing,
+            "#!/bin/sh\n[ \"$1\" = --version ] && { echo '2.1.999 (Claude Code)'; exit 0; }\ncat > /dev/null\necho boom >&2\nexit 1\n",
+        );
+        fs::set_permissions(&failing, fs::Permissions::from_mode(0o755)).unwrap();
+        let claude = vec![failing.to_string_lossy().into_owned()];
+        assert!(
+            run(
+                &config,
+                Some("acme"),
+                &[],
+                &Options::default(),
+                &claude,
+                &mut |_| {}
+            )
+            .is_err()
+        );
+        assert_eq!(
+            state(&config, Some("acme")).unwrap().claude,
+            None,
+            "nothing came of it"
+        );
+
+        let answer = json!({ "entries": [entry("preference", "style", false, ""), entry("preference", "tone", false, "")] });
+        let claude = fake_claude(&config, &answer);
+        run(
+            &config,
+            Some("acme"),
+            &[],
+            &Options::default(),
+            &claude,
+            &mut |_| {},
+        )
+        .unwrap();
+        let tone = ItemRef {
+            kind: Kind::Preference,
+            name: "tone".into(),
+        };
+        review(&config, Some("acme"), &tone, Review::Rejected, false).unwrap();
+        let draft = state(&config, Some("acme")).unwrap().draft.unwrap();
+        assert_eq!(
+            would_replace(&draft, &[]),
+            1,
+            "the whole library: style still to decide"
+        );
+        assert_eq!(would_replace(&draft, &[tone]), 0, "tone is decided");
     }
 
     #[cfg(unix)]

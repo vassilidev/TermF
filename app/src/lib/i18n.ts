@@ -4672,6 +4672,7 @@ const fr = {
   watchTeam: "Confier à l'équipe",
   watchTeamConvHelp: "Fichiers des dépôts : {count}, livrés par une PR de l'équipe. Le reste s'applique tout de suite.",
   watchTeamStarted: "Run d'équipe n° {run} lancé : la PR arrive sur sa page",
+  watchTeamFailed: "Le run de {repo} n'a pas démarré ({error}) : propose à nouveau pour retrouver ses fichiers",
   watchTeamConvRequest:
     "Change ces fichiers du dépôt {repo} pour suivre la convention « {slug} » du projet, puis livre-les par une PR. Chaque fichier est donné en entier, tel qu'il doit être ; garde tout le reste du dépôt tel quel.\n\n{files}",
   watchTeamConvFile: "### {path}\nPourquoi : {why} (« {sentence} »)\n```\n{content}\n```",
@@ -9372,6 +9373,7 @@ const en: Record<Key, string> = {
   watchTeam: "Hand to the team",
   watchTeamConvHelp: "Repository files: {count}, delivered by a pull request from the team. The rest applies now.",
   watchTeamStarted: "Team run #{run} started: its pull request comes on its page",
+  watchTeamFailed: "The run of {repo} did not start ({error}): propose again to get its files back",
   watchTeamConvRequest:
     "Change these files of the {repo} repository to follow the project's \"{slug}\" convention, then deliver them as a pull request. Each file is given whole, as it must be; leave the rest of the repository as it is.\n\n{files}",
   watchTeamConvFile: "### {path}\nWhy: {why} (\"{sentence}\")\n```\n{content}\n```",

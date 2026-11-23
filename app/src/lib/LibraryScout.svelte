@@ -42,7 +42,7 @@
   import { showScheduler, type TaskEntry } from "$lib/schedule.svelte";
   import { upsertRun } from "$lib/team.svelte";
   import type { TeamRun } from "$lib/team-run-logic";
-  import { version, watches } from "$lib/todo-logic";
+  import { libraryFile, version, watches } from "$lib/todo-logic";
   import { scheduleWatch, switchOn, todo } from "$lib/todo.svelte";
 
   type Key = Parameters<typeof t>[0];
@@ -186,7 +186,7 @@
   async function handOff(e: Entry) {
     const repo = project?.repos[0];
     if (!project || !repo) return;
-    const path = e.kind === "skill" ? `skills/${e.name}/SKILL.md` : `${e.kind}s/${e.name}.md`;
+    const path = libraryFile(e.kind, e.name);
     const info = kindInfo[e.kind];
     const text = t("watchTeamScoutRequest", {
       repo: repo.name,
@@ -515,7 +515,7 @@
           <li>
             {@render kindBadge(l.kind)}
             <span class="item-name grow">{l.name}</span>
-            <Button size="sm" variant="primary" onclick={() => switchOn(l)}>{t("watchActivate", { project: project.name })}</Button>
+            <Button size="sm" variant="primary" onclick={() => switchOn(l, items.find((i) => key(i) === key(l))?.toggles.project ?? null)}>{t("watchActivate", { project: project.name })}</Button>
           </li>
         {/each}
       </ul>

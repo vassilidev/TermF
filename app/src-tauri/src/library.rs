@@ -350,11 +350,21 @@ pub async fn scout_state(state: State<'_, AppState>, project: Option<String>) ->
     scout::state(&state.config_dir, project.as_deref()).map_err(err)
 }
 
-/// What stops the scout's launch in progress (one at a time: the view waits for it).
+/// What stops the scout's launch in progress: one at a time, from the Library or the CTO, so a cancel never
+/// stops another.
 static SCOUT_CANCEL: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
 
-/// A launch of the scout, which `scout_cancel` stops; what Claude Code searches and reads comes as
-/// `scout-progress` events.
+/// Frees the launch slot however the launch ends.
+struct Launching;
+
+impl Drop for Launching {
+    fn drop(&mut self) {
+        *SCOUT_CANCEL.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+}
+
+/// A launch of the scout, which `scout_cancel` stops; refused while another runs. What Claude Code searches and
+/// reads comes as `scout-progress` events.
 pub(crate) fn launch_scout(
     app: &AppHandle,
     dir: &Path,
@@ -362,7 +372,15 @@ pub(crate) fn launch_scout(
     items: &[ItemRef],
 ) -> anyhow::Result<scout::Draft> {
     let cancel = Arc::new(AtomicBool::new(false));
-    *SCOUT_CANCEL.lock().unwrap_or_else(|e| e.into_inner()) = Some(cancel.clone());
+    {
+        let mut slot = SCOUT_CANCEL.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(
+            slot.is_none(),
+            "the watch is already running: wait for it, or cancel it"
+        );
+        *slot = Some(cancel.clone());
+    }
+    let _launching = Launching;
     let options = scout::Options {
         cancel: Some(cancel),
         ..scout::Options::default()
@@ -388,6 +406,15 @@ pub(crate) fn mcp_scout(app: &AppHandle, project: &str, items: &[String]) -> any
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
+    // Results the user has not decided on yet are theirs: never replaced from here.
+    if let Some(draft) = scout::state(&dir, Some(project))?.draft {
+        let waiting = scout::would_replace(&draft, &refs);
+        anyhow::ensure!(
+            waiting == 0,
+            "{waiting} results of the last watch still wait for the user's decision in the Library, Watch tab: \
+             a new launch would replace them, so the user decides on them first"
+        );
+    }
     let draft = launch_scout(app, &dir, Some(project), &refs)?;
     let _ = app.emit("library-changed", ());
     let results: Vec<Value> = draft

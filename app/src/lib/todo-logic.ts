@@ -22,13 +22,14 @@ export type TodoInput = {
   /** What `claude --version` says now. */
   claude: string | null;
   /** The items of the scope as sessions get them. */
-  items: (Ref & { active: boolean })[];
+  items: (Ref & { active: boolean; toggles?: Partial<Record<string, boolean>> })[];
   dismissed: string[];
 };
 export type Todo =
   | { id: string; kind: "questions" | "decide"; slug: string; count: number }
   | { id: string; kind: "scout" | "scoutGlobal"; count: number; outdated: number; names: string[] }
-  | { id: string; kind: "off"; item: Ref }
+  /** `was`: the switch of the scope's layer before, to put back. */
+  | { id: string; kind: "off"; item: Ref; was: boolean | null }
   | { id: string; kind: "claude"; seen: string; now: string }
   | { id: string; kind: "never" | "noConventions" | "noSchedule" };
 
@@ -60,19 +61,32 @@ export function todos(input: TodoInput): Todo[] {
     const key = `${l.kind}/${l.name}`;
     if (l.action !== "applied" || seen.has(key) || (l.project !== null && l.project !== input.project)) continue;
     seen.add(key);
-    if (input.items.some((i) => i.kind === l.kind && i.name === l.name && !i.active)) {
-      out.push({ id: `off:${key}`, kind: "off", item: { kind: l.kind, name: l.name } });
+    const item = input.items.find((i) => i.kind === l.kind && i.name === l.name && !i.active);
+    if (item) {
+      const was = item.toggles?.[input.project ? "project" : "global"] ?? null;
+      out.push({ id: `off:${key}`, kind: "off", item: { kind: l.kind, name: l.name }, was });
     }
   }
 
   const ran = input.scout?.claude ?? input.globalScout?.claude ?? null;
   const [was, now] = [version(ran), version(input.claude)];
   if (was && now && was !== now) out.push({ id: `claude:${now}`, kind: "claude", seen: was, now });
-  const everRan = !!ran || !!input.scout?.journal.length || !!input.scout?.draft;
+  // The version and the journal are shared by every scope: this one ran if it has results, or decided some.
+  const everRan = !!input.scout?.draft || !!input.scout?.journal.some((l) => l.project === input.project);
   if (!everRan) out.push({ id: "never", kind: "never" });
   if (input.project && input.conventions && !input.conventions.length) out.push({ id: "noConventions", kind: "noConventions" });
   if (!input.scheduled) out.push({ id: "noSchedule", kind: "noSchedule" });
-  return out.filter((t) => !input.dismissed.includes(t.id));
+  return out.filter((t) => !input.dismissed.includes(dismissKey(input.project, t.id)));
+}
+
+/** "Later" holds for the project it was said in only. */
+export const dismissKey = (project: string | null, id: string) => `${project ?? ""}:${id}`;
+
+/** Where an item lives in a library, as `termf_library` lays each kind out. */
+export function libraryFile(kind: string, name: string): string {
+  if (kind === "skill") return `skills/${name}/SKILL.md`;
+  if (kind === "rule") return `rules/${name}/rule.md`;
+  return `${kind}s/${name}.md`;
 }
 
 /** Whether a scheduled task is the watch of this scope: a scout task in one of the project's repositories, or
