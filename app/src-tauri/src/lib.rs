@@ -253,7 +253,7 @@ pub fn run() {
             let _ = window.set_focus();
         }
     }));
-    // After the single instance: a second launch never opens a second bridge.
+    // After the single instance, where there is one: a second launch never opens a second bridge.
     #[cfg(feature = "e2e")]
     let builder = match e2e::plugin() {
         Some(bridge) => builder.plugin(bridge),
