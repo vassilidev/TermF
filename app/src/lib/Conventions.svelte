@@ -424,7 +424,7 @@
           {#if list.length}
             <button type="button" class="btn" onclick={() => (creating = false)}>{t("cancel")}</button>
           {/if}
-          <button type="submit" class="btn primary" disabled={!slugify(newName)}>{t("convCreate")}</button>
+          <button type="submit" class="btn" disabled={!slugify(newName)}>{t("convCreate")}</button>
         </form>
       </div>
     {:else}

@@ -1289,12 +1289,26 @@ mod tests {
             &config,
             &json!({ "entries": [entry("preference", "style", false, "")] }),
         );
-        run(&config, Some("acme"), &[], &Options::default(), &claude, &mut |_| {}).unwrap();
+        run(
+            &config,
+            Some("acme"),
+            &[],
+            &Options::default(),
+            &claude,
+            &mut |_| {},
+        )
+        .unwrap();
         let gone = discard(&config, Some("acme")).unwrap();
         assert!(gone.draft.is_none() && gone.discarded);
         let back = restore(&config, Some("acme")).unwrap();
-        assert_eq!((back.draft.unwrap().entries.len(), back.discarded), (1, false));
-        assert!(restore(&config, Some("acme")).is_err(), "nothing set aside any more");
+        assert_eq!(
+            (back.draft.unwrap().entries.len(), back.discarded),
+            (1, false)
+        );
+        assert!(
+            restore(&config, Some("acme")).is_err(),
+            "nothing set aside any more"
+        );
 
         let slow = config.parent().unwrap().join("slow.sh");
         put(&slow, "#!/bin/sh\ncat > /dev/null\nsleep 30\n");
@@ -1313,7 +1327,16 @@ mod tests {
         stop.join().unwrap();
         assert!(format!("{err:#}").contains("stopped"), "{err:#}");
         assert!(started.elapsed() < Duration::from_secs(10));
-        assert_eq!(state(&config, Some("acme")).unwrap().draft.unwrap().entries.len(), 1, "kept");
+        assert_eq!(
+            state(&config, Some("acme"))
+                .unwrap()
+                .draft
+                .unwrap()
+                .entries
+                .len(),
+            1,
+            "kept"
+        );
     }
 
     #[cfg(unix)]

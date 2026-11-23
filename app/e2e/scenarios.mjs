@@ -874,6 +874,45 @@ export const scenarios = [
     },
   },
   {
+    name: "conventions: drawn from the code in one gesture, from the empty page",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("library");
+      const source = join(box.configDir, "projects", "acme", "conventions", "code-conventions", "source.md");
+      await t.ready();
+      await t.project();
+      await t.view("library");
+      await s.click(`${pane} [data-tab="conventions"]`);
+      await s.click(`${pane} .conventions .deduce button:not([disabled])`);
+      await s.wait(() => existsSync(source) && read(source).startsWith("Follow the conventions already in place"), { what: "the convention drawn from the code" });
+      // The fake's empty answer proposes nothing, which the page says.
+      await s.waitGone(`${pane} .conventions .notice.working`);
+      await t.clean({ allow: [/proposed nothing/] });
+    },
+  },
+  {
+    name: "library: the to-do schedules the weekly watch in one gesture, and its toast undoes it",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("library");
+      const file = join(box.configDir, "schedules.toml");
+      const scheduled = () => existsSync(file) && /mode = "scout"/.test(read(file));
+      await t.ready();
+      await t.project();
+      await t.view("library");
+      await s.click(`${pane} [data-tab="todo"]`);
+      const label = text("en", "watchTodoScheduleAction");
+      await s.wait(() => s.exec((css, l) => [...document.querySelectorAll(`${css} .todo button`)].some((b) => b.textContent.trim() === l), pane, label), { what: "the line of the watch never scheduled" });
+      await s.exec((css, l) => [...document.querySelectorAll(`${css} .todo button`)].find((b) => b.textContent.trim() === l).click(), pane, label);
+      await s.wait(scheduled, { what: "a scout task in schedules.toml" });
+      await s.exec(() => [...document.querySelectorAll(".toast-card button")].find((b) => b.querySelector("kbd"))?.click());
+      await s.wait(() => !scheduled(), { what: "the scout task gone again" });
+      await t.clean();
+    },
+  },
+  {
     name: "scout: each library item to pick reads on one line, its name whole",
     views: [],
     async run(t) {

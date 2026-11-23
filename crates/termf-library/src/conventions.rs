@@ -1492,7 +1492,14 @@ fn paths(repo: &Path, commits: Option<usize>) -> Result<Vec<u8>> {
     let mut git = Command::new("git");
     git.arg("-C").arg(repo);
     match commits {
-        Some(n) => git.args(["log", "-z", "--name-only", "--format=", "-n", &n.to_string()]),
+        Some(n) => git.args([
+            "log",
+            "-z",
+            "--name-only",
+            "--format=",
+            "-n",
+            &n.to_string(),
+        ]),
         None => git.args(["ls-files", "-z"]),
     };
     let out = git.output().context("cannot list the repository's files")?;
@@ -2138,13 +2145,23 @@ mod tests {
             Some("{ \"name\": \"api\" }\n")
         );
         assert_eq!(draft.items[0].review, Review::Accepted, "unchanged: kept");
-        assert_eq!(draft.items[1].review, Review::Pending, "changed: decided again");
+        assert_eq!(
+            draft.items[1].review,
+            Review::Pending,
+            "changed: decided again"
+        );
         let args = fs::read_to_string(dir.join("args.txt")).unwrap();
         assert!(args.contains("--max-budget-usd\n2\n"), "{args}");
         assert!(discard(&config, "acme", "front").unwrap().draft.is_none());
         let back = restore(&config, "acme", "front").unwrap().draft.unwrap();
-        assert_eq!((back.items.len(), back.items[0].review), (4, Review::Accepted));
-        assert!(restore(&config, "acme", "front").is_err(), "nothing left aside");
+        assert_eq!(
+            (back.items.len(), back.items[0].review),
+            (4, Review::Accepted)
+        );
+        assert!(
+            restore(&config, "acme", "front").is_err(),
+            "nothing left aside"
+        );
 
         accept_all(&config);
         put(&repo.join("package.json"), "{ \"name\": \"renamed\" }\n");
@@ -2216,10 +2233,16 @@ mod tests {
         let mut advice = item("preference", "style", "Pas de CSS inline.");
         advice["changes"] = true.into();
         let answer = json!({ "questions": [], "items": [rule, advice] });
-        let draft = propose(&config, "acme", "front", Vec::new(), &fake_claude(&dir, &answer))
-            .unwrap()
-            .draft
-            .unwrap();
+        let draft = propose(
+            &config,
+            "acme",
+            "front",
+            Vec::new(),
+            &fake_claude(&dir, &answer),
+        )
+        .unwrap()
+        .draft
+        .unwrap();
         assert!(draft.items[0].changes);
         assert!(!draft.items[1].changes, "only a check is about changes");
     }
@@ -2235,10 +2258,24 @@ mod tests {
         change["path"] = "package.json".into();
         change["content"] = "{ \"private\": true }\n".into();
         let answer = json!({ "questions": [], "items": [item("preference", "style", "Pas de CSS inline."), change] });
-        propose(&config, "acme", "front", Vec::new(), &fake_claude(&dir, &answer)).unwrap();
+        propose(
+            &config,
+            "acme",
+            "front",
+            Vec::new(),
+            &fake_claude(&dir, &answer),
+        )
+        .unwrap();
         accept_all(&config);
         let applied = apply_with(&config, "acme", "front", false).unwrap();
-        let names: Vec<&str> = applied.pack.as_ref().unwrap().items.iter().map(|i| i.name.as_str()).collect();
+        let names: Vec<&str> = applied
+            .pack
+            .as_ref()
+            .unwrap()
+            .items
+            .iter()
+            .map(|i| i.name.as_str())
+            .collect();
         assert_eq!(names, ["style"]);
         assert_eq!(
             fs::read_to_string(repo.join("package.json")).unwrap(),

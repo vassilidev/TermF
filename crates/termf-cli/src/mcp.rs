@@ -224,7 +224,10 @@ fn tools() -> Value {
             "start_onboarding",
             "Analyze the project's setup",
             "Runs the analysis of the project's setup assistant: Claude Code reads the repositories and lists what to set up (tickets, worktrees, CI, the team) with its questions. The user answers and applies in TermF's setup assistant.",
-            object(json!({ "lang": { "type": "string", "enum": ["fr", "en"], "description": "The language of the questions." } }), &[]),
+            object(
+                json!({ "lang": { "type": "string", "enum": ["fr", "en"], "description": "The language of the questions." } }),
+                &[]
+            ),
             false
         ),
         act(

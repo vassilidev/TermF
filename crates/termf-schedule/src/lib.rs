@@ -479,7 +479,14 @@ impl Scheduler {
         let claude = termf_core::load_settings(&self.config_dir)
             .unwrap_or_default()
             .claude_program();
-        let draft = scout::run(&self.config_dir, project, &[], &options, &[claude], &mut |_| {})?;
+        let draft = scout::run(
+            &self.config_dir,
+            project,
+            &[],
+            &options,
+            &[claude],
+            &mut |_| {},
+        )?;
         Ok(Outcome {
             status: Status::Succeeded,
             cost: draft.cost,

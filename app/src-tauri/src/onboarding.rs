@@ -69,7 +69,8 @@ pub(crate) fn mcp_analyze(
         let _ = app.emit("onboarding-progress", read);
     };
     let lang = lang.unwrap_or_else(|| "en".into());
-    let state = onboarding::analyze_showing(&dir, &data_dir()?, project, &lang, &claude(&dir), progress)?;
+    let state =
+        onboarding::analyze_showing(&dir, &data_dir()?, project, &lang, &claude(&dir), progress)?;
     let analysis = state.analysis.context("the analysis gave nothing")?;
     Ok(serde_json::json!({
         "findings": analysis.findings,

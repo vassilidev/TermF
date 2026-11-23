@@ -442,8 +442,14 @@ pub(crate) fn mcp_propose(
         .unwrap_or(base);
     conventions::save_source(&dir, project, &slug, &text)?;
     let mut progress = progress(app.clone(), project, &slug);
-    let proposed =
-        conventions::propose_with(&dir, project, &slug, Vec::new(), &claude(&dir), &mut progress)?;
+    let proposed = conventions::propose_with(
+        &dir,
+        project,
+        &slug,
+        Vec::new(),
+        &claude(&dir),
+        &mut progress,
+    )?;
     let _ = app.emit("library-changed", ());
     let draft = proposed.draft.unwrap_or_default();
     let items: Vec<Value> = draft
@@ -451,8 +457,10 @@ pub(crate) fn mcp_propose(
         .iter()
         .map(|i| json!({ "kind": i.kind, "name": i.name, "description": i.description }))
         .collect();
-    Ok(json!({ "convention": slug, "questions": draft.questions, "items": items, "cost": draft.cost,
-               "next": "The user answers the questions, or reviews each item, then applies them, in the Library, Conventions tab." }))
+    Ok(
+        json!({ "convention": slug, "questions": draft.questions, "items": items, "cost": draft.cost,
+               "next": "The user answers the questions, or reviews each item, then applies them, in the Library, Conventions tab." }),
+    )
 }
 
 /// `items` empty: the whole library.
@@ -472,7 +480,11 @@ pub async fn scout_run(
 
 #[tauri::command]
 pub fn scout_cancel() {
-    if let Some(cancel) = SCOUT_CANCEL.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+    if let Some(cancel) = SCOUT_CANCEL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
         cancel.store(true, Ordering::SeqCst);
     }
 }

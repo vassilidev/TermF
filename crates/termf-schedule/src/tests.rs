@@ -878,7 +878,10 @@ fn a_scout_task_watches_its_projects_library() {
     let s = &env.scheduler;
     let id = s.save(None, task.clone(), None).unwrap();
     let run = |s: &Scheduler| {
-        let claimed = s.claim(&id, &task, Trigger::Manual, None, Host::Cli).unwrap().unwrap();
+        let claimed = s
+            .claim(&id, &task, Trigger::Manual, None, Host::Cli)
+            .unwrap()
+            .unwrap();
         s.run_headless(&claimed, &task, "claude").unwrap()
     };
     let done = run(s);
@@ -888,7 +891,10 @@ fn a_scout_task_watches_its_projects_library() {
     assert_eq!(state.draft.unwrap().entries.len(), 1);
     assert_eq!(state.claude.as_deref(), Some("2.1.999"));
     let again = run(s);
-    assert!(again.output.unwrap().starts_with("Skipped"), "nothing replaced");
+    assert!(
+        again.output.unwrap().starts_with("Skipped"),
+        "nothing replaced"
+    );
 }
 
 /// `cargo test -p termf-schedule -- --ignored real_headless`: the installed Claude Code answers a headless task

@@ -388,16 +388,14 @@
 
           {#if proposes(e)}
             <div class="proposal">
-              <dl class="what">
+              <dl class="facts">
                 <dt>{t("watchWhat")}</dt>
                 <dd class="summary"><Sparkles size={13} aria-hidden="true" />{e.summary}</dd>
                 <dt>{t("watchWhere")}</dt>
                 <dd class="muted">{target(e)}</dd>
+                <dt>{t("scoutSources")}</dt>
+                <dd class="sources">{#each e.sources as url, i (i)}{@render sourceLine(url)}{/each}</dd>
               </dl>
-              <div class="sources">
-                <span class="muted small">{t("scoutSources")}</span>
-                {#each e.sources as url, i (i)}{@render sourceLine(url)}{/each}
-              </div>
               {#if e.content}
                 {#if e.layer && !e.executable}
                   <details open>
@@ -1065,14 +1063,14 @@
     text-transform: uppercase;
   }
 
-  .what {
+  .facts {
     display: grid;
-    grid-template-columns: 56px minmax(0, 1fr);
+    grid-template-columns: 104px minmax(0, 1fr);
     gap: 4px 10px;
     margin: 0;
   }
 
-  .what dt {
+  .facts dt {
     color: var(--muted);
     font-size: var(--text-xs);
     font-weight: 600;
@@ -1081,7 +1079,7 @@
     text-transform: uppercase;
   }
 
-  .what dd {
+  .facts dd {
     margin: 0;
     font-size: var(--text-sm);
     line-height: 22px;
