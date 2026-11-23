@@ -123,7 +123,11 @@ pub async fn git_diff(
 
 /// A ticket run's changes against the branch it started from, for its page.
 #[tauri::command]
-pub async fn git_diff_since(app: AppHandle, repo: String, base: String) -> CmdResult<Vec<FileDiff>> {
+pub async fn git_diff_since(
+    app: AppHandle,
+    repo: String,
+    base: String,
+) -> CmdResult<Vec<FileDiff>> {
     with_git(app, repo, move |git, repo| git.diff_since(repo, &base)).await
 }
 

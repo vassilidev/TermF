@@ -1013,5 +1013,8 @@ fn diff_since_a_base_counts_commits_and_the_work_tree_not_the_base_moving_on() {
         .map(|f| (f.path.as_str(), f.added, f.removed))
         .collect();
     assert_eq!(got, [("README.md", 1, 0), ("export.py", 2, 0)]);
-    assert!(sb.git.diff_since(&repo, "-x").is_err(), "an option is no base");
+    assert!(
+        sb.git.diff_since(&repo, "-x").is_err(),
+        "an option is no base"
+    );
 }

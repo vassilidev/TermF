@@ -111,11 +111,6 @@ export function phrase(name: string, input: unknown): Phrase {
   return target ? { key: "liveToolOn", target, vars: { tool: name } } : { key: "liveTool", vars: { tool: name } };
 }
 
-const EDITS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
-const edited = (act: ToolAct) => first((act.input ?? {}) as Record<string, unknown>, ["file_path", "notebook_path", "path"]);
-/** Only a change that went through, to a known file, joins « Modifie N fichiers »: a failure keeps its own line. */
-const groupable = (act: ToolAct) => EDITS.has(act.name) && act.state === "done" && edited(act) !== "";
-
 /**
  * A session's activity from its stored past, then what was heard while it was read and came after it. From nothing:
  * what was heard before is in the past too.
@@ -131,41 +126,4 @@ export function elapsed(seconds: number): Phrase {
   if (s < 60) return { key: "liveSeconds", vars: { n: s } };
   if (s < 3600) return { key: "liveMinutes", vars: { n: Math.floor(s / 60) } };
   return { key: "liveHours", vars: { h: Math.floor(s / 3600), m: String(Math.floor((s % 3600) / 60)).padStart(2, "0") } };
-}
-
-type FeedStep = { key: string; role: string | null; state: string; session: number | null; started: number | null; finished: number | null; report: { status: string } | null };
-/** A line of a run's feed: a step that starts or ends, or a call of a step's agent. */
-export type Moment =
-  | { kind: "start"; at: number; step: string; role: string | null }
-  | { kind: "end"; at: number; step: string; how: "done" | "blocked" | "failed" }
-  | { kind: "act"; at: number; step: string; role: string | null; act: ToolAct }
-  | { kind: "edits"; at: number; step: string; role: string | null; files: string[] };
-
-/**
- * A run's feed, oldest first: its steps' starts and ends, and what their agents did that this window heard. Files a
- * step changes in a row make one line.
- */
-export function feed(steps: FeedStep[], heard: (session: number) => ToolAct[]): Moment[] {
-  const out: Moment[] = [];
-  for (const s of steps) {
-    if (s.started !== null) out.push({ kind: "start", at: s.started, step: s.key, role: s.role });
-    if (s.finished !== null && (s.state === "done" || s.state === "blocked")) {
-      const how = s.state === "done" ? "done" : s.report?.status === "failed" ? "failed" : "blocked";
-      out.push({ kind: "end", at: s.finished, step: s.key, how });
-    }
-    for (const act of s.session === null ? [] : heard(s.session)) out.push({ kind: "act", at: act.at, step: s.key, role: s.role, act });
-  }
-  // Stable: a step's start stays before its first call of the same second.
-  const sorted = out.map((m, i) => [m, i] as const).sort(([a, i], [b, j]) => a.at - b.at || i - j);
-  const merged: Moment[] = [];
-  for (const [m] of sorted) {
-    const last = merged.at(-1);
-    const edit = m.kind === "act" && groupable(m.act) ? edited(m.act) : null;
-    if (edit === null || !last || last.step !== m.step) merged.push(m);
-    else if (last.kind === "edits") last.files = [...new Set([...last.files, edit])];
-    else if (last.kind === "act" && groupable(last.act)) {
-      merged[merged.length - 1] = { kind: "edits", at: last.at, step: m.step, role: last.role, files: [...new Set([edited(last.act), edit])] };
-    } else merged.push(m);
-  }
-  return merged;
 }
