@@ -1766,6 +1766,8 @@ fn a_common_word_names_no_skill() {
     let env = Env::new("skill-words");
     for (name, use_it) in [
         ("code-from-home-page", "Use it to lay out a home page."),
+        // The third review of PR #135: a common word in the plural is one too.
+        ("codes-for-home-pages", "Use it to lay out home pages."),
         ("page-speed", "Use it to measure how fast a page loads."),
     ] {
         let dir = env.config.join("library/skills").join(name);
@@ -1792,6 +1794,7 @@ fn a_common_word_names_no_skill() {
     };
     let listed = skills("implement:T1");
     assert!(!listed.contains("`code-from-home-page`"), "{listed}");
+    assert!(!listed.contains("`codes-for-home-pages`"), "{listed}");
     let listed = skills("implement:T2");
     assert!(listed.contains("`page-speed`"), "{listed}");
 }
@@ -2132,6 +2135,31 @@ fn the_cto_adds_the_role_a_ticket_needs_to_the_run() {
         "{}",
         routed.message
     );
+}
+
+/// The third review of PR #135: a team the project does not declare has every role, so the run is added none.
+#[test]
+fn a_team_without_squads_is_added_no_role() {
+    let env = Env::new("roles-undeclared");
+    let file = env.config.join("projects/acme.toml");
+    let project = fs::read_to_string(&file).unwrap();
+    fs::write(&file, format!("{project}[team]\ntriage = true\n")).unwrap();
+    let mut routed = routing("lean", &[]);
+    routed["roles"] = json!(["docs"]);
+    env.answer("triage.1.json", routed);
+    let mut t1 = task("T1", "docs", &["README.md"], &[]);
+    t1["squad"] = "".into();
+    env.answer("plan.json", env.plan(json!([t1])));
+    env.team
+        .start(env.target.clone(), Options::default())
+        .unwrap();
+    let run = env.until("the routing", |r| {
+        r.steps
+            .iter()
+            .any(|s| s.key == ROUTE && s.state != StepState::Pending)
+    });
+    let routing = run.routing.as_ref().unwrap();
+    assert!(routing.roles.is_empty(), "{routing:?}");
 }
 
 #[test]

@@ -2086,7 +2086,10 @@ impl Inner {
             if !routing.squads.is_empty() {
                 team.squads.retain(|s| routing.squads.contains(&s.id));
             }
-            routing.roles.retain(|r| !has_role(&team, r));
+            // A team the project does not declare has every role.
+            routing
+                .roles
+                .retain(|r| team.declared && !has_role(&team, r));
         }
         if let Ok(workflow) = workflow::load(
             &self.config_dir,
@@ -5751,8 +5754,9 @@ fn skills_for(
         let parts: Vec<String> = item
             .name
             .split('-')
-            .filter(|p| p.len() > 3 && !COMMON_WORDS.contains(p))
+            .filter(|p| p.len() > 3)
             .map(stem)
+            .filter(|p| !COMMON_WORDS.iter().any(|w| stem(w) == *p))
             .collect();
         let said = words.contains(&stem(&item.name)) || parts.iter().any(|p| words.contains(p));
         let roles = termf_library::metadata_list(&item, "termf-roles");
