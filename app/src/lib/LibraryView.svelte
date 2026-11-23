@@ -252,12 +252,14 @@
     const out: string[] = [];
     if (e.kind === "workflow") return out;
     if (e.kind === "role") out.push(t(e.active ? "lib2UsersTeam" : "lib2UsersTeamOnly"));
-    else if (!e.active) out.push(t("lib2UsersNobody"));
-    else {
+    else if (!e.active) {
+      if (e.kind !== "rule") out.push(t("lib2UsersNobody"));
+    } else {
       const roles = rolesOf(e);
-      out.push(roles.length ? t("lib2UsersRoles", { roles: list(roles) }) : t("lib2UsersAll"));
-      if (e.activeIn.length) out.push(t("lib2UsersRepos", { repos: list(e.activeIn) }));
+      if (roles.length) out.push(t("lib2UsersRoles", { roles: list(roles) }));
+      out.push(e.activeIn.length ? t("lib2UsersRepos", { repos: list(e.activeIn) }) : t("lib2UsersAll"));
     }
+    if (e.kind === "rule") out.push(t("lib2UsersRuleTeam"));
     const brought = broughtBy(e, roleItems);
     if (brought.length) out.push(t("lib2UsersBrought", { roles: list(brought) }));
     return out;
@@ -328,9 +330,10 @@
     app.workspace ? (project ? `${app.workspace.configDir}/projects/${project.id}/library` : `${app.workspace.configDir}/library`) : "",
   );
 
-  function writeWithClaude() {
+  /** `need`: what the search looked for, as the start of what the skill must do. */
+  function writeWithClaude(need = "") {
     if (!project) return;
-    talkCto(t("lib2WriteDraft", { project: project.name, dir: libraryDir }));
+    talkCto(t("lib2WriteDraft", { project: project.name, dir: libraryDir }) + need);
   }
 
   /** The role the item names first, else the CTO; the request goes through the CTO's conversation, as `@role`. */
@@ -416,7 +419,7 @@
         icon={Sparkles}
         disabled={!project}
         title={project ? "" : t("lib2NeedProject")}
-        onclick={writeWithClaude}>{t("lib2Write")}</Button
+        onclick={() => writeWithClaude()}>{t("lib2Write")}</Button
       >
     {/snippet}
   </ViewHeader>
@@ -472,6 +475,8 @@
                   icon={Search}
                   text={t("lib2NoMatch", { query: query.trim() })}
                   action={{ label: t("lib2ClearSearch"), run: () => ((query = ""), search?.focus()) }}
+                  onask={project ? () => writeWithClaude(query.trim()) : undefined}
+                  askLabel={t("lib2Write")}
                 />
               {:else}
                 <EmptyState icon={LibraryBig} text={t("libraryEmpty")} />

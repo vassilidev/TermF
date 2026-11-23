@@ -499,7 +499,10 @@ pub fn copy_here(config_dir: &Path, scope: &Scope, kind: Kind, name: &str) -> Re
     } else {
         Layer::Global
     };
-    ensure!(item.layer < layer, "{kind} {name} can be edited where it is");
+    ensure!(
+        item.layer < layer,
+        "{kind} {name} can be edited where it is"
+    );
     let dest = library_dir(config_dir, project)?.join(&item.rel);
     ensure!(!dest.exists(), "{} already exists", dest.display());
     copy_item(&item, &dest)?;
@@ -1330,7 +1333,10 @@ mod tests {
             .expect("a shipped skill off");
 
         let dest = copy_here(&dir, &scope, Kind::Skill, &skill.name).unwrap();
-        assert_eq!(dest, dir.join("projects/acme/library/skills").join(&skill.name));
+        assert_eq!(
+            dest,
+            dir.join("projects/acme/library/skills").join(&skill.name)
+        );
         assert!(dest.join("SKILL.md").is_file());
         let copied = explain(&dir, &scope, Kind::Skill, &skill.name).unwrap();
         assert_eq!(copied.layer, Layer::Project);
