@@ -4258,6 +4258,7 @@ const fr = {
   practicalTeamReadFreely: "Laisser l'équipe lire et tester sans demander",
   practicalTeamReadFreelyHelp:
     "Dans son worktree, un agent lit le dépôt (git status, cat, grep…) et lance ses contrôles, ses tests et son lint sans te demander. Tout le reste demande toujours ton accord.",
+  practicalPrDecisionHelp: "Le CTO propose cette décision : à toi de valider ou de demander une autre option.",
 };
 
 type Key = keyof typeof fr;
@@ -8488,6 +8489,7 @@ const en: Record<Key, string> = {
   practicalTeamReadFreely: "Let the team read and test without asking",
   practicalTeamReadFreelyHelp:
     "In its worktree, an agent reads the repository (git status, cat, grep…) and runs its checks, tests and lint without asking you. Anything else still asks for your approval.",
+  practicalPrDecisionHelp: "The CTO proposes this decision: approve it or ask for another option.",
 };
 
 const messages = { fr, en };

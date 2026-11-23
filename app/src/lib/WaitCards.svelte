@@ -348,9 +348,10 @@
               {#if reviewLine}<p class="muted">{reviewLine}</p>{/if}
             {:else if ask.kind === "visual"}
               <p class="help">{t("teamRunsAskVisualHelp")}</p>
-            {:else if ask.kind === "gate" && noteOf(ask.step)}
+            {:else if ask.kind === "gate" && (noteOf(ask.step) || key === "approve-decision")}
+              {#if key === "approve-decision"}<p class="help">{t("practicalPrDecisionHelp")}</p>{/if}
               <!-- What the gate decides on: the report of the step before it, such as kickoff's decision note. -->
-              <div class="box note-text">{noteOf(ask.step)}</div>
+              {#if noteOf(ask.step)}<div class="box note-text">{noteOf(ask.step)}</div>{/if}
             {/if}
             {#if changing === key}
               {@render feedback(ask, t("teamRunsFeedback"), t("chatSend"))}

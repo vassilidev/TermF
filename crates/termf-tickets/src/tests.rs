@@ -133,6 +133,30 @@ fn sample() -> Ticket {
 }
 
 #[test]
+fn keeps_a_commit_subject_to_72_characters_cut_at_a_word() {
+    assert_eq!(
+        commit_message("acme#4 T1: add a button"),
+        "acme#4 T1: add a button"
+    );
+    let goal = "acme#4 T1: add the export button to the invoices page, with its tooltip, its loading state and \
+                its error message\n\nKeep the table as it is.";
+    let message = commit_message(goal);
+    let (subject, body) = message.split_once("\n\n").unwrap();
+    assert!(subject.chars().count() <= 72, "{subject}");
+    assert_eq!(
+        subject,
+        "acme#4 T1: add the export button to the invoices page, with its…"
+    );
+    assert_eq!(body, goal, "the whole goal in the body");
+    // Never inside a character, even with no space to cut at.
+    let accents = "é".repeat(100);
+    let subject = commit_message(&accents);
+    let subject = subject.lines().next().unwrap();
+    assert_eq!(subject.chars().count(), 72);
+    assert!(subject.ends_with("é…"));
+}
+
+#[test]
 fn resolves_every_form() {
     let sb = Sandbox::new("resolve");
     let api = sb.repo("api", "git@github.com:acme/api.git");

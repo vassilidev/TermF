@@ -29,6 +29,7 @@ pub mod route;
 pub mod rules;
 pub mod squads;
 mod store;
+mod story;
 #[cfg(all(test, unix))]
 mod tests;
 pub mod workflow;
@@ -731,6 +732,27 @@ impl Team {
             done.unmet()
         );
         Ok(Some(done))
+    }
+
+    /// What the pull request of run `id` tells of its team's work, with `visual`, a line on its visual review;
+    /// `None` without a team or with nothing to tell.
+    pub fn story(&self, id: i64, visual: Option<&str>) -> Result<Option<String>> {
+        let inner = &self.inner;
+        let store = inner.store()?;
+        let Some(run) = store.get(inner.change(id))? else {
+            return Ok(None);
+        };
+        let events = store.events(run.run, 0)?;
+        // What a `shell` step last started: its commands, one a line.
+        let commands = |i: usize| {
+            let key = Some(run.steps[i].key.as_str());
+            let started = events
+                .iter()
+                .rev()
+                .find(|e| e.step.as_deref() == key && e.kind == "step_started");
+            started.map_or_else(Vec::new, |e| e.message.lines().map(str::to_owned).collect())
+        };
+        Ok(story::story(&run, &commands, visual))
     }
 
     /// Run `id` was delivered by hand, its team stopped short of its delivery gate with `done` not met: the user's
@@ -3543,9 +3565,9 @@ impl Inner {
             .plan
             .as_ref()
             .and_then(|p| p.tasks.iter().find(|t| t.id == task))
-            .and_then(|t| t.goal.lines().next())
-            .unwrap_or_default();
-        let message = format!("{} {task}: {goal}", run.target.ticket);
+            .map_or("", |t| t.goal.as_str());
+        let message =
+            termf_tickets::commit_message(&format!("{} {task}: {goal}", run.target.ticket));
         Git(&self.env)
             .commit_all(worktree, &message)
             .context("cannot commit the task's work")
@@ -5607,7 +5629,10 @@ const QUESTIONNAIRE: &str = "\nEach question you ask is an item of a questionnai
      it matters (what the answer changes, or the side effect you found), its kind (choice: one of the options; \
      multi: any of them; bool: yes or no; text), the options (none for bool and text), the answer you propose, in \
      the shape of an answer (an option, yes or no, or a text), and what each option implies, in their order (or \
-     nothing). Propose the answer you would pick; ask only what you cannot find in the repositories.\n";
+     nothing). Propose the answer you would pick; ask only what you cannot find in the repositories. For a yes/no \
+     question, yes means what the question says: its first implication restates the question in that same sense \
+     (\"Include archived invoices?\" → yes: \"archived invoices are exported too\"), its second the opposite; never \
+     the other way round.\n";
 
 /// The plan's tasks that can run again with findings: those the run has a step for.
 fn fixable(run: &TeamRun) -> Vec<Task> {
