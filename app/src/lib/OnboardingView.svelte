@@ -29,9 +29,9 @@
   import { analyze as runAnalysis, analyzing, closeSetup, reads, readText, running, setup } from "$lib/onboarding.svelte";
   import FileText from "@lucide/svelte/icons/file-text";
   import Search from "@lucide/svelte/icons/search";
-  import { spans } from "$lib/markdown-logic";
   import {
     byTheme,
+    codeSpans,
     githubIssues,
     reachable,
     recipeLines,
@@ -310,7 +310,7 @@
 {/snippet}
 
 {#snippet inline(text: string)}
-  {#each spans(text) as sp, i (i)}{#if sp.kind === "code"}<code>{sp.text}</code>{:else if sp.kind === "strong"}{@render inline(sp.spans.map((s) => ("text" in s ? s.text : "")).join(""))}{:else}{sp.text}{/if}{/each}
+  {#each codeSpans(text) as sp, i (i)}{#if sp.code}<code>{sp.text}</code>{:else}{sp.text}{/if}{/each}
 {/snippet}
 
 {#snippet facts(a: Analysis)}

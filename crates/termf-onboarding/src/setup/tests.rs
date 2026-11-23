@@ -98,6 +98,18 @@ fn finds_the_commands_a_repository_declares() {
             "lint npm run check"
         ]
     );
+    // What `npm init` writes is no test: it always fails, and would block every delivery as checks.
+    put(
+        &dir.join("package.json"),
+        r#"{ "scripts": { "test": "echo \"Error: no test specified\" && exit 1", "build": "tsc" } }"#,
+    );
+    let init = found(&termf_worktree::detect(&dir, &[]));
+    assert!(!init.iter().any(|s| s.starts_with("test npm")), "{init:?}");
+    assert_eq!(init[0], "build npm run build");
+    put(
+        &dir.join("package.json"),
+        r#"{ "scripts": { "dev": "vite", "build": "vite build", "test": "vitest", "check": "svelte-check" } }"#,
+    );
     put(&dir.join("pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     let pnpm = termf_worktree::detect(&dir, &[]);
     assert_eq!(found(&pnpm)[0], "dev pnpm dev");

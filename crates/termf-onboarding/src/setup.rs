@@ -233,7 +233,12 @@ fn scripts(repo: &Path, recipe: &RepoRecipe) -> Vec<Script> {
                 "lint" if !scripts.contains_key("lint") && scripts.contains_key("check") => "check",
                 _ => kind,
             };
-            if scripts.contains_key(name) {
+            // `npm init`'s placeholder test always fails: as checks, it would block every delivery.
+            let placeholder = scripts
+                .get(name)
+                .and_then(|s| s.as_str())
+                .is_some_and(|s| s.contains("no test specified"));
+            if scripts.contains_key(name) && !placeholder {
                 let run = match (manager, name) {
                     ("npm", "test") => "npm test".to_owned(),
                     ("npm" | "bun", _) => format!("{manager} run {name}"),

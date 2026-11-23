@@ -16,11 +16,10 @@ pub fn project_save(
     repos: Vec<String>,
     checks: Option<BTreeMap<String, String>>,
 ) -> CmdResult<Vec<Project>> {
+    let checks = checks.unwrap_or_default();
     let saved =
-        termf_core::save_project(&state.config_dir, id.as_deref(), &name, &repos).map_err(err)?;
-    if let Some(checks) = checks {
-        termf_core::save_checks(&state.config_dir, &saved, &checks).map_err(err)?;
-    }
+        termf_core::save_project_with(&state.config_dir, id.as_deref(), &name, &repos, &checks)
+            .map_err(err)?;
     if id.is_none() {
         crate::onboarding::created(&state.config_dir, &saved);
     }

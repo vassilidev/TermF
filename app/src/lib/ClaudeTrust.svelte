@@ -19,15 +19,20 @@
 
   // Read again when the project's repositories change: the Configuration keeps this section mounted.
   const paths = $derived(app.workspace?.projects.find((p) => p.id === project)?.repos.map((r) => r.path).join("\n"));
+  let asked = 0;
   $effect(() => {
     void paths;
+    // Only the latest answer counts: an earlier one may come back last.
+    const mine = ++asked;
+    error = "";
     invoke<RepoTrust[]>("claude_trust", { project }).then(
-      (r) => (repos = r),
-      (e) => (error = String(e)),
+      (r) => mine === asked && (repos = r),
+      (e) => mine === asked && (error = String(e)),
     );
   });
 
   async function set(on: boolean) {
+    asked++;
     busy = true;
     error = "";
     try {

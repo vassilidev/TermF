@@ -508,7 +508,8 @@ struct ProjectFile {
 struct RepoEntry {
     path: String,
     name: Option<String>,
-    checks: Option<String>,
+    // Any value: one that is not a string is left aside, and the project still loads.
+    checks: Option<toml::Value>,
 }
 
 pub fn default_config_dir() -> Result<PathBuf> {
@@ -697,7 +698,7 @@ pub fn load_projects(config_dir: &Path) -> Result<Vec<Project>> {
             .iter()
             .filter_map(|r| {
                 let path = expand_tilde(&r.path).to_string_lossy().into_owned();
-                Some((path, r.checks.clone()?))
+                Some((path, r.checks.as_ref()?.as_str()?.to_owned()))
             })
             .collect();
         let repos = file
@@ -743,6 +744,17 @@ pub fn save_project(
     name: &str,
     repos: &[String],
 ) -> Result<String> {
+    save_project_with(config_dir, id, name, repos, &BTreeMap::new())
+}
+
+/// [`save_project`], the repositories' `checks` set as [`set_checks`] does, in the same write.
+pub fn save_project_with(
+    config_dir: &Path,
+    id: Option<&str>,
+    name: &str,
+    repos: &[String],
+    checks: &BTreeMap<String, String>,
+) -> Result<String> {
     let name = name.trim();
     ensure!(!name.is_empty(), "a project needs a name");
     let (id, file, mut doc) = match id {
@@ -772,21 +784,12 @@ pub fn save_project(
         }
     };
     fill(&mut doc, name, repos).with_context(|| format!("cannot write {}", file.display()))?;
+    set_checks(&mut doc, checks);
     write_atomic(&file, &doc.to_string())?;
     Ok(id)
 }
 
 /// Sets the `checks` of the project's repositories named in `checks` (by path); an empty command removes it.
-pub fn save_checks(config_dir: &Path, id: &str, checks: &BTreeMap<String, String>) -> Result<()> {
-    let file = project_file(config_dir, id)?;
-    let mut doc: DocumentMut = fs::read_to_string(&file)?
-        .parse()
-        .with_context(|| format!("invalid {}", file.display()))?;
-    set_checks(&mut doc, checks);
-    write_atomic(&file, &doc.to_string())
-}
-
-/// [`save_checks`] on a project file's text.
 pub fn set_checks(doc: &mut DocumentMut, checks: &BTreeMap<String, String>) {
     let Some(list) = doc.get_mut("repos").and_then(Item::as_array_of_tables_mut) else {
         return;
@@ -1136,10 +1139,12 @@ fn remembered(key: &'static str, probe: impl FnOnce() -> bool) -> bool {
 
 pub fn expand_tilde(path: &str) -> PathBuf {
     match (path.strip_prefix("~"), dirs::home_dir()) {
-        // Joining "" would end the path with a separator, and every `~/x` shown would read `~x`.
-        (Some(""), Some(home)) => home,
-        (Some(rest), Some(home)) if rest.starts_with(['/', '\\']) => {
-            home.join(rest.trim_start_matches(['/', '\\']))
+        (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with(['/', '\\']) => {
+            // Joining "" would end the path with a separator, and every `~/x` shown would read `~x`.
+            match rest.trim_start_matches(['/', '\\']) {
+                "" => home,
+                rest => home.join(rest),
+            }
         }
         _ => PathBuf::from(path),
     }
@@ -1681,14 +1686,15 @@ mod tests {
     fn saves_each_repository_s_checks_and_reads_them_back() {
         let dir = temp_dir("save-checks");
         let (api, web) = (home_path("src/api"), home_path("src/web"));
-        let id = save_project(&dir, None, "Acme", &[api.clone(), web.clone()]).unwrap();
+        let repos = [api.clone(), web.clone()];
         let checks = BTreeMap::from([
             (api.clone(), " npm test ".into()),
             (web.clone(), "pnpm lint".into()),
         ]);
-        save_checks(&dir, &id, &checks).unwrap();
+        // One write: a new project is never on disk without its checks.
+        let id = save_project_with(&dir, None, "Acme", &repos, &checks).unwrap();
         // Saving the project again (a rename from the Configuration) keeps them.
-        save_project(&dir, Some(&id), "Acme Inc", &[api.clone(), web.clone()]).unwrap();
+        save_project(&dir, Some(&id), "Acme Inc", &repos).unwrap();
         let read = |dir: &Path| load_projects(dir).unwrap().remove(0).checks;
         assert_eq!(
             read(&dir),
@@ -1697,8 +1703,17 @@ mod tests {
                 (web.clone(), "pnpm lint".into())
             ])
         );
-        save_checks(&dir, &id, &BTreeMap::from([(web, " ".into())])).unwrap();
+        let empty = BTreeMap::from([(web, " ".into())]);
+        save_project_with(&dir, Some(&id), "Acme Inc", &repos, &empty).unwrap();
         assert_eq!(read(&dir), BTreeMap::from([(api, "npm test".into())]));
+
+        // Written by hand as a list: left aside, and the project still loads.
+        let file = dir.join(format!("projects/{id}.toml"));
+        let text = fs::read_to_string(&file).unwrap();
+        fs::write(&file, text.replace("\"npm test\"", "[\"npm test\"]")).unwrap();
+        let projects = load_projects(&dir).unwrap();
+        assert_eq!(projects.len(), 1);
+        assert!(projects[0].checks.is_empty());
     }
 
     #[test]
@@ -1787,7 +1802,10 @@ mod tests {
         assert_eq!(expand_tilde("~/x"), home.join("x"));
         assert_eq!(expand_tilde("~"), home);
         // Paths compare by component: the text is what the interface shortens to `~/…`.
-        assert_eq!(expand_tilde("~").to_string_lossy(), home.to_string_lossy());
+        for bare in ["~", "~/", "~//"] {
+            let text = expand_tilde(bare).to_string_lossy().into_owned();
+            assert_eq!(text, home.to_string_lossy(), "{bare}");
+        }
         assert_eq!(expand_tilde("/a/~b"), PathBuf::from("/a/~b"));
         assert_eq!(expand_tilde("~user/x"), PathBuf::from("~user/x"));
     }

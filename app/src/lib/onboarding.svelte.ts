@@ -59,6 +59,10 @@ export function analyze<T>(project: string, lang: string): Promise<T> {
     listening ??= listen<Read & { project: string }>("onboarding-progress", ({ payload: { project: id, ...read } }) => {
       const seen = reads[id] ?? { count: 0, last: [] };
       reads[id] = { count: seen.count + 1, last: [...seen.last, read].slice(-6) };
+    }).catch((e) => {
+      // Not kept: the next analysis tries to listen again.
+      listening = null;
+      throw e;
     });
     // Listening first: the first reads come within a second.
     run = listening.then(() => invoke<T>("onboarding_analyze", { project, lang })).finally(() => {
