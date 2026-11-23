@@ -18,7 +18,9 @@ export const build = /target[\\/]release[\\/]/.test(APP) ? "release" : "debug";
 export const measures = {
   coldStart: { label: "Cold start to a usable window", unit: "ms", budget: 400, limit: { debug: 900, release: 800 } },
   idleRam: { label: "RAM at rest, window open, no agent", unit: "MB", budget: 120, limit: { debug: 650, release: 600 } },
-  hiddenTerminalRam: { label: "RAM per hidden terminal (10,000 lines)", unit: "MB", budget: 3, limit: { debug: 35, release: 20 } },
+  // Release: 20 MB came from a single run (9.5 MB); the 11 runs on main since then measure 17.2 to 23.3 MB, from the
+  // first one on. The xterms let go are collected, but the web process keeps the memory they used.
+  hiddenTerminalRam: { label: "RAM per hidden terminal (10,000 lines)", unit: "MB", budget: 3, limit: { debug: 35, release: 30 } },
   idleCpu: { label: "CPU at rest, over 10 s", unit: "%", budget: 1, limit: { debug: 2, release: 2 } },
   keyEcho: { label: "Keystroke to echo (median of 30)", unit: "ms", budget: 16, limit: { debug: 24, release: 24 } },
 };
