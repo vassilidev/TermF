@@ -186,7 +186,7 @@ export const scenarios = [
       check(/\[visual\][^[]*routes = \["\/"\]/.test(toml), `no page for the visual review:\n${toml}`);
       check(toml.includes('checks = "npm test"'), `no checks for the front:\n${toml}`);
       check(toml.includes('checks = "php artisan test"'), `no checks for the back:\n${toml}`);
-      check(/\[\[connections\]\][^[]*name = "[^"]*acme[^"]*"[^[]*env = "dev"/s.test(toml), `the declared database is not an Ops connection in dev:\n${toml}`);
+      check(/\[\[ops\.connections\]\][^[]*name = "acme"[^[]*env = "dev"/s.test(toml), `the declared database is not an Ops connection in dev:\n${toml}`);
       check(!existsSync(join(box.home, ".claude", "settings.json")), "something was written in ~/.claude");
       // The background work is followed on the Home.
       await s.waitFor('[data-panel="home"] .jobs', { timeout: 30_000 });

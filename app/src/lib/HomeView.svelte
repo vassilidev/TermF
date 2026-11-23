@@ -48,7 +48,7 @@
   import { ops } from "$lib/ops.svelte";
   import { agentEnv } from "$lib/agentenv.svelte";
   import type { Step } from "$lib/onboarding-logic";
-  import { newProject } from "$lib/newproject.svelte";
+  import { jobs as setupJobs, newProject } from "$lib/newproject.svelte";
   import { sessionProjects, tallies } from "$lib/project.svelte";
   import { checkTools, needs } from "$lib/release.svelte";
   import { missingRequired } from "$lib/release-logic";
@@ -474,7 +474,7 @@
           <p class="lead">{waits.length ? t("aigLeadWaits") : working ? t("aigLeadWorks") : t("aigLeadIdle")}</p>
         </header>
 
-        {#if asking || (ob && setupSteps.includes(ob.step))}
+        {#if asking || (ob && setupSteps.includes(ob.step)) || setupJobs[project.id]?.length}
           <section class="waits" aria-labelledby="home-waits">
             <h3 id="home-waits" class="sr-only">{t("teamRunsWaits")}</h3>
             {@render setupCard()}
