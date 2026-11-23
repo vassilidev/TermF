@@ -521,6 +521,12 @@ fn plans_waits_at_the_gate_then_runs_the_dag() {
             &format!("{wait}; mkdir -p \"$(dirname {file})\"; echo {id} > {file}\n"),
         );
     }
+    env.answer(
+        "implement:T2.json",
+        json!({"status": "done", "summary": "Adds the CSV export.\nnpm test passes; cc @alex, fixes #3",
+            "covers": ["AC1"], "text_changes": [], "affected_views": [], "out_of_scope_findings": [],
+            "questions": [], "public_change": false}),
+    );
     let run = env
         .team
         .start(env.target.clone(), Options::default())
@@ -638,9 +644,30 @@ fn plans_waits_at_the_gate_then_runs_the_dag() {
         journal.contains(": team plan: Export the invoices: T1 (back, S)"),
         "{journal}"
     );
-    let kinds = env.kinds();
-    assert_eq!(kinds.first().unwrap(), "started");
-    assert_eq!(kinds.last().unwrap(), "done");
+    let story = env
+        .team
+        .story(
+            1,
+            Some("Version 1: approved; 2 screen(s) captured, 1 changed."),
+        )
+        .unwrap()
+        .unwrap();
+    for told in [
+        "## Summary\n\nExport the invoices",
+        "- [x] AC1: a CSV export\n- [ ] AC2: a button",
+        "- T1 (back): implement:T1 done",
+        "- T2 (front): Adds the CSV export. npm test passes; cc @\u{200b}alex, f\u{200b}ixes #\u{200b}3",
+        "## Visual review\n\nVersion 1: approved",
+        "TermF run 1 · `termf team status 1`",
+    ] {
+        assert!(story.contains(told), "{told} in {story}");
+    }
+    let checks = &story[story.find("## Checks").expect(&story)..];
+    assert!(checks.contains(": passed"), "{checks}");
+    assert!(
+        !story.contains("frame (po)"),
+        "the framing is not the work: {story}"
+    );
     assert!(
         env.events
             .lock()

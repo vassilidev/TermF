@@ -192,6 +192,33 @@ fn links<'a>(texts: impl IntoIterator<Item = &'a str>, own: &str) -> Vec<String>
     found
 }
 
+/// A commit message for `text`: its first line as the subject, cut at a word to 72 characters (what git and the
+/// forges show whole), then the whole text as the body when the subject does not hold it all.
+pub fn commit_message(text: &str) -> String {
+    const MAX: usize = 72;
+    let text = text.trim();
+    let first = text.lines().next().unwrap_or_default().trim();
+    let subject = match first.char_indices().nth(MAX) {
+        None => first.to_owned(),
+        Some(_) => {
+            // One character left for the ellipsis.
+            let end = first
+                .char_indices()
+                .nth(MAX - 1)
+                .map_or(first.len(), |(i, _)| i);
+            let cut = first[..end]
+                .rfind(char::is_whitespace)
+                .filter(|&i| i > MAX / 2)
+                .unwrap_or(end);
+            format!("{}…", first[..cut].trim_end())
+        }
+    };
+    match subject == text {
+        true => subject,
+        false => format!("{subject}\n\n{text}"),
+    }
+}
+
 /// At most `max` characters of `text`.
 fn truncate(text: &str, max: usize) -> String {
     match text.char_indices().nth(max) {
