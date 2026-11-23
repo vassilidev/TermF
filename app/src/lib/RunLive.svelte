@@ -42,7 +42,7 @@
 
   function line(act: ToolAct): Line {
     const p = phrase(act.name, act.input);
-    const verb = t(p.key as Parameters<typeof t>[0], { ...p.vars, target: "" }).replace(/\s+/g, " ").trim();
+    const verb = t(p.key as Parameters<typeof t>[0], { ...p.vars, target: "" }).replace(/[«“"]\s*[»”"]/g, "").replace(/\s+/g, " ").trim();
     const state = act.state === "running" ? "now" : act.state === "failed" ? "fail" : "ok";
     return { verb, object: p.target || undefined, at: clock(act.at), state };
   }

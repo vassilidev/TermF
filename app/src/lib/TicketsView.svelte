@@ -910,8 +910,12 @@
     box-shadow: 0 0 0 1px var(--border);
   }
 
-  .runstate :global(.pill) {
+  .runstate > :global(*) {
     flex-shrink: 0;
+  }
+
+  .runstate > :global(.progress) {
+    flex-shrink: 1;
   }
 
   .suggest {

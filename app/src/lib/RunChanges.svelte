@@ -86,7 +86,8 @@
           <li>
             <button class="file" aria-current={i === picked ? "true" : undefined} onclick={() => (picked = i)} title={f.path}>
               <span class="path mono">{f.path}</span>
-              <span class="add num">+{f.added}</span><span class="del num">−{f.removed}</span>
+              {#if f.added}<span class="add num">+{f.added}</span>{/if}
+              {#if f.removed}<span class="del num">−{f.removed}</span>{/if}
             </button>
           </li>
         {/each}

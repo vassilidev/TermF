@@ -33,7 +33,8 @@
 </script>
 
 {#if wait}
-  <span class="progress waits"><BellRing size={13} aria-hidden="true" />{waitTitle(wait)}</span>
+  {@const said = waitTitle(wait)}
+  <span class="progress waits" title={said}><BellRing size={13} aria-hidden="true" /><span class="text">{said}</span></span>
 {:else if stage}
   <span class="progress">
     {#if roles.length}
@@ -41,23 +42,27 @@
         {#each roles.slice(0, 3) as role (role)}<Avatar {role} size="sm" status="working" />{/each}
       </span>
     {/if}
-    {stage}
+    <span class="text">{stage}</span>
   </span>
 {:else if pr}
-  <span class="progress"><GitPullRequest size={13} aria-hidden="true" />{t("uiTicketsPrOpen", { pr })}</span>
+  <span class="progress"><GitPullRequest size={13} aria-hidden="true" /><span class="text">{t("uiTicketsPrOpen", { pr })}</span></span>
 {/if}
 
 <style>
   .progress {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 6px;
     min-width: 0;
-    overflow: hidden;
     color: var(--soft);
     font-size: var(--text-sm);
-    text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .progress > :global(svg) {
