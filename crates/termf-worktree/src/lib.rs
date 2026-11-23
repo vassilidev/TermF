@@ -31,7 +31,7 @@ mod tests;
 
 pub use database::{DbView, Engine};
 pub use declared::{Declared, Url, declared, parse_url};
-pub use detect::detect;
+pub use detect::{Script, detect, scripts};
 pub use ports::reserve as reserve_port;
 pub use recipe::{Draft, NAME as SETUP_ROLE, RecipeView, RepoView, discard, propose, save, view};
 

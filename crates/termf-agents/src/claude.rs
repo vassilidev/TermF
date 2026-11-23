@@ -170,7 +170,11 @@ impl AgentRuntime for ClaudeCode {
         // Both in one `--settings`: several are not known to add up.
         let mut settings = json!({});
         if let Some(termf) = launch.guard {
-            settings = termf_core::claude::guard_settings(termf);
+            let reads = spec
+                .read_freely
+                .as_deref()
+                .map(|allowed| (spec.cwd.as_path(), allowed));
+            settings = termf_core::claude::guard_settings(termf, reads);
         }
         if spec.mcp {
             // Trifecta (ARCHITECTURE §12.4): no command, no web, no MCP server but TermF's, none of the

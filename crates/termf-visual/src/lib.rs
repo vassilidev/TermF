@@ -78,6 +78,10 @@ pub struct Version {
     pub screens: Vec<Screen>,
     pub notes: Vec<String>,
     pub error: Option<String>,
+    /// Why the before side could not be captured (no dev server at the base, say): the screens have their after
+    /// image alone, which the user judges.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_missing: Option<String>,
     pub outcome: Option<Decision>,
     pub created: i64,
     pub finished: Option<i64>,
@@ -494,6 +498,7 @@ impl Visual {
             screens: Vec::new(),
             notes: Vec::new(),
             error: None,
+            before_missing: None,
             outcome: None,
             created: now(),
             finished: None,
@@ -657,6 +662,7 @@ impl Visual {
         let dir = self.folder(id, n);
         fs::create_dir_all(&dir)?;
         let mut texts: BTreeMap<String, [Vec<String>; 2]> = BTreeMap::new();
+        let mut alone = false;
         for (k, (side, wt)) in [("before", &before_dir), ("after", &after_dir)]
             .into_iter()
             .enumerate()
@@ -669,9 +675,20 @@ impl Visual {
                 total,
                 &format!("starting the dev server of {side}"),
             );
-            let shots = self.side(side, wt, &config, &dev, &list, &dir, &mut |i, screen| {
+            let shots = match self.side(side, wt, &config, &dev, &list, &dir, &mut |i, screen| {
                 self.progress(id, n, side, k * list.len() + i, total, screen);
-            })?;
+            }) {
+                Ok(shots) => shots,
+                // A new page's base often has no dev server yet (`Missing script: dev`): the after alone. Any
+                // other failure (a timeout, a port taken, another server) would let a change pass unseen.
+                Err(e) if side == "before" && e.downcast_ref::<env::Ended>().is_some() => {
+                    let reason = format!("{e:#}");
+                    self.update(id, n, |v| v.before_missing = Some(reason.clone()))?;
+                    alone = true;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
             for (screen, shot) in list.iter_mut().zip(shots) {
                 match shot {
                     Ok(shot) => {
@@ -719,7 +736,10 @@ impl Visual {
                     .chain(removed.iter().map(|t| justify.judge("removed", t)))
                     .collect();
             }
-            screen.changed = !screen.rects.is_empty() || !screen.texts.is_empty();
+            // Nothing to compare with: the user looks at each page as new.
+            screen.changed = (alone && screen.after.is_some())
+                || !screen.rects.is_empty()
+                || !screen.texts.is_empty();
         }
         let shot = list.iter().filter(|s| s.error.is_none()).count();
         self.update(id, n, |v| {
@@ -769,7 +789,8 @@ impl Visual {
             true => config
                 .storybook
                 .as_deref()
-                .map(|c| start("storybook", c))
+                // Only the dev server's absence makes the after alone.
+                .map(|c| start("storybook", c).map_err(|e| anyhow::anyhow!("{e:#}")))
                 .transpose()?,
             false => None,
         };

@@ -32,7 +32,7 @@ pub use azure::{Azure, DEFAULT_WIQL};
 use github::Etags;
 pub use github::GitHub;
 pub use gitlab::GitLab;
-pub use guard::{egress, guard};
+pub use guard::{egress, guard, reads};
 pub use jira::{DEFAULT_JQL, Jira};
 pub use linear::Linear;
 pub use mcp::{Mcp, McpServer};
@@ -190,6 +190,43 @@ fn links<'a>(texts: impl IntoIterator<Item = &'a str>, own: &str) -> Vec<String>
         }
     }
     found
+}
+
+/// A commit message for `text`: its first line as the subject, cut at a word to 72 characters (what git and the
+/// forges show whole), then a body with what the subject left out of that line (after `…`, as GitHub does) and the
+/// other lines.
+pub fn commit_message(text: &str) -> String {
+    const MAX: usize = 72;
+    let text = text.trim();
+    let (first, others) = text.split_once('\n').unwrap_or((text, ""));
+    let first = first.trim();
+    let (subject, left) = match first.char_indices().nth(MAX) {
+        None => (first.to_owned(), ""),
+        Some(_) => {
+            // One character left for the ellipsis.
+            let end = first
+                .char_indices()
+                .nth(MAX - 1)
+                .map_or(first.len(), |(i, _)| i);
+            let cut = first[..end]
+                .rfind(char::is_whitespace)
+                .filter(|&i| first[..i].chars().count() > MAX / 2)
+                .unwrap_or(end);
+            (format!("{}…", first[..cut].trim_end()), &first[cut..])
+        }
+    };
+    let left = match left.trim() {
+        "" => String::new(),
+        left => format!("…{left}"),
+    };
+    let body: Vec<&str> = [left.as_str(), others.trim()]
+        .into_iter()
+        .filter(|p| !p.is_empty())
+        .collect();
+    match body.is_empty() {
+        true => subject,
+        false => format!("{subject}\n\n{}", body.join("\n\n")),
+    }
 }
 
 /// At most `max` characters of `text`.

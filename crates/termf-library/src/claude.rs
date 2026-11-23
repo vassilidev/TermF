@@ -56,19 +56,7 @@ pub fn materialize(
                 .any(|(k, n)| *k == item.kind && *n == item.name)
     };
     let runs_here = |item: &Item| item.runtime.as_deref().is_none_or(|r| r == "claude-code");
-    // A skill goes to the roles its `metadata.termf-roles` names; a session without a role gets them all.
-    let for_role = |item: &Item| {
-        scope.role.as_deref().is_none_or(|role| {
-            crate::applies_to(
-                &crate::metadata_list(item, "termf-roles"),
-                role,
-                scope.squad.as_deref(),
-            )
-        })
-    };
-    let gets_skill = |item: &Item| {
-        (item.active || named(item)) && (named(item) || for_role(item)) && runs_here(item)
-    };
+    let gets_skill = |item: &Item| skill_for(item, scope, named(item));
     prompt.push_str(&stack_card(&items, scope, &gets_skill, planner));
     for item in items {
         let level = match scope.rules.get(&item.name) {
@@ -149,6 +137,41 @@ pub fn materialize(
     let file = session_dir.join("system-prompt.md");
     write_file(&file, prompt.trim_end().as_bytes())?;
     Ok(Some(file))
+}
+
+/// Whether a session in `scope` gets the skill `item`: on and for its role (the roles its
+/// `metadata.termf-roles` names; a session without a role gets them all), or `named` by its role, and written
+/// for Claude Code.
+fn skill_for(item: &Item, scope: &Scope, named: bool) -> bool {
+    let for_role = scope.role.as_deref().is_none_or(|role| {
+        crate::applies_to(
+            &crate::metadata_list(item, "termf-roles"),
+            role,
+            scope.squad.as_deref(),
+        )
+    });
+    (item.active || named)
+        && (named || for_role)
+        && item.runtime.as_deref().is_none_or(|r| r == "claude-code")
+}
+
+/// The skills the plugin of a Claude Code session in `scope` holds, as [`materialize`] writes them.
+pub fn session_skills(config_dir: &Path, scope: &Scope) -> Result<Vec<Item>> {
+    let named = match &scope.role {
+        Some(name) => crate::list_of(
+            crate::role(config_dir, scope, name)?
+                .meta
+                .get(Kind::Skill.dir()),
+        ),
+        None => Vec::new(),
+    };
+    Ok(resolve(config_dir, scope)?
+        .into_iter()
+        .filter(|i| {
+            let named = !matches!(i.layer, Layer::Repo | Layer::Package) && named.contains(&i.name);
+            i.kind == Kind::Skill && skill_for(i, scope, named)
+        })
+        .collect())
 }
 
 /// A skill's card (25 lines at most) under its name, or a line naming it. A session without the skill does not

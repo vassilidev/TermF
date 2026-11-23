@@ -185,7 +185,9 @@
   const changeOf = (s: Screen) =>
     s.error
       ? t("review5bScreenFailed")
-      : !s.changed
+      : !s.before && s.after
+        ? t("practicalVisualAfterOnly")
+        : !s.changed
         ? t("review5bSame")
         : s.rects.length
           ? s.rects.length === 1
@@ -231,6 +233,18 @@
     {/if}
     {#if version.state === "done" && version.error}
       <p class="notice warn top"><TriangleAlert size={14} aria-hidden="true" />{version.error}</p>
+    {/if}
+    {#if version.beforeMissing && (version.state === "ready" || version.state === "done")}
+      <div class="notice warn top alone">
+        <TriangleAlert size={14} aria-hidden="true" />
+        <div>
+          <span>{t("practicalVisualAlone")}</span>
+          <details>
+            <summary>{t("practicalVisualAloneWhy")}</summary>
+            <p class="mono">{version.beforeMissing}</p>
+          </details>
+        </div>
+      </div>
     {/if}
     {#if unsent}
       <p class="notice warn top">
@@ -295,11 +309,18 @@
         </nav>
 
         <section class="viewer" aria-label={screenTitle(screen)}>
-          <Tabs id="review-mode" label={t("review5bModes")} tabs={modes} selected={page.mode} onselect={(m) => setPage({ mode: m as Mode })}>
+          {#if screen.before || !screen.after}
+            <Tabs id="review-mode" label={t("review5bModes")} tabs={modes} selected={page.mode} onselect={(m) => setPage({ mode: m as Mode })}>
+              <div class="stage">
+                <ReviewStage bind:this={stage} {review} {version} {screen} mode={page.mode} {pins} {picked} onpin={decidable ? pin : undefined} />
+              </div>
+            </Tabs>
+          {:else}
+            <!-- Nothing to compare with: the after alone, no tabs. -->
             <div class="stage">
-              <ReviewStage bind:this={stage} {review} {version} {screen} mode={page.mode} {pins} {picked} onpin={decidable ? pin : undefined} />
+              <ReviewStage bind:this={stage} {review} {version} {screen} mode="single" {pins} {picked} onpin={decidable ? pin : undefined} />
             </div>
-          </Tabs>
+          {/if}
           {#if decidable}
             <div class="decide">
               <label class="labelled comment">
@@ -418,6 +439,22 @@
 
   .notice.top span {
     flex: 1;
+  }
+
+  .alone > div {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .alone summary {
+    cursor: pointer;
+  }
+
+  .alone details p {
+    margin: 4px 0 0;
+    white-space: pre-wrap;
   }
 
   .outcome.approved {

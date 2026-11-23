@@ -1022,10 +1022,21 @@ impl Tickets {
     /// exactly what it listed, pushes the branch and opens the pull request, linked to the ticket. Refused if
     /// the worktree changed since. Delivering again pushes what changed and retries what failed.
     pub fn deliver(&self, id: i64, confirm: &str) -> Result<Delivery> {
+        self.deliver_with_story(id, confirm, None)
+    }
+
+    /// [`Self::deliver`], with `story` after what closes the ticket in the pull requests it opens or links: what
+    /// the work was, as the team tells it.
+    pub fn deliver_with_story(
+        &self,
+        id: i64,
+        confirm: &str,
+        story: Option<&str>,
+    ) -> Result<Delivery> {
         let store = Store::open(&self.data_dir)?;
         let mut run = store.run(id)?;
         let snapshot = self.snapshot(&store, &run)?;
-        let delivered = self.send(&store, &mut run, &snapshot, confirm);
+        let delivered = self.send(&store, &mut run, &snapshot, confirm, story);
         let _ = fs::remove_file(&snapshot.index);
         delivered
     }
@@ -1036,6 +1047,7 @@ impl Tickets {
         run: &mut Run,
         snapshot: &Snapshot,
         confirm: &str,
+        story: Option<&str>,
     ) -> Result<Delivery> {
         let id = run.id;
         ensure!(
@@ -1049,7 +1061,11 @@ impl Tickets {
         };
         let (git, dir) = (Git(&self.env), Path::new(&worktree));
         if !snapshot.preview.files.is_empty() {
-            let message = format!("{}\n\n{}", run.title, run.ticket.url);
+            let message = format!(
+                "{}\n\n{}",
+                crate::commit_message(&run.title),
+                run.ticket.url
+            );
             let mut env = self.env.clone();
             env.push((
                 "GIT_INDEX_FILE".into(),
@@ -1111,12 +1127,12 @@ impl Tickets {
             let target = base.strip_prefix("origin/").unwrap_or(&base);
             let url = match self.forge(&run.project, &origin)? {
                 Forge::GitHub(repo) => {
-                    let body = self.pr_body(store, run, &repo, None)?;
+                    let body = self.pr_body(store, run, &repo, None, story)?;
                     self.github()
                         .create_pr(dir, &repo, target, &branch, &run.title, &body)?
                 }
                 Forge::GitLab(host, repo) => {
-                    let body = self.pr_body(store, run, &repo, Some(&host))?;
+                    let body = self.pr_body(store, run, &repo, Some(&host), story)?;
                     self.gitlab_of(&run.project, &host)?
                         .create_mr(&repo, target, &branch, &run.title, &body)?
                 }
@@ -1136,7 +1152,7 @@ impl Tickets {
                 }
                 let linked = self
                     .slug(&other.repo)
-                    .and_then(|slug| self.pr_body(store, other, &slug, None))
+                    .and_then(|slug| self.pr_body(store, other, &slug, None, story))
                     .and_then(|body| self.github().edit_pr_body(other_url, &body));
                 if let Err(e) = linked {
                     warnings.push(format!(
@@ -1204,16 +1220,23 @@ impl Tickets {
     }
 
     /// The body of the pull request of `run` in GitHub repository `slug`, or of its merge request in GitLab project
-    /// `slug` (`on_gitlab`): what closes or names its ticket, then the pull requests of the same change in the
-    /// project's other repositories.
+    /// `slug` (`on_gitlab`): what closes or names its ticket, the change's `story`, then the pull requests of the
+    /// same change in the project's other repositories.
     fn pr_body(
         &self,
         store: &Store,
         run: &Run,
         slug: &str,
         gitlab: Option<&str>,
+        story: Option<&str>,
     ) -> Result<String> {
         let mut body = closing(&run.ticket, slug, gitlab);
+        if let Some(story) = story.map(str::trim).filter(|s| !s.is_empty()) {
+            if !body.is_empty() {
+                body.push_str("\n\n");
+            }
+            body.push_str(story);
+        }
         let others: Vec<String> = self
             .family(store, run)?
             .into_iter()
