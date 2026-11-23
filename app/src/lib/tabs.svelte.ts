@@ -208,14 +208,14 @@ export function layoutOf(name: string): Layout {
   };
 }
 
-/** Kept to open again: a tab whole, or one split, named as its tab showed it. */
-function remember(ids: number[], root: Pane, name: string) {
+/** Kept to open again, a tab whole or one split: `name` for the palette, `given` the one the user gave the tab. */
+function remember(ids: number[], root: Pane, name: string, given = "") {
   const sessions = ids.map((id) => sessionOf(id)).filter((s): s is Session => !!s);
   if (sessions.length !== ids.length) return;
   const layout = {
     name,
     sessions: sessions.map((s) => ({ path: s.cwd, agent: s.agent })),
-    tabs: [{ name, splits: split.encode(root, ids) }],
+    tabs: [{ name: given, splits: split.encode(root, ids) }],
   };
   terminals.closed = pushRecent(terminals.closed, layout);
 }
@@ -278,7 +278,7 @@ export async function close(id: number, sure = false): Promise<number | null> {
   if (tab) {
     const alone = split.leaves(tab.root).length === 1;
     const s = sessionOf(id);
-    remember([id], id, alone ? tabName(tab) : s ? tileName(s.title, s.agent ?? "shell") : "");
+    remember([id], id, alone ? tabName(tab) : s ? tileName(s.title, s.agent ?? "shell") : "", alone ? tab.name : "");
   }
   const tabs = visibleTabs();
   const after = tab ? (tabs[tabs.indexOf(tab) + 1] ?? tabs[tabs.indexOf(tab) - 1]) : undefined;
@@ -294,7 +294,7 @@ export async function closeTab(tab: Tab): Promise<number | null> {
   const tabs = visibleTabs();
   const after = tabs[tabs.indexOf(tab) + 1] ?? tabs[tabs.indexOf(tab) - 1];
   const ids = split.leaves(tab.root);
-  remember(ids, tab.root, tabName(tab));
+  remember(ids, tab.root, tabName(tab), tab.name);
   terminals.tabs.splice(terminals.tabs.indexOf(tab), 1);
   await Promise.all(ids.map(closeSession));
   return after ? entryOf(after) : null;
