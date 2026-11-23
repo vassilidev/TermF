@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { broughtBy, cost, groupOf, ladder, merge, rolesOf, sorted, switchTo, why } from "../src/lib/library-logic.ts";
+import { broughtBy, cost, groupOf, ladder, latestOnly, merge, rolesOf, sorted, switchTo, why } from "../src/lib/library-logic.ts";
 
 const item = (name, extra = {}) => ({
   kind: "skill",
@@ -87,4 +87,32 @@ test("cost, roles and the roles that bring an item", () => {
   assert.deepEqual(rolesOf({ kind: "skill", meta: { metadata: { "termf-roles": "front back" } }, appliesTo: [] }), ["front", "back"]);
   assert.deepEqual(rolesOf({ kind: "rule", meta: {}, appliesTo: ["all", "qa", "squad:web"] }), ["qa"]);
   assert.deepEqual(broughtBy({ kind: "skill", name: "git" }, [{ name: "lead", meta: { skills: ["git"] } }, { name: "qa", meta: {} }]), ["lead"]);
+});
+
+test("the most specific layer a repository resolves is shown, whatever the order of the repositories", () => {
+  for (const order of [["web", "api"], ["api", "web"]]) {
+    const lists = {
+      web: [item("react", { active: true, activatedBy: ["react"] })],
+      api: [item("react", { layer: "package", active: true, path: "/api/node_modules/react/skills/react", package: { name: "react", version: "19" } })],
+    };
+    const [react] = merge(order.map((repo) => ({ repo, items: lists[repo] })));
+    assert.equal(react.layer, "package");
+    assert.equal(react.path, "/api/node_modules/react/skills/react");
+    assert.equal(react.active, true);
+    assert.deepEqual([...react.activeIn].sort(), ["api", "web"]);
+    assert.deepEqual(react.found, [{ tag: "react", repo: "web" }]);
+  }
+});
+
+test("only the last list asked for is kept, when an older one answers later", async () => {
+  const ask = latestOnly();
+  const kept = [];
+  const later = (ms, value) => new Promise((r) => setTimeout(() => r(value), ms));
+  const load = async (value, ms) => {
+    const current = ask();
+    const got = await later(ms, value);
+    if (current()) kept.push(got);
+  };
+  await Promise.all([load("before the click", 30), load("after the click", 5)]);
+  assert.deepEqual(kept, ["after the click"]);
 });

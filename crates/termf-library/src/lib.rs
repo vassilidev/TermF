@@ -381,17 +381,22 @@ fn trusted_package(item: &Item, stack: &[stack::RepoStack]) -> bool {
         .any(|r| r.trusted && item.path.as_deref().is_some_and(|p| p.starts_with(&r.path)))
 }
 
-/// Where an item stands before the toggles: on for the user's own layers; a shipped one when its
-/// `metadata.termf-stacks` names a tag of the stack (noted in `activated_by`), or always for `*`; a package's
-/// skill where Claude Code trusts its repository; off for a repository's.
+/// Where an item stands before the toggles: on for the user's own layers, unless it is a copy of a shipped item
+/// that keeps its `metadata.termf-stacks` (`copy_here`); a shipped one when its `metadata.termf-stacks` names a
+/// tag of the stack (noted in `activated_by`), or always for `*`; a package's skill where Claude Code trusts its
+/// repository; off for a repository's.
 fn starts_on(item: &mut Item, scope: &Scope) -> bool {
+    let by_stack = item.layer == Layer::Shipped
+        || (matches!(item.layer, Layer::Global | Layer::Project)
+            && item.shadows.contains(&Layer::Shipped)
+            && !stack_tags_of(item).is_empty());
     match item.layer {
-        Layer::Global | Layer::Project => true,
-        Layer::Shipped if stack_tags_of(item).iter().any(|t| t == ANY) => {
+        Layer::Global | Layer::Project if !by_stack => true,
+        _ if by_stack && stack_tags_of(item).iter().any(|t| t == ANY) => {
             item.activated_by = vec![ANY.into()];
             true
         }
-        Layer::Shipped => {
+        _ if by_stack => {
             let stack: Vec<&str> = scope
                 .stack
                 .iter()
@@ -406,7 +411,7 @@ fn starts_on(item: &mut Item, scope: &Scope) -> bool {
             !item.activated_by.is_empty()
         }
         Layer::Package => trusted_package(item, &scope.stack),
-        Layer::Repo | Layer::Run => false,
+        _ => false,
     }
 }
 
@@ -489,24 +494,21 @@ pub fn set_toggle(
     termf_core::write_atomic(&file, &doc.to_string())
 }
 
-/// Copies the item that applies in `scope` into the project's library (the global one without a project), where it
-/// can be edited. The copy hides the item it comes from and keeps its state: off there if the item was off.
+/// Copies a shipped item into the project's library (the global one without a project), where it can be edited.
+/// The copy hides the shipped item and starts where it did, in every repository: by the same stack, or off.
 pub fn copy_here(config_dir: &Path, scope: &Scope, kind: Kind, name: &str) -> Result<PathBuf> {
     let item = explain(config_dir, scope, kind, name)?;
-    let project = scope.project.as_deref();
-    let layer = if project.is_some() {
-        Layer::Project
-    } else {
-        Layer::Global
-    };
     ensure!(
-        item.layer < layer,
+        item.layer == Layer::Shipped,
         "{kind} {name} can be edited where it is"
     );
+    let project = scope.project.as_deref();
     let dest = library_dir(config_dir, project)?.join(&item.rel);
     ensure!(!dest.exists(), "{} already exists", dest.display());
     copy_item(&item, &dest)?;
-    if !item.active && !item.toggles.contains_key(&layer) {
+    // Its stack condition comes with its frontmatter (`starts_on`); without one it would start on, where the shipped
+    // item starts off, unless a switch already decides.
+    if stack_tags_of(&item).is_empty() && item.toggles.is_empty() {
         set_toggle(config_dir, project, kind, name, Some(false))?;
     }
     Ok(dest)
@@ -1326,24 +1328,51 @@ mod tests {
             project: Some("acme".into()),
             ..Scope::default()
         };
-        let skill = resolve(&dir, &scope)
-            .unwrap()
-            .into_iter()
-            .find(|i| i.kind == Kind::Skill && !i.active)
-            .expect("a shipped skill off");
+        // A skill the stack switches on: copied where no stack is known (the global library), nothing is switched
+        // off, and the copy starts where the shipped one did, repository by repository.
+        let global = Scope::default();
+        let dest = copy_here(&dir, &global, Kind::Skill, "nextjs").unwrap();
+        assert_eq!(dest, dir.join("library/skills/nextjs"));
+        assert!(dest.join("SKILL.md").is_file());
+        assert!(read_toggles(&dir.join("termf.toml")).unwrap().is_empty());
+        let in_repo = |tags: &[&str]| Scope {
+            project: Some("acme".into()),
+            stack: vec![stack(&dir, tags, false)],
+            ..Scope::default()
+        };
+        let next = explain(&dir, &in_repo(&["nextjs"]), Kind::Skill, "nextjs").unwrap();
+        assert_eq!(
+            (next.layer, &next.shadows[..]),
+            (Layer::Global, &[Layer::Shipped][..])
+        );
+        assert!(next.active && next.activated_by == ["nextjs"]);
+        assert!(
+            !explain(&dir, &in_repo(&["django"]), Kind::Skill, "nextjs")
+                .unwrap()
+                .active
+        );
+        // Once copied, it is edited there.
+        assert!(copy_here(&dir, &global, Kind::Skill, "nextjs").is_err());
 
-        let dest = copy_here(&dir, &scope, Kind::Skill, &skill.name).unwrap();
+        // A shipped item without a stack starts off: its copy in the project too.
+        let dest = copy_here(&dir, &scope, Kind::Preference, "canary").unwrap();
         assert_eq!(
             dest,
-            dir.join("projects/acme/library/skills").join(&skill.name)
+            dir.join("projects/acme/library/preferences/canary.md")
         );
-        assert!(dest.join("SKILL.md").is_file());
-        let copied = explain(&dir, &scope, Kind::Skill, &skill.name).unwrap();
+        let copied = explain(&dir, &scope, Kind::Preference, "canary").unwrap();
         assert_eq!(copied.layer, Layer::Project);
-        assert_eq!(copied.shadows, [Layer::Shipped]);
         assert!(!copied.active, "a copy of an item off stays off");
-        // Once in the project, it is edited there.
-        assert!(copy_here(&dir, &scope, Kind::Skill, &skill.name).is_err());
+        // A user's own item that only shares the name of a shipped one, without a stack, keeps starting on.
+        put(
+            &dir.join("library/commands/handoff.md"),
+            "---\ndescription: mine\n---\nHand off.\n",
+        );
+        assert!(
+            explain(&dir, &scope, Kind::Command, "handoff")
+                .unwrap()
+                .active
+        );
     }
 
     fn stack(path: &Path, tags: &[&str], trusted: bool) -> stack::RepoStack {

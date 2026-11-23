@@ -11,15 +11,23 @@ export type Entry = Item & {
   found: { tag: string; repo: string }[];
 };
 
-/** `lists`: `library_list` once per repository of the project (`repo` named), or once without any (`repo` null). */
+const layers: Layer[] = ["shipped", "package", "global", "project", "repo", "run"];
+
+/**
+ * `lists`: `library_list` once per repository of the project (`repo` named), or once without any (`repo` null). Where
+ * repositories resolve a name in different layers (a package's skill in one, the shipped one in another), the most
+ * specific one is shown.
+ */
 export function merge(lists: { repo: string | null; items: Item[] }[]): Entry[] {
   const byKey = new Map<string, Entry>();
   for (const { repo, items } of lists) {
     for (const item of items) {
       const key = `${item.kind}/${item.name}`;
       let entry = byKey.get(key);
-      if (!entry) {
-        entry = { ...item, activeIn: [], repo: item.layer === "repo" ? repo : null, found: [] };
+      if (!entry || layers.indexOf(item.layer) > layers.indexOf(entry.layer)) {
+        const seen = entry;
+        entry = { ...item, activeIn: seen?.activeIn ?? [], repo: item.layer === "repo" ? repo : null, found: seen?.found ?? [] };
+        entry.active ||= seen?.active ?? false;
         byKey.set(key, entry);
       }
       entry.active ||= item.active;
@@ -30,6 +38,15 @@ export function merge(lists: { repo: string | null; items: Item[] }[]): Entry[] 
     }
   }
   return [...byKey.values()];
+}
+
+/** Answers that come back out of order: `ask()` before a request, then its `current()` says it is still the last. */
+export function latestOnly(): () => () => boolean {
+  let asked = 0;
+  return () => {
+    const id = ++asked;
+    return () => id === asked;
+  };
 }
 
 export type Group = "on" | "offered" | "off";

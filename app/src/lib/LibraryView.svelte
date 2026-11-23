@@ -33,9 +33,9 @@
   import { lang, t } from "$lib/i18n";
   import { claudeView, show, showClaude, type Plugins } from "$lib/claude.svelte";
   import { talkCto } from "$lib/home.svelte";
-  import { app, onScreen, shortPath } from "$lib/state.svelte";
+  import { app, shortPath, ui } from "$lib/state.svelte";
   import { busy, kinds, library, matches, packageLabel, type Item, type Kind } from "$lib/library.svelte";
-  import { broughtBy, cost, groupOf, ladder, merge, rolesOf, sorted, switchTo, switchable, why, type Entry, type Rung, type Write } from "$lib/library-logic";
+  import { broughtBy, cost, groupOf, ladder, latestOnly, merge, rolesOf, sorted, switchTo, switchable, why, type Entry, type Rung, type Write } from "$lib/library-logic";
 
   type Plugin = { id: string; version: string; scope: string; enabled: boolean; description: string };
   type Picked = { plugin: Plugin } | { entry: Entry };
@@ -52,10 +52,17 @@
   $effect(() => {
     if (!app.project && library.tab !== "items") library.tab = "items";
   });
+  // The global scope is the veille's and the import's: closing them goes back to the project.
+  $effect(() => {
+    if (!library.panel) library.global = false;
+  });
+
+  const ask = latestOnly();
 
   /** Each repository's sessions resolve their own library: the list is what they get, merged. */
   async function refresh() {
     const p = project;
+    const current = ask();
     try {
       const lists = p?.repos.length
         ? await Promise.all(
@@ -64,7 +71,7 @@
             ),
           )
         : [{ repo: null, items: await invoke<Item[]>("library_list", { project: p?.id ?? null }) }];
-      if ((p?.id ?? null) === app.project) entries = merge(lists);
+      if (current() && (p?.id ?? null) === app.project) entries = merge(lists);
     } catch (e) {
       library.error = String(e);
       entries ??= [];
@@ -77,13 +84,21 @@
     refresh();
   });
 
-  // Claude Code's own plugins, read once the view shows: Claude Code answers in a second or two.
+  // Claude Code's own plugins, read each time the view comes back (Claude Code answers in a second or two), and
+  // taken from the Claude view when it changes them.
   let pluginList = $state<Plugins["plugins"]>([]);
+  const askPlugins = latestOnly();
   $effect(() => {
+    if (ui.view !== "library") return;
+    const current = askPlugins();
     invoke<Plugins>("claude_plugins").then(
-      (p) => (pluginList = p.plugins),
-      () => (pluginList = []),
+      (p) => current() && (pluginList = p.plugins),
+      () => current() && (pluginList = []),
     );
+  });
+  $effect(() => {
+    const p = claudeView.overview?.plugins;
+    if (p) pluginList = p.plugins;
   });
   const plugins = $derived<Plugin[]>(
     pluginList.map((p) => ({
@@ -277,8 +292,9 @@
       toast(String(err), { kind: "error" });
       return false;
     } finally {
-      library.busy = false;
+      // The switches stay disabled until the list says what they did.
       await refresh();
+      library.busy = false;
     }
   }
 
@@ -369,7 +385,8 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (e.key !== "/" || !onScreen("library") || library.panel || library.tab !== "items") return;
+    // The active panel only, and `/` alone: a split's other panel and ⌘/ keep their own.
+    if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || ui.view !== "library" || library.panel || library.tab !== "items") return;
     const target = e.target as HTMLElement;
     if (target.closest("input, textarea, select, [contenteditable], .xterm")) return;
     e.preventDefault();
