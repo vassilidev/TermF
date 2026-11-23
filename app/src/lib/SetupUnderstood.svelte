@@ -22,6 +22,7 @@
   const running = $derived(!!analyzing[key]);
   const live = $derived(reads[key]);
   const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD" });
+  const budget = new Intl.NumberFormat(lang, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
   // Claude Code reads what was chosen as soon as it is shown; another choice since is read again.
   $effect(() => {
@@ -61,6 +62,35 @@
   {#each codeSpans(text) as sp, i (i)}{#if sp.code}<code>{sp.text}</code>{:else}{sp.text}{/if}{/each}
 {/snippet}
 
+<section class="claude-run" aria-live="polite">
+  <header>
+    <Sparkles size={16} aria-hidden="true" />
+    <h3>{t("setupClaudeTitle")}</h3>
+    {#if current && !running}
+      <button class="btn sm quiet" onclick={start}><RotateCw size={13} aria-hidden="true" />{t("obReanalyze")}</button>
+    {/if}
+  </header>
+  {#if running || !current}
+    <p class="muted">{t("cpClaudeReading", { budget: budget.format(2) })}</p>
+    {#if live?.last.length}
+      <StreamSteps live steps={live.last.map((r, i) => ({ verb: readText(r), state: i === live.last.length - 1 ? "now" : "ok" }))} />
+    {:else}
+      <Skeleton rows={2} label={t("scoutStarting")} />
+    {/if}
+  {:else if draft.failed}
+    <p class="notice warn" role="status">{t("cpClaudeFailed", { error: draft.failed })}</p>
+  {:else if draft.analysis}
+    {@const a = draft.analysis}
+    <p>
+      {t("cpClaudeDone", { findings: a.findings.length, questions: asked })}
+      {#if a.cost !== null}<span class="muted">{" · "}{t("convCost", { cost: approxUsd(money.format(a.cost)) })}</span>{/if}
+    </p>
+    {#if live?.count}
+      <StreamSteps steps={live.last.map((r) => ({ verb: readText(r), state: "ok" }))} summary={t("cpClaudeReads", { count: live.count })} />
+    {/if}
+  {/if}
+</section>
+
 <div class="repos">
   {#each chosen as card (card.path)}
     {@const d = found[card.path]}
@@ -98,35 +128,6 @@
     </article>
   {/each}
 </div>
-
-<section class="claude-run" aria-live="polite">
-  <header>
-    <Sparkles size={16} aria-hidden="true" />
-    <h3>{t("setupClaudeTitle")}</h3>
-    {#if current && !running}
-      <button class="btn sm quiet" onclick={start}><RotateCw size={13} aria-hidden="true" />{t("obReanalyze")}</button>
-    {/if}
-  </header>
-  {#if running || !current}
-    <p class="muted">{t("cpClaudeReading", { budget: money.format(2) })}</p>
-    {#if live?.last.length}
-      <StreamSteps live steps={live.last.map((r, i) => ({ verb: readText(r), state: i === live.last.length - 1 ? "now" : "ok" }))} />
-    {:else}
-      <Skeleton rows={2} label={t("scoutStarting")} />
-    {/if}
-  {:else if draft.failed}
-    <p class="notice warn" role="status">{t("cpClaudeFailed", { error: draft.failed })}</p>
-  {:else if draft.analysis}
-    {@const a = draft.analysis}
-    <p>
-      {t("cpClaudeDone", { findings: a.findings.length, questions: asked })}
-      {#if a.cost !== null}<span class="muted">· {t("convCost", { cost: approxUsd(money.format(a.cost)) })}</span>{/if}
-    </p>
-    {#if live?.count}
-      <StreamSteps steps={live.last.map((r) => ({ verb: readText(r), state: "ok" }))} summary={t("cpClaudeReads", { count: live.count })} />
-    {/if}
-  {/if}
-</section>
 
 <style>
   .repos {
@@ -246,7 +247,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    margin-top: 20px;
+    margin-bottom: 12px;
     padding: 16px 18px;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);

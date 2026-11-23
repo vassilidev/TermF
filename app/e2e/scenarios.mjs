@@ -80,26 +80,40 @@ export const scenarios = [
     },
   },
   {
-    name: "new project: pick the repository, go through the setup, land on its home",
+    name: "new project: one guided setup, nothing written before its last step, then its home",
     views: ["newProject"],
     sandbox: { project: false },
     async run(t) {
       const { s, box } = t;
+      const go = ".new-project .wizard footer .go:not([disabled])";
+      const at = (step) => `.new-project .wizard .steps li:nth-child(${step}) [aria-current="step"]`;
+      const file = join(box.configDir, "projects", "acme.toml");
       await t.ready();
       await t.command("project-new");
       await s.waitFor(t.shown("newProject"));
+      // Focus mode: the navigation steps aside while the setup is open.
+      check(!(await s.exec(() => !!document.querySelector(".app .nav")?.offsetParent)), "the navigation stays during the setup");
+      await s.click(go);
+      await s.waitFor(at(2));
       const repo = `#repo-list li${t.sel("data-path", box.acme)}`;
       await s.click(repo);
       await s.waitFor(`${repo}[aria-selected="true"]`);
-      for (const step of [2, 3, 4, 5]) {
-        await s.click(".new-project .actions .go:not([disabled])");
-        await s.waitFor(`.new-project .stepper li:nth-child(${step}) [aria-current="step"]`);
+      // Left for later, then back: the choice is still there.
+      await s.exec(() => document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      await s.waitGone(t.shown("newProject"));
+      await t.command("project-new");
+      await s.waitFor(at(2));
+      await s.waitFor(`${repo}[aria-selected="true"]`);
+      for (const step of [3, 4, 5]) {
+        await s.click(go);
+        await s.waitFor(at(step), { timeout: 30_000 });
+        check(!existsSync(file), `written before the last step: ${file}`);
         await t.clean();
       }
-      await s.click(".new-project .actions .go:not([disabled])");
+      await s.click(go);
       await s.waitFor(`.nav ${t.sel("data-project", "acme")}[aria-current="true"]`, { timeout: 30_000 });
       await s.waitFor(t.shown("home"));
-      const toml = read(join(box.configDir, "projects", "acme.toml"));
+      const toml = read(file);
       check(/name = "acme"/.test(toml) && toml.includes("acme"), `unexpected project file:\n${toml}`);
       // The test command found in package.json is what the team's checks run before delivering.
       check(toml.includes('checks = "npm test"'), `no checks in the project file:\n${toml}`);
@@ -108,13 +122,14 @@ export const scenarios = [
     },
   },
   {
-    name: "project assistant: opens on the project from the palette",
-    views: ["onboarding"],
+    name: "project setup again: opens on the project from the palette, its repositories given",
+    views: [],
     async run(t) {
       await t.ready();
       await t.project();
       await t.command("project-setup");
-      await t.s.waitFor(t.shown("onboarding"));
+      await t.s.waitFor(t.shown("newProject"));
+      await t.s.waitFor('.new-project .wizard .steps li:nth-child(1) [aria-current="step"]');
       await t.clean();
     },
   },

@@ -101,8 +101,10 @@
             <Sparkles size={14} aria-hidden="true" />
             <b>{t("cpCtoAdvises", { answer: got.answer.map((o) => label(q, o)).join(", ") })}</b>
           </p>
-          <p class="said">{got.why}{#if got.cost !== null}<span class="muted"> · {t("convCost", { cost: approxUsd(money.format(got.cost)) })}</span>{/if}</p>
-          <button class="btn sm" onclick={() => (draft.answers[q.id] = [...got.answer])}>{t("cpTakeAdvice")}</button>
+          <p class="said">{got.why}{#if got.cost !== null}<span class="muted">{" · "}{t("convCost", { cost: approxUsd(money.format(got.cost)) })}</span>{/if}</p>
+          {#if got.answer.join() !== given.join()}
+            <button class="btn sm" onclick={() => (draft.answers[q.id] = [...got.answer])}>{t("cpTakeAdvice")}</button>
+          {/if}
         </div>
       {:else}
         {#if got && "error" in got}<p class="notice error" role="alert">{got.error}</p>{/if}
@@ -249,6 +251,9 @@
 
   textarea {
     width: 100%;
+    height: auto;
+    min-height: 64px;
+    padding: 10px 12px;
     margin-top: 14px;
     resize: vertical;
   }

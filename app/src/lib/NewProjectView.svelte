@@ -93,7 +93,7 @@
   // Each repository is read as soon as it is chosen: what it holds is there when the owner looks.
   $effect(() => detect(draft.chosen));
   $effect(() => {
-    if (existing) readCards(draft.chosen).catch(() => {});
+    readCards(draft.chosen).catch(() => {});
   });
   // Kept at every change: closing the window, or the app, loses nothing.
   $effect(() => {
@@ -384,13 +384,13 @@
               <input
                 id="project-name"
                 class="field"
-                value={draft.name ?? ""}
+                value={draft.name ?? suggested}
                 placeholder={suggested || t("projectName")}
                 aria-describedby="project-name-help"
                 aria-invalid={clash || undefined}
                 spellcheck="false"
                 autocomplete="off"
-                oninput={(e) => (draft.name = e.currentTarget.value || null)}
+                oninput={(e) => (draft.name = e.currentTarget.value)}
               />
               <p id="project-name-help" class="help" class:warn={clash}>
                 {nameSource}
@@ -447,7 +447,7 @@
                 <input
                   id="project-name"
                   class="field"
-                  value={draft.name ?? ""}
+                  value={draft.name ?? suggested}
                   placeholder={suggested || t("projectName")}
                   aria-describedby="project-name-help"
                   aria-invalid={clash || undefined}
@@ -457,7 +457,7 @@
                     const field = e.currentTarget;
                     // What cannot be in a folder name leaves the field too, so what is shown is what is used.
                     if (cleanName(field.value) !== field.value) field.value = cleanName(field.value);
-                    draft.name = field.value || null;
+                    draft.name = field.value;
                   }}
                 />
                 <p id="project-name-help" class="help" class:warn={clash}>{nameSource}</p>
@@ -600,7 +600,7 @@
     white-space: nowrap;
   }
 
-  .identity span {
+  .identity div > span {
     overflow: hidden;
     color: var(--muted);
     font-size: var(--text-sm);
@@ -808,6 +808,9 @@
 
   .idea {
     width: 100%;
+    height: auto;
+    min-height: 120px;
+    padding: 12px 14px;
     font-size: var(--text-md);
     line-height: 1.5;
     resize: vertical;

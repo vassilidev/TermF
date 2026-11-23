@@ -136,12 +136,26 @@
     recipeLines(Object.fromEntries(chosen.flatMap((c) => (typeof found[c.path] === "object" ? [[c.name, (found[c.path] as Detected).recipe]] : [])))),
   );
   const recipeSaved = $derived(!!recipeView?.saved);
+  /** The recipe in words: what is installed with which tool, what is copied, what each worktree gets of its own. */
+  const recipeWords = $derived.by(() => {
+    const all = chosen.flatMap((c) => (typeof found[c.path] === "object" ? [(found[c.path] as Detected).recipe] : []));
+    const tools = [...new Set(all.flatMap((r) => r.deps.map((d) => (d.install.at(-1) ?? d.dir).split(" ")[0])))];
+    const files = [...new Set(all.flatMap((r) => r.include))];
+    const ports = all.reduce((n, r) => n + r.ports.length, 0);
+    return [
+      tools.length ? t("cpRecipeDeps", { tools: tools.join(", ") }) : "",
+      files.length ? t("cpRecipeCopy", { files: files.join(", ") }) : "",
+      all.some((r) => r.database) ? t("cpRecipeDb") : "",
+      ports ? t("cpRecipePorts", { count: ports }) : "",
+    ].filter(Boolean);
+  });
   const workflows = $derived(
     chosen.flatMap((c) => {
       const d = found[c.path];
       return typeof d === "object" && d.facts.workflows.length ? [`${c.name} (${d.facts.workflows.join(", ")})`] : [];
     }),
   );
+  const workflowCount = $derived(chosen.reduce((n, c) => n + (typeof found[c.path] === "object" ? (found[c.path] as Detected).facts.workflows.length : 0), 0));
 
   /** Each repository's check command: typed, else the project's, else the test command found. */
   const checkOf = (c: Card) => {
@@ -386,7 +400,12 @@
   </div>
 {/snippet}
 
+{#snippet ticketsDetails()}
+  <p class="note">{t("cpTicketsKeys", { keys: keys.map((k) => `${k}-…`).join(", ") })}</p>
+{/snippet}
+
 {#snippet ciDetails()}
+  <p class="note">{t("obCiWorkflows", { list: workflows.join(" · ") })}</p>
   <span class="control"><span aria-hidden="true">{t("ciNotify")}</span><Segments label={t("ciNotify")} options={notifies} selected={notify} onselect={(v) => (draft.notify = v as Notify)} /></span>
 {/snippet}
 
@@ -444,25 +463,19 @@
         "tickets",
         Ticket,
         t("obTicketsTitle"),
-        [
-          github.length ? t("setupTicketsGithub", { repos: github.join(", ") }) : "",
-          gitlab ? t("tickets2SetupGitlab", { repos: gitlab.slugs.join(", ") }) : "",
-          keys.length ? `${t("setupTicketsKeys", { keys: keys.map((k) => `${k}-…`).join(", ") })} ${t("tickets2SetupKeysLinear")}` : "",
-        ]
-          .filter(Boolean)
-          .join(" "),
+        t("cpTicketsSentence", { list: [...github, ...(gitlab?.slugs ?? [])].join(", ") }),
         "tickets",
+        keys.length ? ticketsDetails : undefined,
       )}
     {/if}
     {#if recipeSaved}
       {@render row("worktree", FolderGit2, t("obRecipeTitle"), t("obRecipeAlready"))}
     {:else}
-      {@const parts = [...new Set(recipe.flatMap((l) => l.parts))]}
       {@render row(
         "worktree",
         FolderGit2,
         t("obRecipeTitle"),
-        parts.length ? t("cpRecipeSentence", { list: parts.slice(0, 3).join(", ") + (parts.length > 3 ? "…" : "") }) : t("cpRecipeNothing"),
+        recipeWords.length ? t("cpRecipeSentence", { list: recipeWords.join(", ") }) : t("cpRecipeNothing"),
         "worktree",
         recipeDetails,
       )}
@@ -478,7 +491,7 @@
       checksDetails,
     )}
     {#if workflows.length}
-      {@render row("ci", Workflow, t("obCiTitle"), `${t("obCiWorkflows", { list: workflows.join(" · ") })} ${t("setupCiNotify", { mode: notifies.find((n) => n.id === notify)!.label })}`, "ci", ciDetails)}
+      {@render row("ci", Workflow, t("obCiTitle"), t("cpCiSentence", { count: workflowCount, mode: notifies.find((n) => n.id === notify)!.label.toLowerCase() }), "ci", ciDetails)}
     {/if}
     {#if proposal.skills.length}
       {@render row(
@@ -637,7 +650,7 @@
   .roles {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 8px;
     margin: 0;
     padding: 0;
     list-style: none;

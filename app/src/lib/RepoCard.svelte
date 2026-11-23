@@ -22,9 +22,11 @@
     trailing?: Snippet;
   } = $props();
 
-  const MAX_TAGS = 4;
+  const MAX_TAGS = 3;
   const read = $derived(card.stack !== undefined);
   const tags = $derived(card.stack ?? []);
+  // The usual branch says nothing: only another one is worth a look.
+  const usual = (branch: string) => branch === "main" || branch === "master";
 </script>
 
 <div class="repo" class:selected>
@@ -34,19 +36,18 @@
   <span class="forge" title={card.remote?.host ?? t("setupNoRemote")}><ForgeIcon host={card.remote?.host} /></span>
   <span class="main">
     <span class="line">
-      <b class="name">{card.name}</b>
-      <span class="path mono" title={card.path}>{shortPath(card.path)}</span>
+      <b class="name" title={card.path}>{card.name}</b>
       {#each elsewhere as name (name)}
         <span class="badge in">{t("setupInProject", { name })}</span>
       {/each}
     </span>
     <span class="line meta">
       {#if card.remote}
-        <span class="slug">{card.remote.slug}</span>
-      {:else if card.stack}
-        <span class="slug">{t("setupNoRemote")}</span>
+        <span class="slug" title={card.path}>{card.remote.slug}</span>
+      {:else}
+        <span class="slug path mono" title={card.path}>{shortPath(card.path)}</span>
       {/if}
-      {#if card.branch}
+      {#if card.branch && !usual(card.branch)}
         <span class="branch"><GitBranch size={12} aria-hidden="true" /><span class="mono">{card.branch}</span></span>
       {/if}
       {#if card.changes}
