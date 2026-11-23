@@ -857,6 +857,15 @@ fn cycle(tasks: &[Task]) -> bool {
     }
 }
 
+/// `AC4: a JSON export` (or `AC4 - …`, `AC4 — …`) as its id and its text.
+pub fn criterion_with_text(said: &str) -> Option<(String, String)> {
+    let rest = said.strip_prefix("AC")?;
+    let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    let text = rest[digits..].trim_start_matches(|c: char| c == ':' || c == '-' || c == '—' || c.is_whitespace());
+    (digits > 0 && text.len() < rest.len() - digits && !text.is_empty())
+        .then(|| (format!("AC{}", &rest[..digits]), text.to_owned()))
+}
+
 /// What is wrong with a report. `criteria`: the plan's, when there is one.
 pub fn check_report(report: &Report, criteria: Option<&[Criterion]>) -> Vec<String> {
     let mut problems = Vec::new();

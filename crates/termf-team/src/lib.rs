@@ -4297,10 +4297,15 @@ impl Inner {
                     && run.steps[i].feedback.is_none()
                     && let Some(mut task) = run.routing.as_ref().and_then(|r| r.task.clone())
                 {
-                    // The ticket's numbered criteria, as the reports name them: AC1, AC2…
+                    // The ticket's numbered criteria, as the reports name them: AC1, AC2… A criterion given with its
+                    // text ("AC4: a JSON export") keeps the id alone, else no report could ever cover it.
+                    let mut said = Vec::new();
                     for c in &mut task.covers {
                         if !c.is_empty() && c.chars().all(|ch| ch.is_ascii_digit()) {
                             *c = format!("AC{c}");
+                        } else if let Some((id, text)) = plan::criterion_with_text(c) {
+                            said.push((id.clone(), text));
+                            *c = id;
                         }
                     }
                     let summary = run.routing.as_ref().map(|r| r.reason.clone());
@@ -4309,9 +4314,10 @@ impl Inner {
                     let mut acceptance = plan::ticket_criteria(&run.target.brief);
                     for c in &task.covers {
                         if !acceptance.iter().any(|a| &a.id == c) {
+                            let text = said.iter().find(|(id, _)| id == c).map(|(_, t)| t.clone());
                             acceptance.push(plan::Criterion {
                                 id: c.clone(),
-                                text: format!("{c} of the ticket"),
+                                text: text.unwrap_or_else(|| format!("{c} of the ticket")),
                             });
                         }
                     }

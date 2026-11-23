@@ -2391,8 +2391,9 @@ fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     env.answer("triage.1.json", direct.clone());
     let mut t1 = task("T1", "back", &["src/api/a.txt"], &[]);
     t1["squad"] = "".into();
-    // The ticket's own numbering: TermF names it as the reports do.
-    t1["covers"] = json!(["1"]);
+    // The ticket's own numbering: TermF names it as the reports do; a criterion the CTO adds with its text keeps
+    // its id alone.
+    t1["covers"] = json!(["1", "AC4: A JSON export too."]);
     direct["task"] = t1;
     direct["rulings"] =
         json!(["Ruling: direct — an S ticket with its criteria — a review catches a miss"]);
@@ -2410,7 +2411,7 @@ fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     );
     // The CTO's task names one criterion of the three the ticket lists: it covers them all.
     let mut covered = report("T1 done");
-    covered["covers"] = json!(["AC1", "AC3"]);
+    covered["covers"] = json!(["AC1", "AC3", "AC4"]);
     env.answer("implement:T1.json", covered);
     let mut target = env.target.clone();
     target.brief = "<ticket source=\"https://example.invalid/1\">\n# Export invoices\n\n## Acceptance criteria\n\n\
@@ -2432,9 +2433,10 @@ fn a_small_ticket_goes_direct_and_a_failed_check_goes_back_to_its_session() {
     let run = env.until("the delivery", delivery);
     let planned = run.plan.as_ref().unwrap();
     let ids: Vec<&str> = planned.acceptance.iter().map(|c| c.id.as_str()).collect();
-    assert_eq!(ids, ["AC1", "AC2", "AC3"], "every criterion of the ticket");
+    assert_eq!(ids, ["AC1", "AC2", "AC3", "AC4"], "every criterion of the ticket");
     assert_eq!(planned.acceptance[2].text, "Dates in ISO 8601.");
-    assert_eq!(planned.tasks[0].covers, ["AC1", "AC2", "AC3"]);
+    assert_eq!(planned.acceptance[3].text, "A JSON export too.");
+    assert_eq!(planned.tasks[0].covers, ["AC1", "AC2", "AC3", "AC4"]);
     assert_eq!(
         env.step(&run, "implement:T1").state,
         StepState::Done,
