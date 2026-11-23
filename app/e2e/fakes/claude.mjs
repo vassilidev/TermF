@@ -154,19 +154,62 @@ function hooks() {
 function interactive() {
   const sid = flag("--session-id") ?? flag("--resume") ?? randomUUID();
   const registered = hooks();
+  /** The hooks' answers, parsed. */
   const fire = (event, extra = {}) => {
     const payload = JSON.stringify({ session_id: sid, cwd: process.cwd(), hook_event_name: event, transcript_path: "", ...extra });
+    const answers = [];
     for (const h of registered[event] ?? []) {
-      const options = { input: payload, timeout: (h.timeout ?? 60) * 1000, stdio: ["pipe", "ignore", "ignore"] };
-      if (h.args) spawnSync(h.command, h.args, options);
-      else spawnSync(h.command, { ...options, shell: true });
+      const options = { input: payload, timeout: (h.timeout ?? 60) * 1000, stdio: ["pipe", "pipe", "ignore"], encoding: "utf8" };
+      const out = h.args ? spawnSync(h.command, h.args, options) : spawnSync(h.command, { ...options, shell: true });
+      try {
+        answers.push(JSON.parse(out.stdout));
+      } catch {
+        // No answer.
+      }
     }
+    return answers;
   };
   process.stdout.write(`Fake Claude Code ${VERSION}\r\n> `);
   fire("SessionStart", { source: flag("--resume") ? "resume" : "startup" });
   const lines = createInterface({ input: process.stdin });
+  // TermF's hidden deletion: the Artifact tool asks before each delete whatever PreToolUse said, unless a
+  // PermissionRequest hook allows it; a question nobody answers waits in the terminal (2.1.330).
+  const first = positional();
+  const doomed = first?.startsWith("Delete these claude.ai artifacts") ? (first.match(/https:\/\/claude\.ai\/[\w/-]+/g) ?? []) : [];
+  const deleted = [];
+  const deleteNext = () => {
+    while (doomed.length) {
+      const url = doomed[0];
+      const call = { tool_name: "Artifact", tool_input: { action: "delete", url } };
+      if (fire("PreToolUse", call).some((a) => a.hookSpecificOutput?.permissionDecision === "deny")) {
+        doomed.shift();
+        continue;
+      }
+      if (!fire("PermissionRequest", call).some((a) => a.hookSpecificOutput?.decision?.behavior === "allow")) {
+        process.stdout.write(`Permanently delete ${url}? No / Yes\r\n`);
+        fire("Notification", { notification_type: "permission_prompt", message: "Claude needs your permission" });
+        return;
+      }
+      doomed.shift();
+      fire("PostToolUse", { ...call, tool_response: { artifact_delete: { url, deleted: true } } });
+      deleted.push(url);
+    }
+    const answer = JSON.stringify({ deleted, failed: [] });
+    process.stdout.write(`● ${answer}\r\n> `);
+    fire("Stop", { last_assistant_message: answer, stop_hook_active: false });
+  };
+  if (doomed.length) deleteNext();
   lines.on("line", (line) => {
     const prompt = line.trim();
+    if (doomed.length) {
+      // The question answered in the tile.
+      const url = doomed.shift();
+      if (/^y/i.test(prompt)) {
+        fire("PostToolUse", { tool_name: "Artifact", tool_input: { action: "delete", url }, tool_response: {} });
+        deleted.push(url);
+      }
+      return deleteNext();
+    }
     if (prompt === "/exit") return lines.close();
     if (!prompt) return process.stdout.write("> ");
     fire("UserPromptSubmit", { prompt });

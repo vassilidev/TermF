@@ -401,7 +401,7 @@ pub async fn artifacts_delete(
     };
     let spawned = (|| {
         let (agent, command) = claude_agent(&state.config_dir)?;
-        std::fs::create_dir_all(&claude.agent_dir)?;
+        agent_dir(&claude.agent_dir)?;
         let task = Task {
             agent,
             command: program(&command),
@@ -469,7 +469,7 @@ fn start(app: &AppHandle, manual: bool) -> Result<()> {
     let spawned = (|| {
         let state = app.state::<AppState>();
         let (agent, command) = claude_agent(&state.config_dir)?;
-        std::fs::create_dir_all(&claude.agent_dir)?;
+        agent_dir(&claude.agent_dir)?;
         let task = Task {
             agent,
             command: program(&command),
@@ -494,6 +494,18 @@ fn start(app: &AppHandle, manual: bool) -> Result<()> {
     }
     changed(app);
     spawned.map(|_| ())
+}
+
+/// TermF's own folder for its hidden sessions, trusted ahead: it holds nothing to protect, and Claude Code's trust
+/// question there would stop the first listing or deletion for a minute before its tile shows.
+fn agent_dir(dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let trusted =
+        termf_claude::trust::set(&termf_claude::trust::file(), &[dir.to_path_buf()], true);
+    if let Err(e) = trusted {
+        eprintln!("termf: {} not trusted ahead: {e:#}", dir.display());
+    }
+    Ok(())
 }
 
 fn save_run(claude: &ClaudeState, refresh: &Refresh) {
@@ -526,10 +538,16 @@ pub fn hook(app: &AppHandle, id: u32, event: &str, payload: &Value) -> Option<Va
         }
     }
     let state = app.state::<AppState>();
-    if event == "PreToolUse"
-        && let Some(policy) = state.api.policy(id)
-    {
-        return Some(artifacts::decide(&policy, payload));
+    if let Some(policy) = state.api.policy(id) {
+        match event {
+            "PreToolUse" => return Some(artifacts::decide(&policy, payload)),
+            "PermissionRequest" => {
+                if let Some(answer) = artifacts::decide_permission(&policy, payload) {
+                    return Some(answer);
+                }
+            }
+            _ => {}
+        }
     }
     let step = claude.refresh.lock().unwrap().hook(id, event, payload);
     apply(app, id, step);

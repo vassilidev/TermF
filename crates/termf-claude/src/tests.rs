@@ -857,7 +857,15 @@ fn a_hidden_session_may_only_do_its_task() {
         call("mcp__x__Artifact", json!({"action": "delete", "url": URL})),
     ] {
         assert_eq!(decision(&delete, refused.clone()), "deny", "{refused}");
+        assert_eq!(
+            artifacts::decide_permission(&delete, &refused),
+            None,
+            "{refused}"
+        );
     }
+    let confirmed = call("Artifact", json!({"action": "delete", "url": URL}));
+    assert!(artifacts::decide_permission(&delete, &confirmed).is_some());
+    assert_eq!(artifacts::decide_permission(&list, &confirmed), None);
 }
 
 fn deleting(urls: &[&str]) -> Deletion {
@@ -1032,6 +1040,12 @@ printf '{"answer":"{\\"deleted\\": [], \\"failed\\": []}"}\n'"#,
         let payload = json!({"tool_name": "Artifact", "tool_input": call});
         let decision = artifacts::decide(&policy, &payload);
         if decision["hookSpecificOutput"]["permissionDecision"] == "allow" {
+            // Claude Code 2.1.330 still asks before each `Artifact` delete: TermF answers, no tile shows.
+            let answer = artifacts::decide_permission(&policy, &payload).expect("answered");
+            assert_eq!(
+                answer["hookSpecificOutput"]["decision"]["behavior"],
+                "allow"
+            );
             d.hook(4, "PostToolUse", &payload);
         } else {
             refused.push(call["url"].as_str().unwrap().to_owned());
