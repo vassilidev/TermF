@@ -679,8 +679,9 @@ impl Visual {
                 self.progress(id, n, side, k * list.len() + i, total, screen);
             }) {
                 Ok(shots) => shots,
-                // A new page's base often has no dev server yet (`Missing script: dev`): the after alone.
-                Err(e) if side == "before" => {
+                // A new page's base often has no dev server yet (`Missing script: dev`): the after alone. Any
+                // other failure (a timeout, a port taken, another server) would let a change pass unseen.
+                Err(e) if side == "before" && e.downcast_ref::<env::Ended>().is_some() => {
                     let reason = format!("{e:#}");
                     self.update(id, n, |v| v.before_missing = Some(reason.clone()))?;
                     alone = true;
@@ -788,7 +789,8 @@ impl Visual {
             true => config
                 .storybook
                 .as_deref()
-                .map(|c| start("storybook", c))
+                // Only the dev server's absence makes the after alone.
+                .map(|c| start("storybook", c).map_err(|e| anyhow::anyhow!("{e:#}")))
                 .transpose()?,
             false => None,
         };

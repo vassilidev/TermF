@@ -533,6 +533,41 @@ fn a_base_without_a_dev_server_gets_the_after_alone() {
     let _ = fs::remove_dir_all(&env.root);
 }
 
+/// The third review of PR #135: a base whose dev server runs but does not answer in time is no new page.
+#[test]
+fn a_base_whose_dev_server_does_not_answer_fails_the_version() {
+    let _serial = serial();
+    let env = Env::new("slow-base", "[visual]\nroutes = [\"/\"]\ntimeout = 2\n");
+    let file = env.config.join("projects/acme.toml");
+    let text = fs::read_to_string(&file).unwrap().replace(
+        &dev(&env.root),
+        "[ -f serve.py ] || { echo starting; sleep 30; }; exec python3 serve.py {{ port }}",
+    );
+    fs::write(&file, text).unwrap();
+    fs::write(env.repo.join("serve.py"), SERVE).unwrap();
+    git(&env.repo, &env.env, &["add", "serve.py"]);
+    let head = env.commit(PAGE_AFTER);
+    let visual = env.visual();
+    let review = visual
+        .start(Request {
+            repo: Some(env.repo.clone()),
+            base: Some("HEAD~1".into()),
+            head: Some(head),
+            ..Request::default()
+        })
+        .unwrap();
+    let v = captured(&visual, review.id);
+    assert_eq!(v.state, VersionState::Failed, "{v:#?}");
+    assert!(v.before_missing.is_none(), "{v:#?}");
+    let error = v.error.unwrap();
+    assert!(
+        error.starts_with("before") && error.contains("did not answer"),
+        "{error}"
+    );
+    assert!(v.screens.iter().all(|s| s.after.is_none()));
+    let _ = fs::remove_dir_all(&env.root);
+}
+
 #[test]
 fn a_capture_of_another_programs_server_fails_the_version() {
     let _serial = serial();
@@ -621,15 +656,15 @@ fn a_capture_of_another_programs_server_fails_the_version() {
     let v = captured(&visual, review.id);
     let _foreign = foreign.join().unwrap();
     assert_eq!(v.state, VersionState::Failed, "{v:#?}");
-    // The other program's screens are never kept as the before; the after then fails on its own.
-    let missing = v.before_missing.unwrap();
+    // The other program's screens are never kept as the before, nor the after taken alone.
+    assert!(v.before_missing.is_none(), "{v:#?}");
+    let error = v.error.unwrap();
     assert!(
-        missing.starts_with(
+        error.starts_with(
             "before: the dev server ended during the capture, and another server answered on its port"
         ),
-        "{missing}"
+        "{error}"
     );
-    assert!(v.error.unwrap().starts_with("after"));
     assert!(v.screens.iter().all(|s| s.before.is_none()));
     let _ = fs::remove_dir_all(&env.root);
 }
