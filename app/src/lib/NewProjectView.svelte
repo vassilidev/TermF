@@ -105,14 +105,17 @@
     if (!draft.chosen.length && !scratch && ids.indexOf(here) > ids.indexOf("repos")) draft.step = ids.indexOf("repos");
   });
   // An existing project's analysis is reused, with its answers: running it again is a choice.
+  let looked = $state(false);
   $effect(() => {
     const id = existing?.id;
-    if (!id || draft.analysis) return;
-    invoke<{ analysis: Analysis | null; answers: Record<string, string[]> }>("onboarding_state", { project: id }).then((s) => {
-      if (!s.analysis || draft.analysis || creating.project !== id) return;
-      const same = s.analysis.repos.map((r) => r.path).join("\n") === draft.chosen.join("\n");
-      if (same) Object.assign(draft, { analysis: s.analysis, analyzed: selection, answers: { ...s.answers }, failed: "" });
-    }, () => {});
+    if (!id || draft.analysis) return void (looked = true);
+    invoke<{ analysis: Analysis | null; answers: Record<string, string[]> }>("onboarding_state", { project: id })
+      .then((s) => {
+        if (!s.analysis || draft.analysis || creating.project !== id) return;
+        const same = s.analysis.repos.map((r) => r.path).join("\n") === draft.chosen.join("\n");
+        if (same) Object.assign(draft, { analysis: s.analysis, analyzed: selection, answers: { ...s.answers }, failed: "" });
+      }, () => {})
+      .finally(() => (looked = true));
   });
 
   // What creating from the idea would do, read again a moment after the owner stops typing.
@@ -404,7 +407,7 @@
             <RepoPicker bind:chosen={draft.chosen} autofocus />
           {:else if here === "understood"}
             {@render title(t("cpStepUnderstood"), t("cpUnderstoodLead"))}
-            <SetupUnderstood project={existing?.id ?? null} chosen={chosenCards} />
+            <SetupUnderstood project={existing?.id ?? null} chosen={chosenCards} auto={looked} />
           {:else if here === "questions"}
             {@render title(t("obQuestionsTitle"), understood ? (questions.length ? t("cpQuestionsLead", { count: questions.length }) : t("obNoQuestions")) : t("cpQuestionsWaiting"))}
             {#if understood && questions.length}

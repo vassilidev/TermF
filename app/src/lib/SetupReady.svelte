@@ -10,7 +10,7 @@
   import Ticket from "@lucide/svelte/icons/ticket";
   import Users from "@lucide/svelte/icons/users";
   import Workflow from "@lucide/svelte/icons/workflow";
-  import type { Component, Snippet } from "svelte";
+  import { untrack, type Component, type Snippet } from "svelte";
   import type { Detected } from "$lib/RepoDetection.svelte";
   import Segments from "$lib/ui/Segments.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
@@ -96,7 +96,7 @@
       } catch (e) {
         error = String(e);
       }
-    }, proposal ? 200 : 0);
+    }, untrack(() => proposal) ? 200 : 0);
     return () => clearTimeout(timer);
   });
 
@@ -181,7 +181,7 @@
   });
 
   $effect(() => {
-    ready = !!proposal && !!name && paths.length > 0 && detected.length === paths.length;
+    ready = !!proposal && !!name && paths.length > 0 && paths.every((p) => found[p] !== undefined);
   });
 
   const why = (r: RoleChoice) => t(teamWhy[r.why as keyof typeof teamWhy] ?? "obTeamWhyOwn", { detail: r.detail.join(", ") });
@@ -275,9 +275,11 @@
     if (trusted && !allTrusted) await attempt(() => invoke("claude_trust_set", { project: projectId, on: true }));
 
     const choices = proposal.choices;
+    // The draft is gone once the project exists: an analysis still running answers with what was chosen.
+    const given = $state.snapshot(draft.answers);
     const settle = async (analysis: Analysis) => {
       await invoke("onboarding_adopt", { project: projectId, analysis });
-      const own = Object.fromEntries(analysis.questions.filter((q) => !ownTeam(q)).map((q) => [q.id, draft.answers[q.id] ?? q.default]));
+      const own = Object.fromEntries(analysis.questions.filter((q) => !ownTeam(q)).map((q) => [q.id, given[q.id] ?? q.default]));
       const answers = { ...own, ...teamAnswers(analysis.questions, choices) };
       const edited = !!project && (await invoke<{ edited: boolean }>("onboarding_state", { project: projectId })).edited;
       await invoke("onboarding_answer", { project: projectId, answers, replace: edited });

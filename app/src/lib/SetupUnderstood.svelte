@@ -14,7 +14,8 @@
   import { approxUsd } from "$lib/usage.svelte";
 
   /** What TermF understood of each repository in two or three sentences, the details a click away; Claude Code live. */
-  let { project, chosen }: { project: string | null; chosen: Card[] } = $props();
+  /** `auto`: start reading once shown (an existing project first looks for its last analysis). */
+  let { project, chosen, auto = true }: { project: string | null; chosen: Card[]; auto?: boolean } = $props();
 
   const key = $derived(project ?? "");
   const paths = $derived(chosen.map((c) => c.path));
@@ -26,7 +27,7 @@
 
   // Claude Code reads what was chosen as soon as it is shown; another choice since is read again.
   $effect(() => {
-    if (!current && !running && paths.length) start();
+    if (auto && !current && !running && paths.length) start();
   });
 
   function start() {
