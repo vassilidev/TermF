@@ -31,11 +31,11 @@
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { toast } from "$lib/ui/toast.svelte";
   import { lang, t } from "$lib/i18n";
-  import { claudeView, loadOverview, show, showClaude, type Plugins } from "$lib/claude.svelte";
+  import { claudeView, show, showClaude, type Plugins } from "$lib/claude.svelte";
   import { talkCto } from "$lib/home.svelte";
   import { app, onScreen, shortPath } from "$lib/state.svelte";
   import { busy, kinds, library, matches, packageLabel, type Item, type Kind } from "$lib/library.svelte";
-  import { broughtBy, cost, groupOf, ladder, merge, rolesOf, sorted, switchTo, why, type Entry, type Rung, type Write } from "$lib/library-logic";
+  import { broughtBy, cost, groupOf, ladder, merge, rolesOf, sorted, switchTo, switchable, why, type Entry, type Rung, type Write } from "$lib/library-logic";
 
   type Plugin = { id: string; version: string; scope: string; enabled: boolean; description: string };
   type Picked = { plugin: Plugin } | { entry: Entry };
@@ -77,12 +77,16 @@
     refresh();
   });
 
-  // Claude Code's own plugins come with the machine's overview, read once.
+  // Claude Code's own plugins, read once the view shows: Claude Code answers in a second or two.
+  let pluginList = $state<Plugins["plugins"]>([]);
   $effect(() => {
-    if (!claudeView.overview && !claudeView.loading) loadOverview();
+    invoke<Plugins>("claude_plugins").then(
+      (p) => (pluginList = p.plugins),
+      () => (pluginList = []),
+    );
   });
   const plugins = $derived<Plugin[]>(
-    (claudeView.overview?.plugins.plugins ?? []).map((p) => ({
+    pluginList.map((p) => ({
       id: show(p.id),
       version: p.version ? show(p.version) : "",
       scope: typeof p.scope === "string" ? p.scope : "user",
@@ -174,7 +178,7 @@
         case "package":
           return t(w.on ? "lib2WhyPackageOn" : "lib2WhyPackageOff", { package: w.name });
         default: {
-          const key = { onHere: "lib2WhyOnHere", offHere: "lib2WhyOffHere", offHereOnlyHere: "lib2WhyOffHereOnlyHere", onEverywhere: "lib2WhyOnEverywhere", offEverywhere: "lib2WhyOffEverywhere", project: "lib2WhyProject", global: "lib2WhyGlobal", always: "lib2WhyAlways", shipped: "lib2WhyShipped", run: "lib2WhyRun" } as const;
+          const key = { onHere: "lib2WhyOnHere", offHere: "lib2WhyOffHere", offHereOnlyHere: "lib2WhyOffHereOnlyHere", onEverywhere: "lib2WhyOnEverywhere", offEverywhere: "lib2WhyOffEverywhere", project: "lib2WhyProject", global: "lib2WhyGlobal", always: "lib2WhyAlways", shipped: "lib2WhyShipped", run: "lib2WhyRun", team: "lib2WhyTeam", workflow: "lib2WhyWorkflow" } as const;
           return t(key[w.key]);
         }
       }
@@ -246,7 +250,7 @@
   function users(e: Entry): string[] {
     const out: string[] = [];
     if (e.kind === "workflow") return out;
-    if (e.kind === "role") out.push(t("lib2UsersTeam"));
+    if (e.kind === "role") out.push(t(e.active ? "lib2UsersTeam" : "lib2UsersTeamOnly"));
     else if (!e.active) out.push(t("lib2UsersNobody"));
     else {
       const roles = rolesOf(e);
@@ -304,6 +308,7 @@
         repo: null,
         action: { op: enable ? "enable" : "disable", plugin: p.id, scope: p.scope },
       }).then((r) => {
+        pluginList = r.plugins.plugins;
         if (claudeView.overview) claudeView.overview.plugins = r.plugins;
       });
     library.busy = true;
@@ -517,15 +522,19 @@
       <span class="why">{#if WhyIcon}<WhyIcon size={12} aria-hidden="true" />{/if}{whyText(e)}</span>
     </div>
     <span class="ly ly-{e.layer}">{t(layerLabel[e.layer])}</span>
-    <input
-      class="switch"
-      type="checkbox"
-      role="switch"
-      checked={e.active}
-      disabled={library.busy}
-      aria-label={t("itemActive", { name: e.name })}
-      onchange={(ev) => setOn(e, ev.currentTarget.checked, ev.currentTarget)}
-    />
+    {#if switchable(e)}
+      <input
+        class="switch"
+        type="checkbox"
+        role="switch"
+        checked={e.active}
+        disabled={library.busy}
+        aria-label={t("itemActive", { name: e.name })}
+        onchange={(ev) => setOn(e, ev.currentTarget.checked, ev.currentTarget)}
+      />
+    {:else}
+      <span class="no-switch" aria-hidden="true"></span>
+    {/if}
   </div>
 {/snippet}
 
@@ -562,7 +571,7 @@
     {#if e.description}<p class="description">{e.description}</p>{/if}
   </header>
 
-  <div class="onoff">
+  {#if switchable(e)}<div class="onoff">
     <label class="state">
       <input
         class="switch"
@@ -593,7 +602,7 @@
     {#if e.toggles[project ? "project" : "global"] !== undefined}
       <Button variant="link" size="sm" onclick={() => toDefault(e)}>{t("lib2Default")}</Button>
     {/if}
-  </div>
+  </div>{/if}
 
   <section class="block">
     <h4>{t(e.active ? "lib2WhyOnTitle" : "lib2WhyOffTitle")}</h4>
@@ -625,9 +634,11 @@
       <dd>{#each users(e) as line (line)}<span class="line">{line}</span>{/each}</dd>
     {/if}
     <dt>{t("lib2SourceTitle")}</dt>
-    <dd class="mono">
-      {#if e.path}{shortPath(e.path)}{:else if e.package}{packageLabel(e.package)}{:else}{t("lib2SourceShipped")}{/if}
-    </dd>
+    {#if e.path}
+      <dd class="mono">{shortPath(e.path)}</dd>
+    {:else}
+      <dd>{e.package ? packageLabel(e.package) : t("lib2SourceShipped")}</dd>
+    {/if}
   </dl>
 
   {#if e.error}
@@ -1012,6 +1023,10 @@
     font: 12px / 1.6 var(--font-mono);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+
+  .no-switch {
+    width: 30px;
   }
 
   .ai {

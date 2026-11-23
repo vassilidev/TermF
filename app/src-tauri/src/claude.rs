@@ -262,6 +262,15 @@ pub async fn claude_plugin(
     .map_err(|e| e.to_string())?
 }
 
+/// The plugins and marketplaces alone, without the rest of the overview (no MCP server is started).
+#[tauri::command]
+pub async fn claude_plugins(state: State<'_, AppState>) -> CmdResult<Plugins> {
+    let env = env(&state.config_dir, None);
+    tauri::async_runtime::spawn_blocking(move || cli::plugins(&env))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Writes an export the page built, to the path the save dialog gave, masked once more.
 #[tauri::command]
 pub fn claude_export(path: String, text: String) -> CmdResult<()> {

@@ -55,6 +55,14 @@ test("the most specific switch says why, and an item on by default but cut here 
   assert.equal(ladder(merge([{ repo: null, items: [item("x")] }])[0]).find((r) => r.decides).layer, "base");
 });
 
+test("the team's workflows have nothing to switch, and a shipped role off still plays in the team", () => {
+  const [flow, role] = merge([{ repo: null, items: [item("default", { kind: "workflow" }), item("front", { kind: "role" })] }]);
+  assert.equal(groupOf(flow), "on");
+  assert.deepEqual(why(flow), { key: "workflow" });
+  assert.equal(groupOf(role), "off");
+  assert.deepEqual(why(role), { key: "team" });
+});
+
 test("what was cut on purpose comes first among the items off", () => {
   const list = merge([{ repo: null, items: [item("a"), item("b", { toggles: { project: false } })] }]);
   assert.deepEqual(sorted(list).map((e) => e.name), ["b", "a"]);

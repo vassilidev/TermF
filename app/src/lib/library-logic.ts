@@ -34,9 +34,12 @@ export function merge(lists: { repo: string | null; items: Item[] }[]): Entry[] 
 
 export type Group = "on" | "offered" | "off";
 
+/** The team plays a workflow of its own layers whatever its switch (`termf-team`): there is nothing to switch. */
+export const switchable = (e: Pick<Item, "kind" | "layer">) => e.kind !== "workflow" || e.layer === "repo";
+
 /** Off until you switch it on, and nobody did: what a repository offers. */
 export function groupOf(e: Entry): Group {
-  if (e.active) return "on";
+  if (e.active || !switchable(e)) return "on";
   if (e.layer === "repo" && e.toggles.project === undefined && e.toggles.global === undefined) return "offered";
   return "off";
 }
@@ -57,12 +60,13 @@ export function decider(e: Entry): Layer {
 
 /** Why it is on or off, as one short reason: a key of the reasons and what fills it. */
 export type Why =
-  | { key: "onHere" | "offHere" | "offHereOnlyHere" | "onEverywhere" | "offEverywhere" | "project" | "global" | "always" | "shipped" | "run" }
+  | { key: "onHere" | "offHere" | "offHereOnlyHere" | "onEverywhere" | "offEverywhere" | "project" | "global" | "always" | "shipped" | "run" | "team" | "workflow" }
   | { key: "found"; tags: string; repos: string }
   | { key: "offered"; repo: string }
   | { key: "package"; name: string; on: boolean };
 
 export function why(e: Entry): Why {
+  if (!switchable(e)) return { key: "workflow" };
   if (e.toggles.run !== undefined) return { key: "run" };
   if (e.toggles.project !== undefined) {
     if (e.toggles.project) return { key: "onHere" };
@@ -84,7 +88,8 @@ export function why(e: Entry): Why {
     const unique = (xs: string[]) => [...new Set(xs)].join(", ");
     return { key: "found", tags: unique(e.found.map((f) => f.tag)), repos: unique(e.found.map((f) => f.repo)) };
   }
-  return { key: "shipped" };
+  // The team plays its roles whatever their switch, which only gives them to the sessions as subagents.
+  return { key: e.kind === "role" ? "team" : "shipped" };
 }
 
 /** On before any toggle, as `starts_on` in Rust decides it. */

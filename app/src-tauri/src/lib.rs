@@ -558,6 +558,7 @@ pub fn run() {
             claude::claude_mcp_json_preview,
             claude::claude_mcp_json_save,
             claude::claude_plugin,
+            claude::claude_plugins,
             claude::claude_export,
             claude::artifacts_list,
             claude::artifacts_refresh,
