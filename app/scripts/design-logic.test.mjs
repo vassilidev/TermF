@@ -1,6 +1,31 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { describe, latest, literal, passes, request, sectionOf, size, stillThere, swatches, tally, tokensOf } from "../src/lib/design-logic.ts";
+import {
+  aliased,
+  describe,
+  families,
+  fetchedFor,
+  fontState,
+  kit,
+  latest,
+  literal,
+  loadFamilies,
+  passes,
+  primitive,
+  ramps,
+  request,
+  roles,
+  sectionOf,
+  size,
+  stackOf,
+  stillThere,
+  swatches,
+  tally,
+  tokensOf,
+  tone,
+  weights,
+  withSources,
+} from "../src/lib/design-logic.ts";
 
 const t = (key, vars = {}) => `${key}${Object.keys(vars).length ? JSON.stringify(vars) : ""}`;
 const number = (n) => String(n);
@@ -38,8 +63,11 @@ const token = (over) => ({
   ...over,
 });
 
-test("sections: typography gathers fonts, sizes, weights and line heights", () => {
-  assert.deepEqual(["font", "text", "weight", "leading", "color", "spacing"].map(sectionOf), ["type", "type", "type", "type", "color", "spacing"]);
+test("sections: typography gathers fonts, sizes, weights and line heights; spacing radii; depth shadows and motion", () => {
+  assert.deepEqual(
+    ["font", "text", "weight", "leading", "color", "spacing", "radius", "shadow", "motion", "other"].map(sectionOf),
+    ["type", "type", "type", "type", "color", "spacing", "spacing", "depth", "depth", "other"],
+  );
   const tokens = [token({}), token({ name: "--text-sm", family: "text" }), token({ name: "--font", family: "font" })];
   assert.deepEqual(tokensOf(tokens, "type").map((t) => t.name), ["--text-sm", "--font"]);
 });
@@ -96,4 +124,153 @@ test("latest: a read of the repository left behind finishes without a say", () =
   const picked = reads.start();
   assert.ok(!reads.isLast(left));
   assert.ok(reads.isLast(picked));
+});
+
+const font = (over) => ({ family: "Satoshi", origin: "repo", faces: [], file: "src/app.css", line: 3, url: null, ...over });
+
+test("fonts: a stack's families, resolved through the tokens and renamed to what the view loaded", () => {
+  assert.deepEqual(families(`"Inter Variable", 'Satoshi', system-ui ,sans-serif`), ["Inter Variable", "Satoshi", "system-ui", "sans-serif"]);
+  const tokens = [token({ name: "--font-sans", family: "font", value: '"Satoshi", sans-serif' }), token({ name: "--font-body", family: "font", value: "var(--font-sans)" })];
+  assert.equal(stackOf("var(--font-body)", tokens), '"Satoshi", sans-serif');
+  assert.equal(stackOf("var(--nope, Georgia, serif)", tokens), "Georgia, serif");
+  assert.equal(aliased('"Satoshi", Helvetica, sans-serif', new Map([["satoshi", "termf-font-1"]])), '"termf-font-1", "Helvetica", sans-serif');
+});
+
+test("fonts: what the reader sees, never a font pretending to be the project's", () => {
+  const none = () => false;
+  const fonts = [font({ faces: [{ weight: "400", style: "normal", src: "data:", file: "a.woff2" }] }), font({ family: "Fraunces", origin: "service", url: "https://fonts.googleapis.com/css2?family=Fraunces" })];
+  const loaded = (f) => f === "Satoshi";
+  assert.deepEqual(fontState('"Satoshi", sans-serif', fonts, loaded, none), { family: "Satoshi", state: "loaded", shown: "Satoshi", font: fonts[0] });
+  assert.equal(fontState("Fraunces, Georgia, serif", fonts, loaded, (f) => f === "Georgia").shown, "Georgia");
+  assert.equal(fontState("Fraunces, serif", fonts, loaded, none).state, "service");
+  assert.deepEqual(
+    [fontState("Helvetica Neue, sans-serif", [], none, (f) => f === "Helvetica Neue").state, fontState("system-ui", [], none, none).state],
+    ["installed", "system"],
+  );
+  assert.deepEqual(fontState('"Söhne", "Nope", monospace', [], none, none), { family: "Söhne", state: "missing", shown: "monospace", font: null });
+});
+
+test("roles: the stylesheets first, then the token names, the headings falling back on the body", () => {
+  const tokens = [
+    token({ name: "--font-sans", family: "font", value: "Inter, sans-serif" }),
+    token({ name: "--font-display", family: "font", value: "Fraunces, serif" }),
+    token({ name: "--font-mono", family: "font", value: "ui-monospace" }),
+  ];
+  assert.deepEqual(roles([], tokens), {
+    body: { stack: "Inter, sans-serif", from: "--font-sans" },
+    heading: { stack: "Fraunces, serif", from: "--font-display" },
+    code: { stack: "ui-monospace", from: "--font-mono" },
+  });
+  const uses = [{ role: "heading", value: "var(--font-sans)", file: "a.css", line: 4 }];
+  assert.deepEqual(roles(uses, tokens).heading, { stack: "Inter, sans-serif", from: "a.css:4" });
+  assert.deepEqual(roles([], [tokens[0]]).heading, roles([], [tokens[0]]).body);
+});
+
+test("weights: the weight tokens, else what the files cover", () => {
+  assert.deepEqual(weights(null, [token({ family: "weight", value: "700" }), token({ family: "weight", value: "400" })]), [400, 700]);
+  const variable = font({ faces: [{ weight: "300 650", style: "normal", src: "", file: "" }] });
+  assert.deepEqual(weights(variable, []), [300, 400, 500, 600]);
+  assert.deepEqual(weights(font({ faces: [{ weight: "bold", style: "normal", src: "", file: "" }] }), []), [700]);
+  assert.deepEqual(weights(null, []), [400, 700]);
+});
+
+test("ramps: a numbered scale together, the rest one by one", () => {
+  const names = ["--bg", "--brand-100", "--brand-500", "--brand-900", "--space-1", "--accent"];
+  assert.deepEqual(
+    ramps(names.map((name) => token({ name }))).map((g) => [g.name, g.tokens.length]),
+    [["--bg", 1], ["--brand", 3], ["--space-1", 1], ["--accent", 1]],
+  );
+});
+
+test("components: the primitives drawn from the tokens, and the look of their variants", () => {
+  assert.deepEqual(["IconButton", "TextField", "Card", "StatusBadge", "Toast", "DataGrid"].map(primitive), ["button", "field", "card", "badge", "alert", null]);
+  assert.deepEqual(["primary", "outline", "destructive", "ghost", "fancy", "fancy"].map((v, i) => tone(v, i === 4)), ["accent", "outline", "danger", "ghost", "accent", "soft"]);
+});
+
+test("kit: the project's colors, radius and shadow by their names, in each theme", () => {
+  const tokens = [
+    token({ name: "--background", value: "#ffffff", color: "#ffffff", darkColor: "#0a0a0a" }),
+    token({ name: "--foreground", value: "#0a0a0a", color: "#0a0a0a", darkColor: "#fafafa" }),
+    token({ name: "--primary", value: "#2563eb", color: "#2563eb" }),
+    token({ name: "--primary-foreground", value: "#fff", color: "#ffffff" }),
+    token({ name: "--color-brand-100", value: "#eee", color: "#eeeeff" }),
+    token({ name: "--border", value: "#e5e7eb", color: "#e5e7eb" }),
+    token({ name: "--radius-sm", family: "radius", value: "4px", px: 4, color: null }),
+    token({ name: "--radius-md", family: "radius", value: "8px", px: 8, color: null }),
+    token({ name: "--radius-xl", family: "radius", value: "16px", px: 16, color: null }),
+  ];
+  const light = kit(tokens, false);
+  assert.deepEqual([light.bg, light.text, light.accent, light.onAccent, light.border, light.radius, light.radiusLarge], ["#ffffff", "#0a0a0a", "#2563eb", "#ffffff", "#e5e7eb", "8px", "16px"]);
+  assert.deepEqual([kit(tokens, true).bg, kit(tokens, true).text], ["#0a0a0a", "#fafafa"]);
+  assert.ok(!light.own.includes("danger") && light.own.includes("accent"));
+  const quiet = kit(
+    [
+      ...tokens,
+      token({ name: "--muted", value: "#f3f4f6", color: "#f3f4f6" }),
+      token({ name: "--muted-foreground", value: "#5b6170", color: "#5b6170" }),
+      token({ name: "--secondary", value: "#eef1fb", color: "#eef1fb" }),
+      token({ name: "--secondary-foreground", value: "#1d2a5c", color: "#1d2a5c" }),
+    ],
+    false,
+  );
+  // A `--muted` ground is never taken for a quiet text.
+  assert.deepEqual([quiet.muted, quiet.soft, quiet.onSoft], ["#5b6170", "#eef1fb", "#1d2a5c"]);
+  const bare = kit([token({ name: "--color-brand-500", value: "#16a34a", color: "#16a34a" })], false);
+  assert.deepEqual([bare.accent, bare.bg, bare.radius], ["#16a34a", "#ffffff", "6px"]);
+});
+
+test("kit: a ground is never the text, and a color without a step beats its scale's steps", () => {
+  const tokens = [
+    token({ name: "--body-bg", value: "#ffffff", color: "#ffffff" }),
+    token({ name: "--body-color", value: "#212529", color: "#212529" }),
+    token({ name: "--primary-50", value: "#eef2ff", color: "#eef2ff" }),
+    token({ name: "--primary", value: "#4f46e5", color: "#4f46e5" }),
+  ];
+  const k = kit(tokens, false);
+  assert.deepEqual([k.text, k.bg, k.accent], ["#212529", "#ffffff", "#4f46e5"]);
+  // Of a scale alone, still the step a filled control uses.
+  const scale = ["100", "600", "900"].map((n) => token({ name: `--brand-${n}`, value: n, color: `#0000${n.slice(0, 2)}` }));
+  assert.equal(kit(scale, false).accent, "#000060");
+});
+
+const face = (over) => ({ weight: "400", style: "normal", src: "", file: "a.woff2", size: 10, modified: 1, ...over });
+
+test("fonts: the bytes read apart join their faces", () => {
+  const list = [font({ faces: [face({ file: "a.woff2" }), face({ file: "b.woff2", style: "italic" }), face({ file: "", src: "data:font/woff2;base64,AA" })] })];
+  const got = withSources(list, { "a.woff2": "data:font/woff2;base64,QQ" });
+  assert.deepEqual(got[0].faces.map((f) => f.src), ["data:font/woff2;base64,QQ", "", "data:font/woff2;base64,AA"]);
+  assert.equal(list[0].faces[0].src, "", "the scan's fonts are left as they were");
+});
+
+test("fonts: an older load never writes over a newer one", async () => {
+  const loads = latest();
+  const gates = [];
+  const load = () => new Promise((resolve) => gates.push(resolve));
+  let n = 0;
+  const name = () => `termf-design-${++n}`;
+  const one = [font({ family: "Old", faces: [face({ src: "data:x" })] })];
+  const two = [font({ family: "New", faces: [face({ src: "data:y" })] })];
+  const first = loads.start();
+  const older = loadFamilies(one, load, () => loads.isLast(first), name);
+  const second = loads.start();
+  const newer = loadFamilies(two, load, () => loads.isLast(second), name);
+  gates.forEach((open) => open());
+  assert.equal(await older, null);
+  assert.deepEqual([...(await newer).aliases], [["new", "termf-design-2"]]);
+  // A family whose bytes are missing or do not decode is broken, the others load.
+  const mixed = [
+    font({ family: "Gone", faces: [face({ file: "gone.woff2" })] }),
+    font({ family: "Bad", faces: [face({ src: "data:bad", file: "bad.woff2" })] }),
+    font({ family: "Good", faces: [face({ src: "data:ok" })] }),
+  ];
+  const got = await loadFamilies(mixed, (_, f) => (f.src === "data:bad" ? Promise.reject(new Error("decode")) : Promise.resolve()), () => true, name);
+  assert.deepEqual([...got.broken], [["gone", "gone.woff2"], ["bad", "bad.woff2"]]);
+  assert.deepEqual([...got.aliases.keys()], ["good"]);
+});
+
+test("fonts: a web font fetched for a repository left meanwhile is dropped", () => {
+  const had = [font({ family: "Fraunces", origin: "service" })];
+  const got = [font({ family: "Fraunces", origin: "service", faces: [face({ src: "data:z" })] }), font({ family: "Work Sans", origin: "service" })];
+  assert.equal(fetchedFor("/code/a", "/code/b", got, had), null);
+  assert.deepEqual(fetchedFor("/code/a", "/code/a", got, had).map((f) => [f.family, f.faces.length]), [["Fraunces", 1], ["Work Sans", 0]]);
 });
