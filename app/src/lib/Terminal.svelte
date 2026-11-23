@@ -15,6 +15,10 @@
       Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit"), import("@xterm/addon-webgl")]),
     ));
 
+  /** The terminals on screen, for what the page asks of them (the selection to copy from a context menu). */
+  const shown = new Map<number, import("@xterm/xterm").Terminal>();
+  export const selectionOf = (id: number) => shown.get(id)?.getSelection() ?? "";
+
   /** Dark in both app themes: agent TUIs pick their colours for a dark terminal. */
   const theme = {
     background: "#111216",
@@ -44,6 +48,8 @@
 <script lang="ts">
   import { Channel, invoke } from "@tauri-apps/api/core";
   import "@xterm/xterm/css/xterm.css";
+  import { FONT } from "$lib/workspace-logic";
+  import { zoom } from "$lib/workspace.svelte";
 
   /**
    * `visible`: off screen, xterm is let go (ARCHITECTURE §15): the output only fills the session's scrollback, which
@@ -52,11 +58,19 @@
   let { id, visible = true }: { id: number; visible?: boolean } = $props();
   let el: HTMLDivElement;
   let kept: { top: number; length: number; cols: number; selection?: [number, number, number] } | null = null;
+  let resized: ((size: number) => void) | null = $state(null);
+  const fontSize = $derived(zoom.fonts[id] ?? FONT.base);
+
+  // ⌘+ ⌘− ⌘0 in this terminal: its cells are measured again, and the program told its new size.
+  $effect(() => {
+    const size = fontSize;
+    resized?.(size);
+  });
 
   function start([{ Terminal }, { FitAddon }, { WebglAddon }]: Modules): () => void {
     const term = new Terminal({
       fontFamily,
-      fontSize: 13,
+      fontSize,
       lineHeight: 1.1,
       cursorBlink: true,
       scrollback: 10_000,
@@ -86,6 +100,12 @@
     fitShown();
     const observer = new ResizeObserver(fitShown);
     observer.observe(el);
+    shown.set(id, term);
+    resized = (size) => {
+      if (term.options.fontSize === size) return;
+      term.options.fontSize = size;
+      fitShown();
+    };
 
     // Only onto the same history: once the program wrote meanwhile, or the width changed, the lines moved.
     const restore = () => {
@@ -125,6 +145,8 @@
         selection: range && [range.start.x, range.start.y, (range.end.y - range.start.y) * term.cols + range.end.x - range.start.x],
       };
       gone = true;
+      resized = null;
+      shown.delete(id);
       invoke("pty_detach", { id, view: channel.id }).catch(() => {});
       observer.disconnect();
       input.dispose();
@@ -147,7 +169,7 @@
   });
 </script>
 
-<div class="term" bind:this={el}></div>
+<div class="term" data-term={id} bind:this={el}></div>
 
 <style>
   .term {

@@ -31,7 +31,9 @@
   import { visual, watchVisual } from "$lib/visual.svelte";
   import { watchTray } from "$lib/remote.svelte";
   import { watchUpdates } from "$lib/release.svelte";
-  import { watchMenu } from "$lib/menu";
+  import { watchMenu } from "$lib/menu.svelte";
+  import { display } from "$lib/keymap.svelte";
+  import { nav, navColumn, toggleNav, watchWorkspace } from "$lib/workspace.svelte";
 
   let area = $state<HTMLElement>();
 
@@ -55,7 +57,9 @@
     const stopMenu = watchMenu();
     const stopUsage = watchUsage();
     const stopLive = watchLive();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopAgentEnv(), stopVisual(), stopSync(), stopTray(), stopUpdates(), stopMenu(), stopUsage(), stopLive());
+    // After the panels: two panels kept win over the view kept.
+    const stopWorkspace = watchWorkspace();
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopAgentEnv(), stopVisual(), stopSync(), stopTray(), stopUpdates(), stopMenu(), stopUsage(), stopLive(), stopWorkspace());
   });
 
   function drag(e: PointerEvent) {
@@ -86,8 +90,12 @@
 
 <svelte:window onkeydowncapture={onShortcut} />
 
-<div class="app">
+<div class="app" style:--nav-width="{navColumn()}px">
   <AppNav />
+  {#if nav.mode === "hidden"}
+    <!-- Hidden, the navigation leaves a strip on the window's edge that brings it back. -->
+    <button class="reveal" aria-label={t("wsShowNav")} title="{t('wsShowNav')} ({display('toggle_nav')})" onclick={toggleNav}></button>
+  {/if}
   <div class="main">
     <ApiConfirm />
     <UpdateBanner />
@@ -225,9 +233,9 @@
     <div class="load-error"><Banner kind="error" ondismiss={() => (ui.help = false)}>{String(error)}</Banner></div>
   {/await}
 {/if}
-{#if tour.step !== null}
-  {#await import("$lib/GuidedTour.svelte") then { default: GuidedTour }}
-    <GuidedTour />
+{#if tour.step !== null && !tour.paused}
+  {#await import("$lib/FirstLaunch.svelte") then { default: FirstLaunch }}
+    <FirstLaunch />
   {:catch error}
     <div class="load-error"><Banner kind="error" ondismiss={() => (tour.step = null)}>{String(error)}</Banner></div>
   {/await}
@@ -244,6 +252,26 @@
     display: grid;
     grid-template: minmax(0, 1fr) / var(--nav-width) minmax(0, 1fr);
     height: 100vh;
+  }
+
+  .reveal {
+    position: fixed;
+    z-index: 8;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: e-resize;
+    transition: background-color var(--dur-fast) ease-out;
+  }
+
+  .reveal:hover,
+  .reveal:focus-visible {
+    background: var(--accent);
+    outline: none;
   }
 
   .main {

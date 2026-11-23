@@ -2,6 +2,7 @@
 //! the next, its close button on macOS (it hides the window, the agents keep working), and the native menu in the
 //! app's language.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -211,8 +212,53 @@ pub fn reopen<R: Runtime>(app: &AppHandle<R>) {
 const SETTINGS: &str = "settings";
 const WEBSITE: &str = "website";
 
-/// The macOS menu bar, without Close Window, whose ⌘W would never reach the webview: there it closes a split. In the
-/// system's language, as the UI (`lang` of i18n.ts); its words are the `packagingMenu*` keys of i18n.ts (build.rs).
+/// The File and View items the page runs (`menuActions` of menu.svelte.ts), with their words and their shortcuts
+/// until the page sends its own (`menu_keys`). The page sees a key first: the menu only gets one it left alone.
+const ITEMS: [(&str, &str, &str); 8] = [
+    ("new_session", "NewSession", "Cmd+T"),
+    ("close_split", "Close", "Cmd+W"),
+    ("reopen_tab", "ReopenTab", "Cmd+Shift+T"),
+    ("toggle_nav", "ToggleNav", "Cmd+B"),
+    ("hide_nav", "HideNav", ""),
+    ("zoom_in", "ZoomIn", "Cmd+="),
+    ("zoom_out", "ZoomOut", "Cmd+-"),
+    ("zoom_reset", "ZoomReset", "Cmd+0"),
+];
+
+/// The shortcuts the menu shows, as the page last sent them.
+#[cfg(target_os = "macos")]
+static KEYS: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+
+/// The shortcut of a File or View item: the page's, else its default; none when empty.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+fn accelerator<'a>(
+    id: &str,
+    default: &'a str,
+    keys: Option<&'a HashMap<String, String>>,
+) -> Option<&'a str> {
+    let combo = keys.and_then(|k| k.get(id)).map_or(default, String::as_str);
+    (!combo.is_empty()).then_some(combo)
+}
+
+/// The page's shortcuts changed (or were read): the menu shows them.
+#[tauri::command]
+pub fn menu_keys<R: Runtime>(
+    app: AppHandle<R>,
+    keys: HashMap<String, String>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        *KEYS.lock().unwrap() = Some(keys);
+        let menu = menu(&app).map_err(|e| e.to_string())?;
+        app.set_menu(menu).map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, keys);
+    Ok(())
+}
+
+/// The macOS menu bar, without Close Window: ⌘W closes a split. In the system's language, as the UI (`lang` of
+/// i18n.ts); its words are the `packagingMenu*` keys of i18n.ts (build.rs).
 #[cfg(target_os = "macos")]
 pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R>> {
     use tauri::menu::{
@@ -239,6 +285,14 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R
         ..Default::default()
     };
     let separator = || Item::separator(app);
+    let keys = KEYS.lock().unwrap().clone();
+    let item = |id: &'static str| -> tauri::Result<MenuItem<R>> {
+        let (_, word, default) = ITEMS.iter().find(|(i, _, _)| *i == id).expect("menu item");
+        let text = w(word);
+        // A shortcut written by hand that the menu cannot show leaves the item without one.
+        MenuItem::with_id(app, id, text, true, accelerator(id, default, keys.as_ref()))
+            .or_else(|_| MenuItem::with_id(app, id, text, true, None::<&str>))
+    };
     Menu::with_items(
         app,
         &[
@@ -262,6 +316,17 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R
             )?,
             &Submenu::with_items(
                 app,
+                w("File"),
+                true,
+                &[
+                    &item("new_session")?,
+                    &item("reopen_tab")?,
+                    &separator()?,
+                    &item("close_split")?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
                 w("Edit"),
                 true,
                 &[
@@ -278,7 +343,16 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R
                 app,
                 w("View"),
                 true,
-                &[&Item::fullscreen(app, Some(w("Fullscreen")))?],
+                &[
+                    &item("toggle_nav")?,
+                    &item("hide_nav")?,
+                    &separator()?,
+                    &item("zoom_in")?,
+                    &item("zoom_out")?,
+                    &item("zoom_reset")?,
+                    &separator()?,
+                    &Item::fullscreen(app, Some(w("Fullscreen")))?,
+                ],
             )?,
             &Submenu::with_id_and_items(
                 app,
@@ -322,13 +396,17 @@ pub fn on_menu<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
                 let _ = crate::browser::open_url(site);
             }
         }
+        id if ITEMS.iter().any(|(i, _, _)| *i == id) => {
+            let _ = app.emit("menu", id);
+        }
         _ => {}
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BACKGROUNDS, MENU, Place, native, on_screen, settle};
+    use super::{BACKGROUNDS, ITEMS, MENU, Place, accelerator, native, on_screen, settle};
+    use std::collections::HashMap;
     use tauri::PhysicalPosition;
     use tauri::window::Color;
 
@@ -420,5 +498,31 @@ mod tests {
         assert!(MENU[0].contains(&("Settings", "Réglages…")));
         assert!(MENU[1].contains(&("Settings", "Settings…")));
         assert_eq!(MENU[0].len(), MENU[1].len());
+        for (_, word, _) in ITEMS {
+            assert!(
+                MENU.iter()
+                    .all(|words| words.iter().any(|(k, _)| *k == word)),
+                "{word} in both languages"
+            );
+        }
+    }
+
+    #[test]
+    fn the_menu_shows_the_shortcuts_the_page_sent() {
+        let mut keys = HashMap::new();
+        assert_eq!(accelerator("toggle_nav", "Cmd+B", None), Some("Cmd+B"));
+        keys.insert("toggle_nav".to_string(), "Cmd+Shift+B".to_string());
+        keys.insert("zoom_in".to_string(), String::new());
+        assert_eq!(
+            accelerator("toggle_nav", "Cmd+B", Some(&keys)),
+            Some("Cmd+Shift+B")
+        );
+        assert_eq!(
+            accelerator("zoom_in", "Cmd+=", Some(&keys)),
+            None,
+            "removed"
+        );
+        assert_eq!(accelerator("zoom_out", "Cmd+-", Some(&keys)), Some("Cmd+-"));
+        assert_eq!(accelerator("hide_nav", "", None), None);
     }
 }

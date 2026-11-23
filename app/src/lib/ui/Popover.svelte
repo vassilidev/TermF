@@ -6,6 +6,7 @@
     open = $bindable(),
     trigger,
     anchor,
+    point,
     label,
     align = "start",
     width,
@@ -16,6 +17,8 @@
     trigger: HTMLElement | undefined;
     /** Where it opens, when not under the trigger; the focus still comes back to the trigger. */
     anchor?: HTMLElement;
+    /** A context menu: at the pointer, kept inside the window. */
+    point?: { x: number; y: number } | null;
     label: string;
     /** Which edge of the trigger the popover lines up with. */
     align?: "start" | "end";
@@ -32,6 +35,14 @@
     if (!open || !trigger) return;
     const at = anchor ?? trigger;
     const place = () => {
+      if (point) {
+        const w = panel?.offsetWidth ?? width ?? 240;
+        const h = panel?.offsetHeight ?? 0;
+        const left = Math.max(8, Math.min(point.x, innerWidth - w - 8));
+        const top = point.y + h + 8 > innerHeight ? Math.max(8, point.y - h) : point.y;
+        style = `left: ${left}px; top: ${top}px; max-height: ${innerHeight - top - 8}px;${width ? ` width: ${width}px;` : ""}`;
+        return;
+      }
       const r = at.getBoundingClientRect();
       const side = align === "start" ? `left: ${r.left}px` : `right: ${innerWidth - r.right}px`;
       style = `${side}; top: ${r.bottom + 4}px; max-height: ${innerHeight - r.bottom - 12}px;${width ? ` width: ${width}px;` : ""}`;

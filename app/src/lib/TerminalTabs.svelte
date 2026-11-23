@@ -1,17 +1,36 @@
 <script lang="ts">
+  import Columns2 from "@lucide/svelte/icons/columns-2";
+  import Equal from "@lucide/svelte/icons/equal";
+  import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
+  import Rows2 from "@lucide/svelte/icons/rows-2";
+  import SquarePlus from "@lucide/svelte/icons/square-plus";
   import X from "@lucide/svelte/icons/x";
+  import ContextMenu, { menuKey, menuPoint, type ContextItem } from "$lib/ui/ContextMenu.svelte";
   import { initial } from "$lib/ProjectSwitcher.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import SelectionBar from "$lib/ui/SelectionBar.svelte";
-  import { focusSession, keys, openLauncher } from "$lib/commands";
+  import { focusSession, keys, openLauncher, splitActive } from "$lib/commands";
   import { isMac } from "$lib/files.svelte";
   import { t } from "$lib/i18n";
-  import { aria } from "$lib/keymap.svelte";
+  import { aria, display } from "$lib/keymap.svelte";
   import { sessionProjects } from "$lib/project.svelte";
   import { all, none, pick, within } from "$lib/select-logic";
-  import { leaves } from "$lib/split-logic";
-  import { closeTab, currentTab, entryOf, moveTab, tabName, terminals, visibleTabs, type Tab } from "$lib/tabs.svelte";
+  import { leaves, type Side } from "$lib/split-logic";
+  import {
+    closeTab,
+    currentTab,
+    entryOf,
+    equalize,
+    mergeTab,
+    moveTab,
+    showSession,
+    tabName,
+    tabOf,
+    terminals,
+    visibleTabs,
+    type Tab,
+  } from "$lib/tabs.svelte";
   import { app, grid, type Session } from "$lib/state.svelte";
 
   const list = $derived(visibleTabs());
@@ -23,9 +42,69 @@
   let closeTrigger = $state<HTMLElement>();
   let asking = $state(false);
   let dragged = $state<number | null>(null);
-  let drag: { tab: Tab; x: number } | null = null;
+  let drag: { tab: Tab; x: number; y: number } | null = null;
   // The click that ends a drag is not a selection.
   let moved = false;
+  /** Dragged below the bar: the split it would go beside, the side, and that half of the split on screen. */
+  let drop = $state<{ id: number; side: Side; box: { left: number; top: number; width: number; height: number } } | null>(null);
+  /** The splits it could go beside, outlined while it is dragged over them. */
+  let targets = $state<DOMRect[]>([]);
+
+  let menuOpen = $state(false);
+  let menuAt = $state<{ x: number; y: number } | null>(null);
+  let menuTrigger = $state<HTMLElement>();
+  let menuItems = $state<ContextItem[]>([]);
+
+  /** A tab's actions at the pointer: its splits, its name, closing it. */
+  function openMenu(e: MouseEvent | KeyboardEvent, tab: Tab) {
+    e.preventDefault();
+    const count = leaves(tab.root).length;
+    menuTrigger = e.currentTarget as HTMLElement;
+    menuAt = menuPoint(e);
+    const beside = (side: Side) => () => splitActive(side, tab.active);
+    menuItems = [
+      { label: t("t6aSplitRight"), icon: Columns2, kbd: display("split_right"), run: beside("right") },
+      { label: t("t6aSplitDown"), icon: Rows2, kbd: display("split_down"), run: beside("down") },
+      {
+        label: t("wsSplitWith"),
+        icon: SquarePlus,
+        run: () => {
+          showSession(tab.active);
+          openLauncher("right");
+        },
+      },
+      ...(count > 1 ? [{ label: t("t6aEqualize"), icon: Equal, kbd: display("equalize_splits"), run: () => equalize(tab) }] : []),
+      { label: t("wsRenameTab"), icon: Pencil, divider: true, run: () => (renaming = tab.id) },
+      { label: t("t6aCloseTab"), icon: X, run: () => askClose(tab, menuTrigger!) },
+    ];
+    menuOpen = true;
+  }
+
+  const sideLabel = { left: "wsDropLeft", right: "wsDropRight", up: "wsDropUp", down: "wsDropDown" } as const;
+
+  /** The visible split under the pointer, outside the dragged tab, and the edge it is nearest to. */
+  function dropAt(x: number, y: number, dragged: Tab) {
+    const tiles = [...document.querySelectorAll<HTMLElement>(".panes .tile[data-session]:not([hidden])")].filter(
+      (el) => tabOf(Number(el.dataset.session)) !== dragged,
+    );
+    targets = tiles.map((el) => el.getBoundingClientRect());
+    const at = tiles.find((el) => {
+      const r = el.getBoundingClientRect();
+      return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+    });
+    if (!at) return null;
+    const r = at.getBoundingClientRect();
+    const dx = (x - r.left) / r.width - 0.5;
+    const dy = (y - r.top) / r.height - 0.5;
+    const side: Side = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? "left" : "right") : dy < 0 ? "up" : "down";
+    const half = {
+      left: { left: r.left, top: r.top, width: r.width / 2, height: r.height },
+      right: { left: r.left + r.width / 2, top: r.top, width: r.width / 2, height: r.height },
+      up: { left: r.left, top: r.top, width: r.width, height: r.height / 2 },
+      down: { left: r.left, top: r.top + r.height / 2, width: r.width, height: r.height / 2 },
+    }[side];
+    return { id: Number(at.dataset.session), side, box: half };
+  }
 
   const sessionsOf = (tab: Tab) =>
     leaves(tab.root)
@@ -95,15 +174,22 @@
   function down(e: PointerEvent, tab: Tab) {
     moved = false;
     if (e.button !== 0) return;
-    drag = { tab, x: e.clientX };
+    drag = { tab, x: e.clientX, y: e.clientY };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
   function over(e: PointerEvent) {
-    if (!drag || (!moved && Math.abs(e.clientX - drag.x) < 5)) return;
+    if (!drag || (!moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5)) return;
     moved = true;
     dragged = drag.tab.id;
     const bar = (e.currentTarget as HTMLElement).closest("[role=tablist]");
+    // Below the bar, over the splits: beside one of them, on the edge it is nearest to.
+    if (bar && e.clientY > bar.getBoundingClientRect().bottom + 4) {
+      drop = dropAt(e.clientX, e.clientY, drag.tab);
+      return;
+    }
+    drop = null;
+    targets = [];
     const under = [...(bar?.querySelectorAll<HTMLElement>("[data-tab]") ?? [])].find((el) => {
       const r = el.getBoundingClientRect();
       return e.clientX >= r.left && e.clientX < r.right;
@@ -112,9 +198,23 @@
     if (target && target.id !== drag.tab.id) moveTab(drag.tab, target);
   }
 
+  /** Let go: dropped on a split, the tab joins it. */
   function up() {
+    const from = drag?.tab;
+    const to = drop;
+    cancel();
+    if (from && to) {
+      mergeTab(from, to.id, to.side);
+      focusSession(from.active);
+    }
+  }
+
+  /** A drag the system took away (another window, a gesture) drops nothing. */
+  function cancel() {
     drag = null;
     dragged = null;
+    drop = null;
+    targets = [];
     setTimeout(() => (moved = false));
   }
 
@@ -171,8 +271,9 @@
             onpointerdown={(e) => down(e, tab)}
             onpointermove={over}
             onpointerup={up}
-            onpointercancel={up}
-            onkeydown={(e) => onkeydown(e, tab)}
+            onpointercancel={cancel}
+            onkeydown={(e) => (menuKey(e) ? openMenu(e, tab) : onkeydown(e, tab))}
+            oncontextmenu={(e) => openMenu(e, tab)}
           >
             {#if sessionsOf(tab).some((s) => s.running && s.status === "waiting")}
               <span class="dot" role="img" aria-label={t("statusWaiting")}></span>
@@ -225,6 +326,27 @@
       </button>
     {/if}
   </SelectionBar>
+{/if}
+
+<ContextMenu bind:open={menuOpen} point={menuAt} trigger={menuTrigger} label={t("t6aTabs")} items={menuItems} />
+
+{#if dragged !== null && (drop || targets.length)}
+  <!-- Where a tab dragged over the splits would go: each split outlined, the half it would take filled. -->
+  {#each targets as r, i (i)}
+    <div class="target" style:left="{r.left}px" style:top="{r.top}px" style:width="{r.width}px" style:height="{r.height}px" aria-hidden="true"></div>
+  {/each}
+  {#if drop}
+    <div
+      class="zone"
+      style:left="{drop.box.left}px"
+      style:top="{drop.box.top}px"
+      style:width="{drop.box.width}px"
+      style:height="{drop.box.height}px"
+      aria-hidden="true"
+    >
+      <span>{t(sideLabel[drop.side])}</span>
+    </div>
+  {/if}
 {/if}
 
 <Popover bind:open={asking} trigger={closeTrigger} label={t("t6aCloseTab")} width={300}>
@@ -290,6 +412,40 @@
 
   .tab.dragged {
     opacity: 0.6;
+  }
+
+  .target,
+  .zone {
+    position: fixed;
+    z-index: 25;
+    border-radius: var(--radius-lg);
+    pointer-events: none;
+  }
+
+  .target {
+    border: 1.5px dashed var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+
+  .zone {
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    transition:
+      left var(--dur-fast) var(--ease-out),
+      top var(--dur-fast) var(--ease-out),
+      width var(--dur-fast) var(--ease-out),
+      height var(--dur-fast) var(--ease-out);
+  }
+
+  .zone span {
+    padding: 4px 10px;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    color: var(--accent-text);
+    font-size: var(--text-sm);
+    font-weight: 600;
   }
 
   .tab.chosen {

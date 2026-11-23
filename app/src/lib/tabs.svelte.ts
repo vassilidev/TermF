@@ -2,6 +2,7 @@ import * as split from "$lib/split-logic";
 import type { Pane, Side } from "$lib/split-logic";
 import { shown } from "$lib/project.svelte";
 import { neighbour, tileName } from "$lib/tile-logic";
+import { pushRecent } from "$lib/workspace-logic";
 // Each module reads the other only inside functions, so the import cycle is safe.
 import { app, closeSession, openRepos, openSession, type Layout, type Session } from "$lib/state.svelte";
 
@@ -23,6 +24,8 @@ export const terminals = $state({
   current: null as number | null,
   /** The running session whose close waits for a confirmation. */
   asking: null as number | null,
+  /** The tabs and splits closed by the user, newest first: each a one-tab layout to open again (⌘⇧T). */
+  closed: [] as Layout[],
 });
 
 let nextId = 1;
@@ -156,14 +159,17 @@ export async function openFrom(
   return last;
 }
 
-/** Each saved tab in a tab of its own; a layout saved before tabs, or unreadable, as one tab in a grid. */
-export async function openLayout(layout: Layout) {
+/**
+ * Each saved tab in a tab of its own; a layout saved before tabs, or unreadable, as one tab in a grid. Returns the
+ * session the first tab opens on.
+ */
+export async function openLayout(layout: Layout): Promise<number | null> {
   const count = layout.sessions.length;
   const saved = (layout.tabs ?? []).map((tab) => ({ name: tab.name ?? "", root: split.decode(tab.splits, count) }));
   const used = saved.flatMap((tab) => (tab.root === null ? [] : split.leaves(tab.root)));
   const valid = saved.length > 0 && saved.every((tab) => tab.root !== null) && new Set(used).size === used.length;
   const plan = valid ? saved : [{ name: "", root: split.grid(layout.sessions.map((_, i) => i)) }];
-  let first = true;
+  let first: number | null = null;
   for (const { name, root } of plan) {
     if (root === null) continue;
     const opened = new Map<number, number>();
@@ -181,11 +187,14 @@ export async function openLayout(layout: Layout) {
         });
         const tab = newTab(tree ?? ids[0], ids[0]);
         tab.name = name;
-        if (first) terminals.current = tab.id;
-        first = false;
+        if (first === null) {
+          terminals.current = tab.id;
+          first = tab.active;
+        }
       },
     );
   }
+  return first;
 }
 
 /** The tabs on screen as a layout: their sessions, and each tab's splits over them. */
@@ -197,6 +206,43 @@ export function layoutOf(name: string): Layout {
     sessions: ids.map((id) => ({ path: sessionOf(id)?.cwd ?? "", agent: sessionOf(id)?.agent ?? null })),
     tabs: tabs.map((tab) => ({ name: tab.name, splits: split.encode(tab.root, ids) })),
   };
+}
+
+/** Kept to open again, a tab whole or one split: `name` for the palette, `given` the one the user gave the tab. */
+function remember(ids: number[], root: Pane, name: string, given = "") {
+  const sessions = ids.map((id) => sessionOf(id)).filter((s): s is Session => !!s);
+  if (sessions.length !== ids.length) return;
+  const layout = {
+    name,
+    sessions: sessions.map((s) => ({ path: s.cwd, agent: s.agent })),
+    tabs: [{ name: given, splits: split.encode(root, ids) }],
+  };
+  terminals.closed = pushRecent(terminals.closed, layout);
+}
+
+/** The `i`-th tab closed last, opened again in a new tab; returns the session that takes the keyboard. */
+export async function reopenTab(i = 0): Promise<number | null> {
+  const [layout] = terminals.closed.splice(i, 1);
+  return layout ? openLayout(layout) : null;
+}
+
+/** A split beside `id` running the same tool in the same folder: one gesture, no launcher. */
+export async function splitSame(id: number, side: Side): Promise<number | null> {
+  const s = sessionOf(id);
+  if (!s) return null;
+  showSession(id);
+  return openFrom([s.cwd], s.agent, side);
+}
+
+/** Every split of `from` dropped beside `at`, on `side`: the two tabs become one. */
+export function mergeTab(from: Tab, at: number, side: Side) {
+  const to = tabOf(at);
+  if (!to || to === from) return;
+  to.root = split.attach(to.root, at, from.root, side);
+  to.active = from.active;
+  to.zoom = false;
+  terminals.tabs.splice(terminals.tabs.indexOf(from), 1);
+  terminals.current = to.id;
 }
 
 /** Brings `id`'s tab to the front with `id` as its active split. */
@@ -229,6 +275,11 @@ export async function close(id: number, sure = false): Promise<number | null> {
     return null;
   }
   const tab = tabOf(id);
+  if (tab) {
+    const alone = split.leaves(tab.root).length === 1;
+    const s = sessionOf(id);
+    remember([id], id, alone ? tabName(tab) : s ? tileName(s.title, s.agent ?? "shell") : "", alone ? tab.name : "");
+  }
   const tabs = visibleTabs();
   const after = tab ? (tabs[tabs.indexOf(tab) + 1] ?? tabs[tabs.indexOf(tab) - 1]) : undefined;
   const order = tab ? split.leaves(tab.root).filter((l) => l === id || isShown(l)) : [];
@@ -243,6 +294,7 @@ export async function closeTab(tab: Tab): Promise<number | null> {
   const tabs = visibleTabs();
   const after = tabs[tabs.indexOf(tab) + 1] ?? tabs[tabs.indexOf(tab) - 1];
   const ids = split.leaves(tab.root);
+  remember(ids, tab.root, tabName(tab), tab.name);
   terminals.tabs.splice(terminals.tabs.indexOf(tab), 1);
   await Promise.all(ids.map(closeSession));
   return after ? entryOf(after) : null;
@@ -275,6 +327,10 @@ export function resizeAt(tab: Tab, path: number[], i: number, delta: number) {
 
 export function equalize(tab = currentTab()) {
   if (tab) tab.root = split.equalize(tab.root);
+}
+
+export function equalizeAt(tab: Tab, path: number[]) {
+  tab.root = split.equalizeAt(tab.root, path);
 }
 
 /** Lays the current tab out again: one tab per session, side by side, two columns, an even grid, or focus. */

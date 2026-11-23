@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  attach,
   decode,
+  equalizeAt,
   dividers,
   encode,
   entry,
@@ -145,4 +147,23 @@ test("going to a tab picks a split the current project shows", () => {
 test("tabs move by dragging", () => {
   assert.deepEqual(move(["a", "b", "c"], 0, 2), ["b", "c", "a"]);
   assert.deepEqual(move(["a", "b", "c"], 2, 0), ["c", "a", "b"]);
+});
+
+test("a tab dropped beside a split joins its tree, each split still alternating", () => {
+  // 1 | 2, then the tab 3 | 4 dropped right of 2: one row of four.
+  const row = attach(insert(1, 1, 2, "right"), 2, insert(3, 3, 4, "right"), "right");
+  assert.equal(row.dir, "row");
+  assert.deepEqual(row.children, [1, 2, 3, 4]);
+  sizes(row, [0.5, 0.25, 0.125, 0.125]);
+  // Dropped below 1 instead: a column in the row.
+  const col = attach(insert(1, 1, 2, "right"), 1, 3, "down");
+  assert.deepEqual(col, { dir: "row", sizes: [0.5, 0.5], children: [{ dir: "col", sizes: [0.5, 0.5], children: [1, 3] }, 2] });
+});
+
+test("a double click on a border evens out only that border's split", () => {
+  const skewed = resizeAt(resizeAt(three(), [], 0, 0.2), [1], 0, 0.3);
+  const even = equalizeAt(skewed, [1]);
+  sizes(even, skewed.sizes);
+  sizes(even.children[1], [0.5, 0.5]);
+  sizes(equalizeAt(skewed, []), [0.5, 0.5]);
 });
