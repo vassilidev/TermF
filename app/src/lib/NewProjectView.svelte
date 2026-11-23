@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
+  import { untrack } from "svelte";
   import Check from "@lucide/svelte/icons/check";
   import FileCode from "@lucide/svelte/icons/file-code";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
@@ -18,10 +19,10 @@
   import StreamSteps from "$lib/ui/StreamSteps.svelte";
   import Wizard, { type WizardStep } from "$lib/ui/Wizard.svelte";
   import { toast } from "$lib/ui/toast.svelte";
-  import { t } from "$lib/i18n";
+  import { lang, t } from "$lib/i18n";
   import { cleanName, nameFromIdea, parentOf, uniqueSlug } from "$lib/greenfield-logic";
   import { ensure, home as column } from "$lib/home.svelte";
-  import { cards, closeNewProject, creating, detect, draft, endNewProject, found, keep, readCards, started, forget } from "$lib/newproject.svelte";
+  import { analyze, cards, closeNewProject, creating, detect, draft, endNewProject, forget, found, keep, readCards, started } from "$lib/newproject.svelte";
   import { analyzing, readText, reads } from "$lib/onboarding.svelte";
   import { ownTeam, type Analysis } from "$lib/onboarding-logic";
   import { editProject } from "$lib/project.svelte";
@@ -116,6 +117,13 @@
         if (same) Object.assign(draft, { analysis: s.analysis, analyzed: selection, answers: { ...s.answers }, failed: "" });
       }, () => {})
       .finally(() => (looked = true));
+  });
+  // Claude Code reads what was chosen from the moment it is understood, on whatever step the setup resumes; another
+  // choice since is read again.
+  $effect(() => {
+    const after = ["understood", "questions", "ready"].includes(here);
+    if (after && looked && !understood && !analyzing[analysisKey] && draft.chosen.length)
+      untrack(() => analyze(existing?.id ?? null, [...draft.chosen], lang).catch(() => {}));
   });
 
   // What creating from the idea would do, read again a moment after the owner stops typing.
@@ -407,7 +415,7 @@
             <RepoPicker bind:chosen={draft.chosen} autofocus />
           {:else if here === "understood"}
             {@render title(t("cpStepUnderstood"), t("cpUnderstoodLead"))}
-            <SetupUnderstood project={existing?.id ?? null} chosen={chosenCards} auto={looked} />
+            <SetupUnderstood project={existing?.id ?? null} chosen={chosenCards} />
           {:else if here === "questions"}
             {@render title(t("obQuestionsTitle"), understood ? (questions.length ? t("cpQuestionsLead", { count: questions.length }) : t("obNoQuestions")) : t("cpQuestionsWaiting"))}
             {#if understood && questions.length}

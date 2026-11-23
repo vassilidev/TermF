@@ -14,8 +14,7 @@
   import { approxUsd } from "$lib/usage.svelte";
 
   /** What TermF understood of each repository in two or three sentences, the details a click away; Claude Code live. */
-  /** `auto`: start reading once shown (an existing project first looks for its last analysis). */
-  let { project, chosen, auto = true }: { project: string | null; chosen: Card[]; auto?: boolean } = $props();
+  let { project, chosen }: { project: string | null; chosen: Card[] } = $props();
 
   const key = $derived(project ?? "");
   const paths = $derived(chosen.map((c) => c.path));
@@ -24,11 +23,6 @@
   const live = $derived(reads[key]);
   const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD" });
   const budget = new Intl.NumberFormat(lang, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-
-  // Claude Code reads what was chosen as soon as it is shown; another choice since is read again.
-  $effect(() => {
-    if (auto && !current && !running && paths.length) start();
-  });
 
   function start() {
     draft.failed = "";
