@@ -15,6 +15,7 @@
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import SidePanel from "$lib/ui/SidePanel.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { showConversation } from "$lib/agents.svelte";
   import { ask, chips, currentRole, here, loadRoles, outgoing, pick, screenName, screenRole, send, threadOf, type Chip } from "$lib/ask.svelte";
   import { ensure } from "$lib/home.svelte";
@@ -47,10 +48,13 @@
 
   let draft = $state("");
 
-  // Asked to focus, or a question to prefill: in the conversation's field, or the first question's.
+  // Asked to focus, or a question to prefill: in the conversation's field once it is there, or the first question's.
+  const standing = $derived(role === "cto" || role === "expert");
   $effect(() => {
     void ask.focus;
+    void session?.id;
     untrack(async () => {
+      if (standing && !session) return;
       if (!ask.open) return;
       await tick();
       const box = document.querySelector<HTMLTextAreaElement>("[data-ask] textarea");
@@ -173,6 +177,9 @@
       {#key session.id}
         <Conversation {session} bare chips={chipRow} {outgoing} placeholder={t("aigPlaceholder", { role })} />
       {/key}
+    {:else if standing}
+      <!-- Its conversation is being opened. -->
+      <div class="pad"><Skeleton rows={4} /></div>
     {:else}
       <div class="intro">
         <Avatar {role} size="lg" />
