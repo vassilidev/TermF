@@ -4251,6 +4251,10 @@ const fr = {
   proportionateTaskMissing: "Donne le rôle et l'objectif de la tâche.",
   recetteChecks: "Vérification avant livraison",
   recetteChecksHint: "La commande que l'équipe lance avant de livrer, par exemple npm test. Vide : rien n'est vérifié.",
+  practicalVisualAlone:
+    "« Avant » n'a pas pu être capturé, le plus souvent faute de serveur de dev à la base : seul « après » l'est. Valide chaque écran sur l'« après ».",
+  practicalVisualAloneWhy: "Pourquoi",
+  practicalVisualAfterOnly: "Après seul",
 };
 
 type Key = keyof typeof fr;
@@ -8474,6 +8478,10 @@ const en: Record<Key, string> = {
   proportionateTaskMissing: "Give the task's role and goal.",
   recetteChecks: "Check before delivery",
   recetteChecksHint: "The command the team runs before delivering, for example npm test. Empty: nothing is checked.",
+  practicalVisualAlone:
+    "The “before” could not be captured, most often because the base has no dev server: only the “after” is. Decide each screen on the “after”.",
+  practicalVisualAloneWhy: "Why",
+  practicalVisualAfterOnly: "After only",
 };
 
 const messages = { fr, en };

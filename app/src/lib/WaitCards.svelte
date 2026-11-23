@@ -340,6 +340,9 @@
               <div class="box"><RunPlan {run} batch={ask.step.task} /></div>
             {:else if ask.kind === "visual" && review}
               <p class="help">{t("review5bAskHelp")}</p>
+              {#if lastReview?.beforeMissing && (lastReview.state === "ready" || lastReview.state === "done")}
+                <p class="notice warn"><TriangleAlert size={14} aria-hidden="true" />{t("practicalVisualAlone")}</p>
+              {/if}
               {#if reviewLine}<p class="muted">{reviewLine}</p>{/if}
             {:else if ask.kind === "visual"}
               <p class="help">{t("teamRunsAskVisualHelp")}</p>
