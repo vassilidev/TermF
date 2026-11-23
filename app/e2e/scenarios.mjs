@@ -612,6 +612,28 @@ export const scenarios = [
     },
   },
   {
+    name: "expert: a question in its conversation finds what was committed just before",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      await t.ready();
+      await t.project();
+      writeFileSync(join(box.acme, "DECISIONS.md"), "# Decisions\n\nA failed webhook is replayed 4 times.\n");
+      box.git("add", "-A");
+      box.git("commit", "-q", "-m", "Record the webhook decision");
+      await t.command("expert");
+      const panel = t.shown("conversations");
+      await s.type(`${panel} form.composer textarea`, "How many times is a webhook replayed?");
+      await s.click(`${panel} form.composer button[type=submit]:not([disabled])`);
+      await s.wait(async () => (await s.text(panel))?.includes("Fake Claude received: How many times"), { what: "the expert's answer" });
+      // Long before the first background indexing (60 s after the start): only the question brought the memory up to date.
+      const status = await s.exec(() => window.__TAURI_INTERNALS__.invoke("memory_status", { project: "acme" }));
+      const docs = status.sources.find((x) => x.source === "docs").docs;
+      check(docs === 2, `the expert searched a memory not brought up to date: ${docs} documents instead of README.md and DECISIONS.md`);
+      await t.clean();
+    },
+  },
+  {
     name: "files: find a file by name, then a text across the repository",
     views: [],
     async run(t) {

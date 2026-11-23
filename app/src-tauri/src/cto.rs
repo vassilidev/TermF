@@ -158,6 +158,7 @@ pub fn address(
     if role == termf_agents::EXPERT {
         let session = standing(app, id, role)?;
         mark(session.id)?;
+        memory::before_expert(app, &session);
         let queued = agents.send_or_queue(session.id, text)?;
         return Ok(Addressed {
             session: agents.session(session.id)?,

@@ -169,6 +169,19 @@ pub fn ask(app: &AppHandle, project: &str, question: &str, budget: Option<f64>) 
     })
 }
 
+/// Before a message reaches a project's expert conversation, as before `ask_expert`: the memory brought up to date.
+pub fn before_expert(app: &AppHandle, session: &AgentSession) {
+    let spec = &session.spec;
+    if !spec.mcp || spec.role.as_deref() != Some(termf_agents::EXPERT) {
+        return;
+    }
+    if let Some(project) = spec.project.as_deref()
+        && let Err(e) = index(app, Some(project))
+    {
+        eprintln!("termf: memory of {project} not brought up to date: {e:#}");
+    }
+}
+
 /// What the CLI asks through the local API.
 pub fn call(app: &AppHandle, call: MemoryCall) -> Result<Value> {
     Ok(match call {

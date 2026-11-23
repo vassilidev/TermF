@@ -203,6 +203,7 @@ pub fn call(app: &AppHandle, call: AgentCall) -> Result<Value> {
             serde_json::to_value(agents.start(serde_json::from_value(spec)?, prompt.as_deref())?)?
         }
         AgentCall::Send { session, text } => {
+            crate::memory::before_expert(app, &agents.session(session)?);
             agents.send(session, &text)?;
             Value::Null
         }
@@ -238,7 +239,12 @@ pub async fn agent_start(
 
 #[tauri::command]
 pub async fn agent_send(app: AppHandle, id: i64, text: String) -> CmdResult<()> {
-    blocking(app, move |app| agents(app).send(id, &text)).await
+    blocking(app, move |app| {
+        let agents = agents(app);
+        crate::memory::before_expert(app, &agents.session(id)?);
+        agents.send(id, &text)
+    })
+    .await
 }
 
 #[tauri::command]
