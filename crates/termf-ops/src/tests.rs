@@ -1979,7 +1979,7 @@ fn saved_queries_live_in_the_project_file_and_one_becomes_a_recipe() {
         sql: "SELECT id, total\nFROM orders\nWHERE paid_at > CURDATE()".into(),
     };
     let saved = save_query(&config, "acme", &q, None).unwrap();
-    assert_eq!(saved, [q.clone()]);
+    assert_eq!(saved, std::slice::from_ref(&q));
     let file = fs::read_to_string(config.join("projects/acme.toml")).unwrap();
     assert!(
         file.starts_with("# Acme's project"),
@@ -2076,4 +2076,201 @@ fn a_failure_says_what_is_missing() {
         assert_eq!(diagnose(said), Some(hint), "{said}");
     }
     assert_eq!(diagnose("something else"), None);
+}
+
+/// A shop's SQLite database, its connection `shop`, and Ops over it.
+#[cfg(unix)]
+fn shop(env: &Fixture) -> Connection {
+    let db = env.root.join("shop.db");
+    let seed = "CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE, country TEXT);\
+        CREATE TABLE orders(id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id), status TEXT NOT NULL, total_eur NUMERIC NOT NULL, paid_at TEXT);\
+        CREATE INDEX orders_customer ON orders(customer_id);\
+        INSERT INTO customers VALUES (1, 'Northwind', 'a@northwind.test', 'FR'), (2, 'Kestrel', 'b@kestrel.test', 'DE'), (3, 'Vega', 'c@vega.test', 'FR');\
+        INSERT INTO orders VALUES (1, 1, 'paid', 120.5, '2026-11-02'), (2, 1, 'paid', 80, '2026-11-12'), (3, 2, 'paid', 300, '2026-11-20'), (4, 3, 'refunded', 50, '2026-11-21'), (5, 3, 'paid', 10, '2026-10-30');";
+    let made = std::process::Command::new("/usr/bin/sqlite3")
+        .arg(&db)
+        .arg(seed)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    env.connection(&format!(
+        "name = \"shop\"\nkind = \"sqlite\"\nenv = \"dev\"\ndatabase = \"{}\"\n",
+        db.display()
+    ))
+}
+
+/// One question to the console's DBA as the app asks it (`ops_ask`): its schema in the first message, the `dba`
+/// role, no tool that writes or reaches out; then its query run by the console. `claude`: the agent's program,
+/// `env`: added to its environment. The answer, its cost, and the table its query gave.
+#[cfg(unix)]
+fn ask_dba(
+    env: &Fixture,
+    claude: &Path,
+    extra: Vec<(String, String)>,
+) -> (String, f64, crate::sql::Table) {
+    let conn = shop(env);
+    let vault = env.vault();
+    let runner = env.runner();
+    let (config, data) = (env.config(), env.data());
+    let ops = Ops {
+        config_dir: &config,
+        data_dir: &data,
+        vault: &vault,
+        runner: &runner,
+    };
+    let schema = ops.schema("acme", "shop").unwrap();
+    let ask = crate::dba::Ask::Write(
+        "le chiffre d'affaires payé par pays en novembre 2026, du plus grand au plus petit",
+    );
+    let prompt = crate::dba::first(&conn, &schema, false, &ask, "fr");
+    let repo = env.root.join("repo");
+    let agents_config = env.root.join("agents-config");
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(&agents_config).unwrap();
+    fs::write(
+        agents_config.join("termf.toml"),
+        format!("[agents]\nclaude = {:?}\n", claude.display().to_string()),
+    )
+    .unwrap();
+    let agents =
+        termf_agents::Agents::build(agents_config, env.root.join("agents-data"), extra, |_| {});
+    let spec = termf_agents::SessionSpec {
+        cwd: repo,
+        title: "DBA · shop".into(),
+        role: Some("dba".into()),
+        model: Some("haiku".into()),
+        effort: Some("low".into()),
+        budget: Some(0.30),
+        allowed_tools: ["Read", "Grep", "Glob"].map(String::from).to_vec(),
+        disallowed_tools: [
+            "Bash",
+            "PowerShell",
+            "Edit",
+            "Write",
+            "NotebookEdit",
+            "WebFetch",
+            "WebSearch",
+        ]
+        .map(String::from)
+        .to_vec(),
+        ..termf_agents::SessionSpec::default()
+    };
+    let session = agents.start(spec, Some(&prompt)).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(180);
+    let (answer, cost) = loop {
+        let events = agents.events(session.id, 0).unwrap();
+        let end = events.iter().find_map(|e| match &e.event {
+            termf_agents::AgentEvent::TurnEnd { cost, .. } => Some(*cost),
+            _ => None,
+        });
+        if let Some(cost) = end {
+            let text = events
+                .iter()
+                .filter_map(|e| match &e.event {
+                    termf_agents::AgentEvent::Text { text, parent: None } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            break (text, cost);
+        }
+        assert!(std::time::Instant::now() < deadline, "{events:#?}");
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    let _ = agents.stop(session.id);
+    let fence = answer.find("```sql").expect("a ```sql block");
+    let rest = &answer[fence + 6..];
+    let query = rest[..rest.find("```").expect("its end")].trim();
+    let (_, out) = ops
+        .run(
+            "acme",
+            &Actor::human(),
+            "sql-readonly",
+            "shop",
+            &params(&[("query", query)]),
+            None,
+        )
+        .unwrap();
+    assert_eq!(out.exit, Some(0), "{}", out.errors);
+    (answer, cost, out.table.unwrap())
+}
+
+/// With a stand-in for Claude Code: what the DBA gets (the schema, the language, the role's limits), and its
+/// answer's query, which the console runs on the real database.
+#[cfg(unix)]
+#[test]
+fn the_dba_gets_the_schema_and_its_query_runs_in_the_console() {
+    if !Path::new("/usr/bin/sqlite3").is_file() {
+        eprintln!("no /usr/bin/sqlite3: skipped");
+        return;
+    }
+    let env = Fixture::new("dba");
+    let sql = "SELECT c.country, sum(o.total_eur) AS total FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.status = 'paid' AND o.paid_at >= '2026-11-01' GROUP BY c.country ORDER BY total DESC";
+    let text = format!("```sql\n{sql}\n```\nLe chiffre d'affaires payé, par pays.");
+    let usage = serde_json::json!({"input_tokens": 5, "output_tokens": 7, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0});
+    let lines = [
+        serde_json::json!({"type": "system", "subtype": "init", "session_id": "@SID@", "model": "claude-haiku-5-5", "permissionMode": "default"}),
+        serde_json::json!({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "```sql\nSELECT"}}, "parent_tool_use_id": null}),
+        serde_json::json!({"type": "assistant", "message": {"model": "claude-haiku-5-5", "content": [{"type": "text", "text": text}], "usage": usage}, "parent_tool_use_id": null}),
+        serde_json::json!({"type": "result", "subtype": "success", "total_cost_usd": 0.01, "usage": usage, "modelUsage": {"claude-haiku-5-5": {"contextWindow": 200000}}, "session_id": "@SID@"}),
+    ];
+    let answer_file = env.root.join("answer.jsonl");
+    fs::write(
+        &answer_file,
+        lines.iter().map(|l| format!("{l}\n")).collect::<String>(),
+    )
+    .unwrap();
+    env.fake(
+        "claude",
+        r#"[ "$1" = --version ] && { echo '2.1.330 (Claude Code)'; exit 0; }
+printf '%s\n' "$@" > "@DIR@/claude.args"
+prev=
+for a in "$@"; do
+  if [ "$prev" = --session-id ] || [ "$prev" = --resume ]; then sid=$a; fi
+  prev=$a
+done
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "@DIR@/claude.stdin"
+  case "$line" in *'"type":"user"'*) ;; *) continue ;; esac
+  sed "s/@SID@/$sid/g" "@DIR@/answer.jsonl"
+done"#,
+    );
+    let (answer, _, table) = ask_dba(&env, &env.bin().join("claude"), Vec::new());
+    assert!(answer.contains("```sql"), "{answer}");
+    assert_eq!(table.rows, [vec!["DE", "300"], vec!["FR", "200.5"]]);
+    let stdin = fs::read_to_string(env.root.join("claude.stdin")).unwrap();
+    assert!(
+        stdin.contains("orders(id INTEGER pk, customer_id INTEGER not null"),
+        "{stdin}"
+    );
+    assert!(stdin.contains("Answer in French") && stdin.contains("You see no rows"));
+    let args = fs::read_to_string(env.root.join("claude.args")).unwrap();
+    for word in [
+        "--model\nhaiku",
+        "--disallowedTools\nBash",
+        "--disallowedTools\nWebFetch",
+    ] {
+        assert!(args.contains(word), "{word} in {args}");
+    }
+}
+
+/// The same with the real Claude Code (Haiku, 0.30 $ at most). Not run by the automatic checks: it needs the
+/// user's Claude Code login. `TERMF_REAL_CLAUDE=<claude binary> DISABLE_AUTOUPDATER=1 cargo test -p termf-ops --
+/// --ignored real_dba --nocapture`
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn real_dba() {
+    let claude = std::env::var("TERMF_REAL_CLAUDE").expect("TERMF_REAL_CLAUDE: a claude binary");
+    let env = Fixture::new("real-dba");
+    let (answer, cost, table) = ask_dba(
+        &env,
+        Path::new(&claude),
+        vec![("DISABLE_AUTOUPDATER".into(), "1".into())],
+    );
+    eprintln!(
+        "DBA ({cost:.4} $):\n{answer}\n{}",
+        crate::sql::render(&table)
+    );
+    assert_eq!(table.rows.len(), 2, "DE then FR: {table:?}");
 }

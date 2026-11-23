@@ -31,5 +31,7 @@ zip = { version = "9.8.1", default-features = false }
 libc = "0.2.191"
 
 [dev-dependencies]
+# The DBA with the real Claude Code, in an ignored test.
+termf-agents = { path = "../termf-agents" }
 termf-core = { path = "../termf-core", features = ["test-util"] }
 termf-sync = { path = "../termf-sync" }

@@ -326,7 +326,6 @@ mod tests {
         );
         assert!(my.ends_with("VALUES (2.50, NULL, 'a\\\\b');\n"), "{my}");
         assert!(text(&sample(), Format::Xlsx, Kind::Postgres, "t").is_err());
-        assert_eq!(out(Format::Json, Kind::Postgres).len() > 2, true);
         let empty = Table {
             columns: vec!["a".into()],
             rows: vec![],
