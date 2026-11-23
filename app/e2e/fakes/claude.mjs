@@ -3,7 +3,7 @@
 // of its `--plugin-dir` and `--settings` as the real one does, so TermF sees its status.
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, readdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -48,12 +48,61 @@ export function fill(schema, root = schema) {
   }
 }
 
+/** What the agents of the team's acceptance run (PR #131) ran in their steps, each of which asked the user then. */
+export const ACCEPTANCE_COMMANDS = [
+  "git status --short; echo ---; cat README.md; npm test | tail",
+  "git diff HEAD~1 -- src",
+  "git log --oneline -5",
+  "ls -la src",
+  "cat package.json | jq .scripts",
+  "grep -rn greet src",
+  "find . -name '*.js' -not -path './node_modules/*'",
+  "npm test 2>&1 | tail -20",
+  "wc -l src/app.js",
+  "head -n 20 README.md",
+  "npm install left-pad",
+  "curl -s https://example.com",
+];
+
+/**
+ * A step of a team run, as an agent meets it: the skills its brief lists (and whether its plugin has them), whether
+ * the brief and its role tell it to use them, and which of the acceptance run's commands its PreToolUse hooks still leave
+ * to the user (allowed: a hook allows it and none refuses or asks). One line in the log.
+ */
+function teamStep(prompt) {
+  const key = prompt.match(/^Step `([^`]+)`/)?.[1];
+  const section = prompt.split("\n## Your skills\n")[1]?.split("\n## ")[0] ?? "";
+  const skills = [...section.matchAll(/^- `([^`]+)`: /gm)].map((m) => m[1]);
+  const missing = skills.filter((n) => !all("--plugin-dir").some((d) => existsSync(`${d}/skills/${n}/SKILL.md`)));
+  const told = section.includes("invoke with the Skill tool");
+  const prompt_file = flag("--append-system-prompt-file");
+  const role = !!prompt_file && existsSync(prompt_file) && readFileSync(prompt_file, "utf8").includes("Start from your skills");
+  const pre = hooks().PreToolUse ?? [];
+  const asked = ACCEPTANCE_COMMANDS.filter((command) => {
+    const input = JSON.stringify({ session_id: "e2e", cwd: process.cwd(), hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } });
+    const outs = pre.map((h) => spawnSync(h.command, h.args ?? [], { input, encoding: "utf8", timeout: (h.timeout ?? 60) * 1000 }));
+    const said = (d) => outs.some((o) => o.stdout?.includes(`"permissionDecision":"${d}"`));
+    return !said("allow") || said("ask") || outs.some((o) => o.status === 2);
+  });
+  const line = `team-step ${key} skills=${skills.join(",") || "none"} missing=${missing.join(",") || "none"} told=${told} role=${role} asks=${asked.length}/${ACCEPTANCE_COMMANDS.length} ${asked.join(" | ")}`;
+  if (process.env.TERMF_E2E_LOG) appendFileSync(process.env.TERMF_E2E_LOG, `${line}\n`);
+}
+
+/** A plan of one task for the back-end developer, for a planner's schema. */
+const PLAN = {
+  summary: "Fix the greeting.",
+  acceptance: [{ id: "AC1", text: "The greeting says hello." }],
+  out_of_scope: [],
+  questions: [],
+  tasks: [{ id: "T1", role: "back", squad: "", repo: "", size: "S", covers: ["AC1"], goal: "Fix the greeting in src/app.js", files_hint: ["src/app.js"], depends_on: [], ui_impact: false }],
+};
+
 const usage = { input_tokens: 5, output_tokens: 7, cache_read_input_tokens: 900, cache_creation_input_tokens: 100 };
 
 function turn(sid, prompt, schema) {
   const text = `Fake Claude received: ${prompt}`.slice(0, 200);
   const result = { type: "result", subtype: "success", is_error: false, result: text, total_cost_usd: 0.001, usage, session_id: sid };
-  if (schema) result.structured_output = fill(schema);
+  if (schema) result.structured_output = schema.properties?.tasks && schema.properties?.acceptance ? PLAN : fill(schema);
   return [
     { type: "system", subtype: "init", session_id: sid, model: "claude-haiku-5-5", permissionMode: "default", tools: [], mcp_servers: [] },
     { type: "assistant", message: { model: "claude-haiku-5-5", content: [{ type: "text", text }], usage }, parent_tool_use_id: null, session_id: sid },
@@ -121,6 +170,7 @@ async function headless() {
         say({ type: "control_response", response: { subtype: "success", request_id: id, response: {} } });
       } else if (line.includes('"type":"user"')) {
         const prompt = promptOf(line);
+        if (prompt.startsWith("Step `")) teamStep(prompt);
         if (/\bslowly\b/i.test(prompt)) await slowTurn(sid, prompt);
         else turn(sid, prompt, schema).forEach(say);
       }
@@ -146,7 +196,8 @@ function hooks() {
   for (const file of files) {
     let json;
     try {
-      json = JSON.parse(readFileSync(file, "utf8"));
+      // `--settings` takes a file or the JSON itself.
+      json = JSON.parse(file.trim().startsWith("{") ? file : readFileSync(file, "utf8"));
     } catch {
       continue;
     }

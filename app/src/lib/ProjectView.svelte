@@ -14,6 +14,7 @@
   import RepoPicker from "$lib/RepoPicker.svelte";
   import StackOffers from "$lib/StackOffers.svelte";
   import TeamDecisions from "$lib/TeamDecisions.svelte";
+  import TeamReadFreely from "$lib/TeamReadFreely.svelte";
   import TeamRoles from "$lib/TeamRoles.svelte";
   import TeamSquads from "$lib/TeamSquads.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
@@ -417,6 +418,7 @@
           <section class="sec" hidden={current !== "team"} aria-labelledby="config-team">
             <h2 id="config-team">{t("t5Team")}</h2>
             <p class="help">{t("t6bHelpTeam")}</p>
+            <TeamReadFreely project={id} />
             <TeamSquads project={id} />
             <TeamRoles project={id} />
             <TeamDecisions project={id} />

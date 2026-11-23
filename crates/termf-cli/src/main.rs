@@ -92,6 +92,9 @@ usage:
   termf close <run> [--force]           remove the run's worktree (--force drops work not pushed)
   termf guard                           refuse pushes and tracker writes in a run's session
                                         (Claude Code PreToolUse hook, JSON on stdin)
+  termf guard --worktree <dir> [--allow <command>]...
+                                        the same, and a team's step reads and runs these commands in
+                                        its worktree without asking
   termf schedule list                   scheduled tasks, their schedule and next run
   termf schedule add <name> --cron '<min hour day month weekday>' --prompt <text|-> [--dir <path>]
                      [--tile] [--model <m>] [--effort <e>] [--permission-mode <p>] [--budget <usd>]
@@ -284,8 +287,8 @@ fn main() -> ExitCode {
         }
         _ => {}
     }
-    if let ["guard"] = args.as_slice() {
-        return tickets::guard();
+    if let ["guard", rest @ ..] = args.as_slice() {
+        return tickets::guard(rest);
     }
     if let Ok(config_dir) = termf_core::default_config_dir() {
         termf_core::agent_env::configure(config_dir, env::current_exe().ok());

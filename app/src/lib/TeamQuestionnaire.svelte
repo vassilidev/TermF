@@ -22,7 +22,7 @@
   import Send from "@lucide/svelte/icons/send";
   import QuestionInput from "$lib/ui/QuestionInput.svelte";
   import type { Snippet } from "svelte";
-  import { byTheme, implications, proposed, unanswered, withOthers, type Question, type TeamRun } from "$lib/team-run-logic";
+  import { byTheme, implications, proposed, reversed, unanswered, withOthers, type Question, type TeamRun } from "$lib/team-run-logic";
   import { upsertRun } from "$lib/team.svelte";
 
   /**
@@ -89,6 +89,7 @@
           <input class="field other" placeholder={t("ctoEntryOther")} aria-label={t("ctoEntryOther")} bind:value={others[q.id]} />
         {/if}
         {#if implications(q).length}
+          {#if reversed(q)}<p class="reversed">{t("practicalPrReversed")}</p>{/if}
           <ul class="implications">
             {#each implications(q) as row, i (i)}
               <li>
@@ -155,6 +156,12 @@
   .why {
     color: var(--muted);
     line-height: 1.45;
+  }
+
+  .reversed {
+    margin: 0 0 4px;
+    color: var(--warning);
+    font-size: var(--text-sm);
   }
 
   .implications {

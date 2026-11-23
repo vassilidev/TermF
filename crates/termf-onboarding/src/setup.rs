@@ -3,7 +3,6 @@
 //! creating it would write.
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -14,7 +13,7 @@ use anyhow::Result;
 use serde::Serialize;
 use termf_library::stack::{self, RepoStack, Tag};
 use termf_library::{Item, Kind as ItemKind, Layer, Scope};
-use termf_worktree::RepoRecipe;
+use termf_worktree::{RepoRecipe, Script, scripts};
 use toml_edit::DocumentMut;
 
 use crate::Facts;
@@ -42,13 +41,6 @@ pub struct Card {
     pub changes: usize,
     /// The stack's tags, as the library reads them.
     pub stack: Vec<String>,
-}
-
-/// A command a repository declares for a kind of work: `test`, `build`, `dev` or `lint`.
-#[derive(Serialize, Clone, Debug, PartialEq)]
-pub struct Script {
-    pub kind: String,
-    pub run: String,
 }
 
 /// What TermF finds by itself in a repository.
@@ -91,7 +83,6 @@ const KEYS_READ: &str = "-200";
 /// Words shaped like a ticket key that name a standard: `UTF-8`, `ISO-8601`, `SHA-256`…
 const NOT_KEYS: [&str; 8] = ["UTF", "ISO", "SHA", "CVE", "RFC", "PEP", "ES", "HTTP"];
 const MAX_KEYS: usize = 3;
-const SCRIPT_KINDS: [&str; 4] = ["dev", "build", "test", "lint"];
 /// How long a repository's facts are kept between the detection and the proposal.
 const FACTS_FOR: Duration = Duration::from_secs(120);
 
@@ -205,81 +196,6 @@ pub fn cards(paths: &[String]) -> Vec<Card> {
     let mut found = found.into_inner().unwrap_or_else(|e| e.into_inner());
     found.sort_by_key(|(i, _)| *i);
     found.into_iter().map(|(_, c)| c).collect()
-}
-
-/// The commands a repository declares: its `package.json` scripts, else its Makefile's targets, then what its
-/// toolchain always has (`cargo test`, `go test ./...`).
-fn scripts(repo: &Path, recipe: &RepoRecipe) -> Vec<Script> {
-    let mut found: Vec<Script> = Vec::new();
-    let mut add = |kind: &str, run: String| {
-        if !found.iter().any(|s| s.kind == kind) {
-            found.push(Script {
-                kind: kind.into(),
-                run,
-            });
-        }
-    };
-    let manager = recipe
-        .stack
-        .iter()
-        .find_map(|s| s.strip_prefix("node:"))
-        .unwrap_or("npm");
-    let package = fs::read_to_string(repo.join("package.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
-    if let Some(scripts) = package.as_ref().and_then(|p| p["scripts"].as_object()) {
-        for kind in SCRIPT_KINDS {
-            let name = match kind {
-                "lint" if !scripts.contains_key("lint") && scripts.contains_key("check") => "check",
-                _ => kind,
-            };
-            // `npm init`'s placeholder test always fails: as checks, it would block every delivery.
-            let placeholder = scripts
-                .get(name)
-                .and_then(|s| s.as_str())
-                .is_some_and(|s| s.contains("no test specified"));
-            if scripts.contains_key(name) && !placeholder {
-                let run = match (manager, name) {
-                    ("npm", "test") => "npm test".to_owned(),
-                    ("npm" | "bun", _) => format!("{manager} run {name}"),
-                    _ => format!("{manager} {name}"),
-                };
-                add(kind, run);
-            }
-        }
-    }
-    let composer = fs::read_to_string(repo.join("composer.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
-    if let Some(scripts) = composer.as_ref().and_then(|c| c["scripts"].as_object()) {
-        for kind in SCRIPT_KINDS.iter().filter(|k| scripts.contains_key(**k)) {
-            add(kind, format!("composer {kind}"));
-        }
-    }
-    if repo.join("artisan").is_file() {
-        add("test", "php artisan test".into());
-    }
-    if let Ok(make) = fs::read_to_string(repo.join("Makefile")) {
-        for kind in SCRIPT_KINDS {
-            if make.lines().any(|l| {
-                l.strip_prefix(kind)
-                    .is_some_and(|rest| rest.trim_start().starts_with(':'))
-            }) {
-                add(kind, format!("make {kind}"));
-            }
-        }
-    }
-    if repo.join("Cargo.toml").exists() {
-        add("build", "cargo build".into());
-        add("test", "cargo test".into());
-        add("lint", "cargo clippy".into());
-    }
-    if repo.join("go.mod").exists() {
-        add("build", "go build ./...".into());
-        add("test", "go test ./...".into());
-    }
-    found.sort_by_key(|s| SCRIPT_KINDS.iter().position(|k| *k == s.kind));
-    found
 }
 
 /// The prefixes of the ticket keys (`ACME-142`) cited at least twice in `subjects`, the most cited first.

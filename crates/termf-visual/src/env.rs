@@ -131,6 +131,18 @@ pub(crate) fn cached(
     Ok((dir, notes))
 }
 
+/// A dev server that ended before it answered: the worktree has none to run (`Missing script: dev`).
+#[derive(Debug)]
+pub(crate) struct Ended(String);
+
+impl std::fmt::Display for Ended {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Ended {}
+
 /// A dev server, stopped with what it started when dropped.
 pub(crate) struct Server {
     child: Child,
@@ -208,11 +220,12 @@ impl Server {
                 return Ok(());
             }
             if let Some(status) = self.child.try_wait()? {
-                bail!(
+                return Err(Ended(format!(
                     "the dev server ended ({status}) before answering on port {}: {}",
                     self.port,
                     self.tail()
-                );
+                ))
+                .into());
             }
             if Instant::now() > deadline {
                 bail!(

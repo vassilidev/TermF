@@ -1267,7 +1267,7 @@ fn a_guarded_session_never_runs_without_termf_guard() {
     env.settle(id, 1, State::Idle);
     let args = env.args().pop().unwrap();
     let settings: Value = serde_json::from_str(arg_after(&args, "--settings").unwrap()).unwrap();
-    assert_eq!(settings, termf_core::claude::guard_settings(&termf));
+    assert_eq!(settings, termf_core::claude::guard_settings(&termf, None));
     assert!(
         env.agents.takeover(id).unwrap().guard,
         "its terminal keeps it"

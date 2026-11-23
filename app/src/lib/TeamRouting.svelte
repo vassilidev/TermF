@@ -61,6 +61,10 @@
       <dt>{t("ctoEntrySquads")}</dt>
       <dd>{routing.squads.join(", ")}</dd>
     {/if}
+    {#if routing.roles?.length}
+      <dt>{t("practicalTeamRolesAdded")}</dt>
+      <dd>{routing.roles.join(", ")}</dd>
+    {/if}
     {#if routing.efforts.length}
       <dt>{t("ctoEntryEfforts")}</dt>
       <dd>{routing.efforts.map((e) => `${stepTitle(e.step)} ${e.effort}`).join(", ")}</dd>

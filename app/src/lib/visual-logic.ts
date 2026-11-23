@@ -39,6 +39,8 @@ export type Version = {
   screens: Screen[];
   notes: string[];
   error: string | null;
+  /** Why the before was not captured: each screen has its after alone. */
+  beforeMissing?: string;
   outcome: Decision | null;
   created: number;
   finished: number | null;
