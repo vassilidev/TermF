@@ -511,7 +511,7 @@
 
 {#snippet rich(text: string)}
   {#each blocks(text) as block, i (i)}
-    {#if block.kind === "code" && block.lang && fences?.[block.lang]}
+    {#if block.kind === "code" && block.lang && fences && Object.hasOwn(fences, block.lang)}
       {@render fences[block.lang](block.text)}
     {:else if block.kind === "code"}
       <pre class="mono">{block.text}</pre>

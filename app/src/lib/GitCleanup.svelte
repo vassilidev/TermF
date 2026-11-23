@@ -18,8 +18,8 @@
   import { shortPath } from "$lib/state.svelte";
   import { refusal } from "$lib/tickets-logic";
   import { tickets } from "$lib/tickets.svelte";
-  import { chosen, keyOf, matchPlan, pickable, samePath } from "$lib/git-logic";
-  import type { BranchCleanup, Cleanup, Plan, Reason, WorktreeCleanup } from "$lib/git.svelte";
+  import { chosen, keyOf, matchPlan, pickable, takePlan, undoFor, type UndoStep } from "$lib/git-logic";
+  import { git, type BranchCleanup, type Cleanup, type Plan, type Reason, type WorktreeCleanup } from "$lib/git.svelte";
 
   /**
    * The guided cleanup: every branch and worktree that could go, why, and what it would lose; a batch picked, a
@@ -69,25 +69,28 @@
     });
   });
 
-  let planned = 0;
+  // A plan is taken once, out of the store: reopening the cleanup never plays it again.
   $effect(() => {
-    const [c, p, where] = [cleanup, plan, plan?.repo];
+    const [c, p] = [cleanup, plan];
     untrack(() => {
-      if (!c || !p || !where || p.id === planned || !samePath(where, repo)) return;
-      planned = p.id;
-      const match = matchPlan(c, p.keys);
+      const taken = c && p ? takePlan(git, repo) : null;
+      if (!c || !taken) return;
+      const match = matchPlan(c, taken.keys);
       [picked, unknown, fromPlan, failed] = [new Set(match.keys), match.unknown, true, {}];
-      if (p.apply && match.keys.length) go();
+      if (taken.apply && match.keys.length) go();
     });
   });
 
   const count = (n: number, one: Parameters<typeof t>[0], many: Parameters<typeof t>[0]) => (n === 1 ? t(one) : t(many, { count: n }));
   const items = (n: number) => count(n, "gitclItemsOne", "gitclItems");
-  function loss(lost: number, changes: number): string {
-    const parts = [lost && count(lost, "gitclCommitsOne", "gitclCommits"), changes && count(changes, "gitclChangesOne", "gitclChanges")].filter(
-      (p): p is string => !!p,
-    );
-    return parts.length === 2 ? t("gitclAnd", { a: parts[0], b: parts[1] }) : (parts[0] ?? "");
+  /** What cannot come back: commits, uncommitted changes, closed runs. */
+  function loss(lost: number, changes: number, runs = 0): string {
+    const parts = [
+      lost && count(lost, "gitclCommitsOne", "gitclCommits"),
+      changes && count(changes, "gitclChangesOne", "gitclChanges"),
+      runs && count(runs, "gitclRunsClosedOne", "gitclRunsClosed"),
+    ].filter((p): p is string => !!p);
+    return parts.length > 1 ? t("gitclAnd", { a: parts.slice(0, -1).join(", "), b: parts[parts.length - 1] }) : (parts[0] ?? "");
   }
 
   const reasonLabel: Record<Reason, Parameters<typeof t>[0]> = {
@@ -101,7 +104,7 @@
   };
   const runLabel = (id: number | null) => {
     const run = id === null ? undefined : tickets.runs.find((r) => r.id === id);
-    return run ? t("gitRunShort", { id: run.id, key: run.ticket.key }) : id === null ? null : `Run #${id}`;
+    return run ? t("gitRunShort", { id: run.id, key: run.ticket.key }) : id === null ? null : t("gitclRunId", { id });
   };
   const folderName = (w: WorktreeCleanup) => w.path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? w.path;
 
@@ -112,10 +115,10 @@
     picked = next;
   }
 
-  /** Applies at once what loses nothing; what loses work asks first. */
+  /** Applies at once what can all come back; what loses work or closes a run asks first. */
   function go() {
     if (!sel?.count || working) return;
-    if (sel.lost || sel.changes) confirming = true;
+    if (sel.final) confirming = true;
     else void apply();
   }
 
@@ -151,21 +154,24 @@
     else toast(t("gitclDonePart", { done, total: all.length }), { kind: "error", undo: restore });
   }
 
+  // Each step's way back is kept as soon as the step is done: a failure halfway still leaves what went undoable.
   async function removeWorktree(w: WorktreeCleanup, undo: (() => Promise<unknown>)[]) {
     if (w.closeRun && w.run !== null) {
       await invoke("tickets_close", { id: w.run, force: false });
       return;
     }
     await invoke("git_worktree_remove", { repo, path: w.path, changes: w.changes });
-    if (w.branch && w.head) await invoke("git_branch_delete", { repo, name: w.branch, tip: w.head });
-    const { branch, head } = w;
-    const back = async () => {
-      if (branch && head) await invoke("git_branch_create", { repo, name: branch, from: head, checkout: false });
-      // A folder already gone, or one whose changes were lost, is not put back: its branch is.
-      if (!w.reasons.includes("prunable") && !w.changes && head) await invoke("git_worktree_restore", { repo, path: w.path, branch, head });
-    };
-    if (branch || (!w.reasons.includes("prunable") && !w.changes)) undo.push(back);
+    undo.push(...undoFor(w, { removed: true, branchDeleted: false }).map(play));
+    if (w.branch && w.head) {
+      await invoke("git_branch_delete", { repo, name: w.branch, tip: w.head });
+      undo.push(...undoFor(w, { removed: false, branchDeleted: true }).map(play));
+    }
   }
+
+  const play = (step: UndoStep) => () =>
+    step.kind === "branch"
+      ? invoke("git_branch_create", { repo, name: step.name, from: step.at, checkout: false })
+      : invoke("git_worktree_restore", { repo, path: step.path, branch: step.branch, head: step.head });
 
   async function putBack(undo: (() => Promise<unknown>)[], count: number) {
     try {
@@ -210,7 +216,10 @@
         <span class="name">{run ?? folderName(w)}</span>
         <span class="sub">
           <span class="mono">{shortPath(w.path)}</span>
-          {#if w.closeRun}· {t("gitclClosesRun")}{:else if w.branch}· {t("gitclBranchGoes", { branch: w.branch })}{/if}
+          {#if w.closeRun}· {t("gitclClosesRun")}{:else if w.branch}· {t("gitclBranchGoes", { branch: w.branch })}{:else if w.checkedOut}· {t(
+              "gitclBranchStays",
+              { branch: w.checkedOut },
+            )}{/if}
         </span>
       </span>
       <span class="why">
@@ -297,17 +306,17 @@
       {#if steps}
         <div class="progress"><StreamSteps {steps} live={working} summary={working ? undefined : t("gitclDone", { items: items(steps.filter((s) => s.state === "ok").length) })} /></div>
       {/if}
-      <p class="preview" class:lossy={!!sel && (sel.lost > 0 || sel.changes > 0)} aria-live="polite">
+      <p class="preview" class:lossy={!!sel?.final} aria-live="polite">
         {#if !sel?.count}
           {t("gitclPreviewNone")}
-        {:else if sel.lost || sel.changes}
-          {t("gitclPreviewLoss", { items: items(sel.count), loss: loss(sel.lost, sel.changes) })}
+        {:else if sel.final}
+          {t("gitclPreviewLoss", { items: items(sel.count), loss: loss(sel.lost, sel.changes, sel.runs) })}
         {:else}
           {t("gitclPreviewSafe", { items: items(sel.count) })}
         {/if}
       </p>
       <Button variant="primary" icon={BrushCleaning} loading={working} disabled={!sel?.count} onclick={go} data-testid="git-cleanup-apply">
-        {!sel?.count ? t("gitclClean") : t(sel.lost || sel.changes ? "gitclApplyAsk" : "gitclApply", { items: items(sel.count) })}
+        {!sel?.count ? t("gitclClean") : t(sel.final ? "gitclApplyAsk" : "gitclApply", { items: items(sel.count) })}
       </Button>
     </footer>
   {/if}
@@ -317,17 +326,20 @@
   <ConfirmDialog
     bind:open={confirming}
     title={t("gitclConfirmTitle", { items: items(sel.count) })}
-    confirm={t("gitclConfirmLose", { loss: loss(sel.lost, sel.changes) })}
+    confirm={sel.lost || sel.changes
+      ? t("gitclConfirmLose", { loss: loss(sel.lost, sel.changes, sel.runs) })
+      : t("gitclConfirmClose", { runs: count(sel.runs, "gitclRunsOne", "gitclRuns") })}
     cancel={t("uiF1DialogKeep")}
     danger
     onconfirm={apply}
   >
-    <p>{t("gitclConfirmText")}</p>
+    {#if sel.lost || sel.changes}<p>{t("gitclConfirmText")}</p>{/if}
+    {#if sel.runs}<p>{t("gitclConfirmRuns")}</p>{/if}
     <ul class="lost-list">
-      {#each [...sel.worktrees, ...sel.branches].filter((i) => i.lost || ("changes" in i && i.changes)) as i (keyOf(i))}
+      {#each [...sel.worktrees, ...sel.branches].filter((i) => i.lost || ("changes" in i && (i.changes || i.closeRun))) as i (keyOf(i))}
         <li>
           <span class="mono">{"path" in i ? (runLabel(i.run) ?? shortPath(i.path)) : i.name}</span>
-          <span class="lost">{loss(i.lost, "changes" in i ? i.changes : 0)}</span>
+          <span class="lost">{loss(i.lost, "changes" in i ? i.changes : 0, "closeRun" in i && i.closeRun ? 1 : 0)}</span>
           {#if i.reasons.includes("prMerged")}<span class="muted">· {t("gitclPrMerged")}</span>{/if}
         </li>
       {/each}

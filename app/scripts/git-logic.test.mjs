@@ -15,6 +15,9 @@ import {
   pickable,
   picks,
   planOf,
+  planTarget,
+  takePlan,
+  undoFor,
   prFor,
   runs,
   samePath,
@@ -197,7 +200,7 @@ test("a worktree's folder relative to the repository's", () => {
 
 const tip1 = { oid: "a1", author: "Alex", date: 1_700_000_000, subject: "Fix" };
 const br = (name, o = {}) => ({ name, tip: tip1, reasons: [], lost: 0, run: null, blocked: null, suggested: false, ...o });
-const wt = (path, o = {}) => ({ path, branch: null, head: "h", date: 0, subject: "", reasons: [], lost: 0, changes: 0, run: null, closeRun: false, blocked: null, suggested: false, ...o });
+const wt = (path, o = {}) => ({ path, checkedOut: null, branch: null, head: "h", date: 0, subject: "", reasons: [], lost: 0, changes: 0, run: null, closeRun: false, blocked: null, suggested: false, ...o });
 const mess = {
   defaultBranch: "origin/main",
   branches: [br("merged", { reasons: ["merged"], suggested: true }), br("wip", { lost: 3 }), br("run-8", { blocked: "runOpen", lost: 1 })],
@@ -208,7 +211,11 @@ test("a cleanup selection: worktrees first, what it loses, blocked items never i
   const c = chosen(mess, new Set(["b:merged", "b:wip", "b:run-8", "w:/w/dirty", "w:/w/run-6"]));
   assert.deepEqual(c.worktrees.map(keyOf), ["w:/w/run-6", "w:/w/dirty"]);
   assert.deepEqual(c.branches.map(keyOf), ["b:merged", "b:wip"]);
-  assert.deepEqual([c.lost, c.changes, c.count], [5, 4, 4]);
+  assert.deepEqual([c.lost, c.changes, c.count, c.runs, c.final], [5, 4, 4, 0, true]);
+  assert.equal(chosen(mess, new Set(["b:merged"])).final, false);
+  // Closing a run does not come back: it asks first, like a loss.
+  const closing = { ...mess, worktrees: [wt("/w/run-3", { closeRun: true, run: 3, reasons: ["run"] })] };
+  assert.deepEqual([chosen(closing, new Set(["w:/w/run-3"])).runs, chosen(closing, new Set(["w:/w/run-3"])).final], [1, true]);
   assert.deepEqual(pickable(mess), { all: ["w:/w/run-6", "w:/w/dirty", "b:merged", "b:wip"], suggested: ["w:/w/run-6", "b:merged"] });
 });
 
@@ -240,6 +247,41 @@ test("the expert reads what can go, what each loses, the history and how to prop
   assert.match(text, /- \/w\/run-6: branch termf\/run-6 goes with it · pull request merged, TermF run over · 0 uncommitted change\(s\) · 2 commit\(s\) lost/);
   assert.match(text, /- \/w\/dirty: its branch stays · in progress · 4 uncommitted/);
   assert.match(text, /- abcdef1 Ship it \(Bo, 2023-11-14\)/);
-  assert.match(text, /language is termf-cleanup/);
+  assert.match(text, /language is termf-cleanup: first `repo \/w\/acme`/);
   assert.doesNotMatch(cleanupContext("/w/acme", { current: null, defaultBranch: null }, null, []), /Local branches/);
+});
+
+test("an undo puts a worktree back on the branch it had, even when only the folder went or its branch stayed", () => {
+  // Its branch stayed (it held unpushed commits): back on it, not on a detached HEAD.
+  const kept = wt("/w/feature", { checkedOut: "feature", head: "f1" });
+  assert.deepEqual(undoFor(kept, { removed: true, branchDeleted: false }), [{ kind: "worktree", path: "/w/feature", branch: "feature", head: "f1" }]);
+  // The folder went but deleting its branch failed: the folder still comes back, on that branch.
+  const both = wt("/w/old", { checkedOut: "old", branch: "old", head: "o1" });
+  assert.deepEqual(undoFor(both, { removed: true, branchDeleted: false }), [{ kind: "worktree", path: "/w/old", branch: "old", head: "o1" }]);
+  assert.deepEqual(undoFor(both, { removed: true, branchDeleted: true }), [
+    { kind: "branch", name: "old", at: "o1" },
+    { kind: "worktree", path: "/w/old", branch: "old", head: "o1" },
+  ]);
+  assert.deepEqual(undoFor(both, { removed: false, branchDeleted: false }), []);
+  // Detached: back detached at its commit.
+  assert.deepEqual(undoFor(wt("/w/spike", { head: "s1", reasons: ["detached"] }), { removed: true, branchDeleted: false }), [
+    { kind: "worktree", path: "/w/spike", branch: null, head: "s1" },
+  ]);
+  // Lost changes, a folder already gone, a closed run: the folder does not come back; a branch that went does.
+  assert.deepEqual(undoFor({ ...both, changes: 2 }, { removed: true, branchDeleted: true }), [{ kind: "branch", name: "old", at: "o1" }]);
+  assert.deepEqual(undoFor({ ...both, reasons: ["prunable"] }, { removed: true, branchDeleted: false }), []);
+  assert.deepEqual(undoFor({ ...both, closeRun: true, run: 3 }, { removed: true, branchDeleted: true }), []);
+});
+
+test("a plan applies only to a repository of the project it names, and only once", () => {
+  const repos = ["/w/acme", "/w/web"];
+  assert.equal(planTarget("/w/web/", repos), "/w/web");
+  assert.equal(planTarget(null, repos), null);
+  assert.equal(planTarget("/elsewhere/web", repos), null);
+  const holder = { plan: { repo: "/w/web/", keys: ["b:x"] } };
+  assert.equal(takePlan(holder, "/w/acme"), null);
+  assert.ok(holder.plan, "another repository's plan is kept for it");
+  assert.deepEqual(takePlan(holder, "/w/web")?.keys, ["b:x"]);
+  assert.equal(holder.plan, null);
+  assert.equal(takePlan(holder, "/w/web"), null, "reopening the cleanup does not play it again");
 });

@@ -187,13 +187,47 @@ export function within(repo: string, dir: string): string | null {
 /** A cleanup item's key: `b:<branch>` or `w:<worktree path>`. */
 export const keyOf = (item: BranchCleanup | WorktreeCleanup): string => ("path" in item ? `w:${item.path}` : `b:${item.name}`);
 
-/** What a selection removes and loses, worktrees first (a branch checked out in one goes after it). */
+/**
+ * What a selection removes and loses, worktrees first (a branch checked out in one goes after it). `runs`: the runs it
+ * closes; `final`: something cannot come back (commits, changes, a closed run), so it asks first.
+ */
 export function chosen(cleanup: Cleanup, keys: Set<string>) {
   const worktrees = cleanup.worktrees.filter((w) => !w.blocked && keys.has(keyOf(w)));
   const branches = cleanup.branches.filter((b) => !b.blocked && keys.has(keyOf(b)));
   const lost = [...worktrees, ...branches].reduce((n, i) => n + i.lost, 0);
   const changes = worktrees.reduce((n, w) => n + w.changes, 0);
-  return { worktrees, branches, lost, changes, count: worktrees.length + branches.length };
+  const runs = worktrees.filter((w) => w.closeRun).length;
+  return { worktrees, branches, lost, changes, runs, final: lost + changes + runs > 0, count: worktrees.length + branches.length };
+}
+
+/** One step of an undo, in the order to play it. */
+export type UndoStep = { kind: "branch"; name: string; at: string } | { kind: "worktree"; path: string; branch: string | null; head: string };
+
+/**
+ * What puts a cleaned worktree back, from what was done: its branch first when it went, then the folder on the branch
+ * it had checked out (detached only when it had none). A closed run, a folder already gone or one whose changes were
+ * lost does not come back; its branch does.
+ */
+export function undoFor(w: WorktreeCleanup, done: { removed: boolean; branchDeleted: boolean }): UndoStep[] {
+  const steps: UndoStep[] = [];
+  if (w.closeRun || !w.head) return steps;
+  if (done.branchDeleted && w.branch) steps.push({ kind: "branch", name: w.branch, at: w.head });
+  if (done.removed && !w.reasons.includes("prunable") && !w.changes)
+    steps.push({ kind: "worktree", path: w.path, branch: w.checkedOut, head: w.head });
+  return steps;
+}
+
+/** The project's repository a plan names, or null: a plan without one, or naming another, is never applied. */
+export function planTarget(repo: string | null, repos: string[]): string | null {
+  return (repo && repos.find((r) => samePath(r, repo))) ?? null;
+}
+
+/** The plan waiting for `repo`, taken once: the holder forgets it, so reopening the cleanup never plays it again. */
+export function takePlan<T extends { repo: string }>(holder: { plan: T | null }, repo: string): T | null {
+  const plan = holder.plan;
+  if (!plan || !samePath(plan.repo, repo)) return null;
+  holder.plan = null;
+  return plan;
 }
 
 /** The keys of what can be picked, and of what is suggested. */
@@ -285,7 +319,7 @@ export function cleanupContext(
     for (const c of commits.slice(0, 30)) lines.push(`- ${c.oid.slice(0, 7)} ${c.subject} (${c.author}, ${day(c.date)})`);
   }
   lines.push(
-    "To propose a cleanup, end your answer with a fenced code block whose language is termf-cleanup, one line per item of these lists: `branch <name>` or `worktree <path>`. TermF shows it with Apply, Modify and Ignore; nothing is removed until the user applies it, and whatever would lose work is confirmed first.",
+    `To propose a cleanup, end your answer with a fenced code block whose language is termf-cleanup: first \`repo ${repo}\`, then one line per item of these lists, \`branch <name>\` or \`worktree <path>\`. TermF shows it with Apply, Modify and Ignore; nothing is removed until the user applies it, and whatever would lose work is confirmed first.`,
   );
   return lines.join("\n");
 }

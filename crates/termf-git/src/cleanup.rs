@@ -70,15 +70,17 @@ pub struct BranchCleanup {
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeCleanup {
     pub path: String,
-    /// The branch deleted with it: when that loses no commit, or its pull request was merged. Otherwise the branch
-    /// stays and only the folder goes.
+    /// The branch checked out in it, whether it goes or stays: what an undo puts the worktree back on.
+    pub checked_out: Option<String>,
+    /// The branch deleted with it: when that loses no commit, or its tip is the head of its merged pull request.
+    /// Otherwise the branch stays and only the folder goes.
     pub branch: Option<String>,
     /// The tip of that branch, the commit `git_branch_delete` checks; else the worktree's HEAD.
     pub head: Option<String>,
     pub date: i64,
     pub subject: String,
     pub reasons: Vec<Reason>,
-    /// The commits lost with its branch.
+    /// The commits lost with it: its branch's when the branch goes, or those only its detached HEAD holds.
     pub lost: usize,
     /// The uncommitted changes and untracked files lost with its folder.
     pub changes: usize,
@@ -123,7 +125,9 @@ fn same_path(a: &str, b: &str) -> bool {
 
 impl Git {
     /// Every local branch and worktree that could go, with its reasons and what it would lose. `runs`: TermF's runs
-    /// of this repository; `merged`: the branches whose pull request was merged; `now`: seconds since the epoch.
+    /// of this repository; `merged`: the head commits of the merged pull requests (a branch counts as merged by its
+    /// pull request only while its tip is that commit, so a commit added since is never taken for merged work);
+    /// `now`: seconds since the epoch.
     pub fn cleanup(
         &self,
         repo: &Path,
@@ -146,7 +150,7 @@ impl Git {
             if b.merged == Some(true) {
                 reasons.push(Reason::Merged);
             }
-            if merged.contains(&b.name) {
+            if merged.contains(&b.tip.oid) {
                 reasons.push(Reason::PrMerged);
             }
             if b.gone {
@@ -162,12 +166,10 @@ impl Git {
         };
         let blocked_by =
             |run: Option<&RunRef>| run.filter(|r| r.open && !r.done).map(|_| Blocked::RunOpen);
+        // Only what loses nothing is ever picked for the user.
         let suggest =
             |reasons: &[Reason], lost: usize, changes: usize, blocked: Option<Blocked>| {
-                blocked.is_none()
-                    && changes == 0
-                    && ((lost == 0 && reasons.iter().any(done))
-                        || reasons.contains(&Reason::PrMerged))
+                blocked.is_none() && changes == 0 && lost == 0 && reasons.iter().any(done)
             };
 
         // A branch checked out in a worktree goes with it, so it is not listed on its own.
@@ -234,7 +236,12 @@ impl Git {
                     && (branch_lost == 0 || reasons.contains(&Reason::PrMerged))
             };
             let gone_with = branch.filter(goes);
-            let lost = if gone_with.is_some() { branch_lost } else { 0 };
+            let lost = match (gone_with, wt.branch.as_deref(), wt.head.as_deref()) {
+                (Some(_), _, _) => branch_lost,
+                // Detached: the commits only its HEAD holds go with it.
+                (None, None, Some(head)) => self.only_head(repo, head)?,
+                _ => 0,
+            };
             let blocked = if wt.locked {
                 Some(Blocked::Locked)
             } else {
@@ -242,6 +249,7 @@ impl Git {
             };
             worktrees.push(WorktreeCleanup {
                 path: wt.path.clone(),
+                checked_out: wt.branch.clone(),
                 branch: gone_with.map(|b| b.name.clone()),
                 head: gone_with
                     .map(|b| b.tip.oid.clone())
@@ -277,6 +285,27 @@ impl Git {
                     &full,
                     "--not",
                     &exclude,
+                    "--branches",
+                    "--remotes",
+                    "--tags",
+                ],
+            )?
+            .trim()
+            .parse()
+            .unwrap_or(0))
+    }
+
+    /// How many commits of a detached HEAD no branch, remote branch or tag holds.
+    fn only_head(&self, repo: &Path, head: &str) -> Result<usize> {
+        let head = checked_name(head)?;
+        Ok(self
+            .run(
+                repo,
+                &[
+                    "rev-list",
+                    "--count",
+                    head,
+                    "--not",
                     "--branches",
                     "--remotes",
                     "--tags",

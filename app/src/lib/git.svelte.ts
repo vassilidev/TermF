@@ -48,7 +48,8 @@ export type GitState = {
 export type Ref = { name: string; kind: "local" | "remote" | "tag" };
 export type Commit = { oid: string; parents: string[]; author: string; date: number; subject: string; refs: Ref[] };
 export type Graph = { commits: Commit[]; more: boolean };
-export type Pr = { number: number; title: string; state: "OPEN" | "MERGED" | "CLOSED"; draft: boolean; url: string; branch: string };
+/** `head`: the commit of its branch it holds (merged: the one merged); empty when gh does not say. */
+export type Pr = { number: number; title: string; state: "OPEN" | "MERGED" | "CLOSED"; draft: boolean; url: string; branch: string; head: string };
 export type Unique = { commits: Commit[]; total: number };
 export type Pull = { outcome: "updated" | "upToDate" | "diverged" | "noUpstream" | "gone"; ahead: number; behind: number };
 export type Push = { remote: string; upstreamSet: boolean };
@@ -107,6 +108,8 @@ export type BranchCleanup = { name: string; tip: Tip; reasons: Reason[]; lost: n
  */
 export type WorktreeCleanup = {
   path: string;
+  /** The branch checked out in it, whether it goes or stays: what an undo puts it back on. */
+  checkedOut: string | null;
   branch: string | null;
   head: string | null;
   date: number;

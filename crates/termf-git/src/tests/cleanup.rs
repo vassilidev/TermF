@@ -82,7 +82,9 @@ fn sorts_branches_and_worktrees_and_says_what_each_loses() {
     let sb = Sandbox::new("cleanup");
     let acme = messy(&sb);
     let now = now();
-    let merged = ["squashed".to_owned(), "termf/run-7".to_owned()];
+    // GitHub knows a pull request by the commit it merged.
+    let tip = |rev: &str| sb.git(&acme, &["rev-parse", rev]);
+    let merged = [tip("squashed"), tip("termf/run-7")];
     let c = sb.git.cleanup(&acme, &runs(&sb), &merged, now).unwrap();
     assert_eq!(c.default_branch.as_deref(), Some("origin/main"));
 
@@ -107,7 +109,7 @@ fn sorts_branches_and_worktrees_and_says_what_each_loses() {
     let b = branch("squashed");
     assert_eq!(
         (b.reasons.as_slice(), b.lost, b.suggested),
-        (&[Reason::PrMerged][..], 1, true)
+        (&[Reason::PrMerged][..], 1, false)
     );
     let b = branch("gone");
     assert_eq!(
@@ -155,10 +157,11 @@ fn sorts_branches_and_worktrees_and_says_what_each_loses() {
     let w = worktree("run-7");
     assert_eq!(
         (w.run, w.close_run, w.lost, w.suggested),
-        (Some(7), true, 1, true)
+        (Some(7), true, 1, false)
     );
     assert_eq!(w.reasons, [Reason::PrMerged, Reason::Run]);
     assert_eq!(w.branch.as_deref(), Some("termf/run-7"));
+    assert_eq!(w.checked_out.as_deref(), Some("termf/run-7"));
 
     let w = worktree("run-8");
     assert_eq!(
@@ -172,6 +175,7 @@ fn sorts_branches_and_worktrees_and_says_what_each_loses() {
         (None, &[Reason::Detached][..])
     );
     assert!(w.head.is_some() && !w.suggested);
+    assert_eq!((w.lost, w.checked_out.as_deref()), (0, None));
 
     assert_eq!(worktree("locked").blocked, Some(Blocked::Locked));
 }
@@ -185,8 +189,66 @@ fn keeps_a_worktree_branch_whose_commits_would_be_lost() {
     sb.commit(&sb.path("feature"), "f.txt", "1\n", "Not pushed");
     let c = sb.git.cleanup(&acme, &[], &[], now()).unwrap();
     let w = &c.worktrees[0];
-    // Removing the folder loses nothing; the branch stays with its commit.
+    // Removing the folder loses nothing; the branch stays with its commit, and an undo puts the folder back on it.
     assert_eq!((w.branch.as_deref(), w.lost, w.changes), (None, 0, 0));
+    assert_eq!(w.checked_out.as_deref(), Some("feature"));
+}
+
+#[test]
+fn a_merged_pull_request_vouches_only_for_the_commit_it_merged() {
+    let sb = Sandbox::new("cleanup-pr");
+    let acme = sb.clone("acme");
+    sb.git(&acme, &["switch", "-q", "-c", "feature"]);
+    let merged = sb.commit(&acme, "f.txt", "1\n", "Squashed on GitHub");
+    sb.git(&acme, &["switch", "-q", "main"]);
+    let at = |acme: &std::path::Path| {
+        sb.git
+            .cleanup(acme, &[], std::slice::from_ref(&merged), now())
+            .unwrap()
+            .branches[0]
+            .clone()
+    };
+    let b = at(&acme);
+    // Merged by its pull request, but its commit is still only here: listed, never picked for the user.
+    assert_eq!(
+        (b.reasons.as_slice(), b.lost, b.suggested),
+        (&[Reason::PrMerged][..], 1, false)
+    );
+
+    // A commit made after the merge is not in the pull request: the branch no longer counts as merged.
+    sb.git(&acme, &["switch", "-q", "feature"]);
+    sb.commit(&acme, "g.txt", "1\n", "After the merge");
+    sb.git(&acme, &["switch", "-q", "main"]);
+    let b = at(&acme);
+    assert_eq!(
+        (b.reasons.as_slice(), b.lost, b.suggested),
+        (&[][..], 2, false)
+    );
+
+    // Its worktree keeps the branch: the commit made since would be lost with it.
+    let path = sb.path("wt").to_string_lossy().into_owned();
+    sb.git(&acme, &["worktree", "add", "-q", &path, "feature"]);
+    let c = sb
+        .git
+        .cleanup(&acme, &[], std::slice::from_ref(&merged), now())
+        .unwrap();
+    let w = &c.worktrees[0];
+    assert_eq!((w.branch.as_deref(), w.lost, w.suggested), (None, 0, false));
+}
+
+#[test]
+fn a_detached_worktree_loses_the_commits_only_its_head_holds() {
+    let sb = Sandbox::new("cleanup-detached");
+    let acme = sb.clone("acme");
+    let path = sb.path("spike").to_string_lossy().into_owned();
+    sb.git(&acme, &["worktree", "add", "-q", "--detach", &path]);
+    sb.commit(&sb.path("spike"), "s.txt", "1\n", "On no branch");
+    let c = sb.git.cleanup(&acme, &[], &[], now()).unwrap();
+    let w = &c.worktrees[0];
+    assert_eq!(
+        (w.reasons.as_slice(), w.lost, w.suggested),
+        (&[Reason::Detached][..], 1, false)
+    );
 }
 
 #[test]

@@ -84,6 +84,7 @@
     onRemote,
     path,
     pickable,
+    planTarget,
     prFor,
     samePath,
     sorted,
@@ -290,17 +291,22 @@
     const p = git.plan;
     untrack(() => {
       if (!p) return;
-      // A repository the plan names out of the project: the one shown.
-      const repo = repos.find((r) => samePath(r.path, p.repo));
-      if (repo) [p.repo, git.repo] = [repo.path, repo.path];
-      else p.repo = git.repo;
+      // Never another repository's: its branch names could match this one's.
+      const repo = planTarget(p.repo, repos.map((r) => r.path));
+      if (!repo) {
+        git.plan = null;
+        toast(t("gitclPlanNoRepo"), { kind: "error" });
+        return;
+      }
+      [p.repo, git.repo] = [repo, repo];
       openCleanup();
     });
   });
 
   function readCleanup(r = request) {
     const repo = git.repo;
-    const merged = prs.filter((p) => p.state === "MERGED").map((p) => p.branch);
+    // A merged pull request vouches for the commit it merged, never for a branch name.
+    const merged = prs.filter((p) => p.state === "MERGED" && p.head).map((p) => p.head);
     invoke<Cleanup>("git_cleanup", { repo, merged }).then(
       (c) => r === request && ([cleanup, cleanupError] = [c, ""]),
       (e) => r === request && (cleanupError = String(e)),

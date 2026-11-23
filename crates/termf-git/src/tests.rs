@@ -780,7 +780,7 @@ fn reads_pull_requests_from_gh_and_stays_quiet_without_it() {
     assert!(sb.git.prs(&repo).is_empty(), "no gh");
     sb.fake_gh(
         r#"[ "$1 $2" = "pr list" ] || exit 3
-echo '[{"number":12,"title":"Export CSV","state":"OPEN","isDraft":false,"url":"https://github.com/acme/api/pull/12","headRefName":"feature/csv","isCrossRepository":false},
+echo '[{"number":12,"title":"Export CSV","state":"OPEN","isDraft":false,"url":"https://github.com/acme/api/pull/12","headRefName":"feature/csv","headRefOid":"c0ffee","isCrossRepository":false},
 {"number":9,"title":"From a fork","state":"OPEN","isDraft":true,"url":"https://github.com/acme/api/pull/9","headRefName":"main","isCrossRepository":true}]'"#,
     );
     let prs = sb.git.prs(&repo);
@@ -793,6 +793,7 @@ echo '[{"number":12,"title":"Export CSV","state":"OPEN","isDraft":false,"url":"h
             draft: false,
             url: "https://github.com/acme/api/pull/12".into(),
             branch: "feature/csv".into(),
+            head: "c0ffee".into(),
         }]
     );
     sb.fake_gh("echo 'not logged in' >&2; exit 1");

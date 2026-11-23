@@ -10,17 +10,19 @@
   import Button from "$lib/ui/Button.svelte";
   import { t } from "$lib/i18n";
   import { shortPath } from "$lib/state.svelte";
-  import { planOf } from "$lib/git-logic";
-  import { git, proposeCleanup } from "$lib/git.svelte";
+  import { scopeRepos } from "$lib/files.svelte";
+  import { planOf, planTarget } from "$lib/git-logic";
+  import { proposeCleanup } from "$lib/git.svelte";
 
   /**
    * A cleanup the git expert proposed in a `termf-cleanup` block: what it would remove, then Apply (the Git view's
-   * cleanup runs it, asking first for whatever loses work), Modify (the same selection, to change) or Ignore.
+   * cleanup runs it, asking first for whatever loses work), Modify (the same selection, to change) or Ignore. A plan
+   * that does not name a repository of the project is shown, never applied: its names could match another repository.
    */
   let { text }: { text: string } = $props();
 
   const plan = $derived(planOf(text));
-  const repo = $derived(plan.repo ?? git.repo);
+  const repo = $derived(planTarget(plan.repo, scopeRepos().map((r) => r.path)));
 </script>
 
 {#if ignored[text]}
@@ -37,10 +39,14 @@
           </li>
         {/each}
       </ul>
+      {#if !repo}<p class="muted">{t("gitclPlanNoRepo")}</p>{/if}
       <div class="answers">
         <Button size="sm" variant="quiet" onclick={() => (ignored[text] = true)}>{t("gitclProposalIgnore")}</Button>
-        <Button size="sm" onclick={() => proposeCleanup(repo, plan.keys, false)} disabled={!repo}>{t("gitclProposalEdit")}</Button>
-        <Button size="sm" variant="primary" onclick={() => proposeCleanup(repo, plan.keys, true)} disabled={!repo}>{t("gitclProposalApply")}</Button>
+        {#if repo}
+          {@const target = repo}
+          <Button size="sm" onclick={() => proposeCleanup(target, plan.keys, false)}>{t("gitclProposalEdit")}</Button>
+          <Button size="sm" variant="primary" onclick={() => proposeCleanup(target, plan.keys, true)}>{t("gitclProposalApply")}</Button>
+        {/if}
       </div>
     {:else}
       <p class="muted">{t("gitclProposalEmpty")}</p>

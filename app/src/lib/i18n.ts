@@ -4727,6 +4727,14 @@ const fr = {
   gitclProposalEdit: "Modifier",
   gitclProposalIgnore: "Ignorer",
   gitclProposalEmpty: "Ce plan ne nomme ni branche ni worktree.",
+  gitclPlanNoRepo: "Ce plan ne nomme pas un dépôt du projet : il ne peut pas s'appliquer.",
+  gitclRunId: "Run #{id}",
+  gitclRuns: "{count} runs",
+  gitclRunsOne: "1 run",
+  gitclRunsClosed: "{count} runs fermés",
+  gitclRunsClosedOne: "1 run fermé",
+  gitclConfirmClose: "Nettoyer et fermer {runs}",
+  gitclConfirmRuns: "Un run fermé ne se rouvre pas : pour reprendre son travail, il faudra le relancer.",
 };
 
 type Key = keyof typeof fr;
@@ -9425,6 +9433,14 @@ const en: Record<Key, string> = {
   gitclProposalEdit: "Modify",
   gitclProposalIgnore: "Ignore",
   gitclProposalEmpty: "This plan names no branch and no worktree.",
+  gitclPlanNoRepo: "This plan does not name a repository of the project: it cannot apply.",
+  gitclRunId: "Run #{id}",
+  gitclRuns: "{count} runs",
+  gitclRunsOne: "1 run",
+  gitclRunsClosed: "{count} runs closed",
+  gitclRunsClosedOne: "1 run closed",
+  gitclConfirmClose: "Clean up and close {runs}",
+  gitclConfirmRuns: "A closed run does not reopen: to pick its work up again, launch it anew.",
 };
 
 const messages = { fr, en };
