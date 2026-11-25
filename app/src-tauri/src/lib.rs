@@ -492,6 +492,8 @@ pub fn run() {
             tickets::tickets_source_projects,
             tickets::tickets_ticket,
             tickets::tickets_states,
+            tickets::tickets_board,
+            tickets::tickets_assign,
             tickets::tickets_move,
             tickets::tickets_comment,
             tickets::tickets_attachment,

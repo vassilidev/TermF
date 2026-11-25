@@ -14,7 +14,7 @@ use termf_core::TicketCleanup;
 use termf_core::ipc::SessionSummary;
 use termf_onboarding::setup::TrackerHints;
 use termf_tickets::{
-    Browse, Configured, Delivery, DeliveryPreview, Detail, Inbox, McpServer, Page, PrCheck,
+    Board, Browse, Configured, Delivery, DeliveryPreview, Detail, Inbox, McpServer, Page, PrCheck,
     PrMerge, Reached, Resolution, Run, RunEvent, Sources, TicketRef, TicketSummary, Tickets,
     TrackerProject, Trackers, Unpushed,
 };
@@ -600,6 +600,23 @@ pub async fn tickets_ticket(
     ticket: TicketRef,
 ) -> CmdResult<Detail> {
     blocking(app, move |app| tickets(app).ticket(&project, &ticket)).await
+}
+
+/// A source's board: its states as columns, whether tickets move between them, or that it has none.
+#[tauri::command]
+pub async fn tickets_board(app: AppHandle, project: String, source: String) -> CmdResult<Board> {
+    blocking(app, move |app| tickets(app).board(&project, &source)).await
+}
+
+/// Assigns a ticket in its tracker: `me`, `none`, or someone.
+#[tauri::command]
+pub async fn tickets_assign(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+    to: String,
+) -> CmdResult<()> {
+    blocking(app, move |app| tickets(app).assign(&project, &ticket, &to)).await
 }
 
 /// The states a ticket can move to from where it is; none: its tracker says nothing of them.

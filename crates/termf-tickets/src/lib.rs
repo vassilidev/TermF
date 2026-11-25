@@ -31,7 +31,7 @@ mod tests;
 
 pub use azure::{Azure, DEFAULT_WIQL};
 pub use browse::{
-    Assignee, Attachment, Browse, Detail, Details, Page, Related, Status, TrackerProject,
+    Assignee, Attachment, Board, Browse, Detail, Details, Page, Related, Status, TrackerProject,
 };
 use github::Etags;
 pub use github::GitHub;

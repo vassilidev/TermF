@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { browsable, bySpace, cleanupNotice, guessSite, liveSession, mcpName, mcpPrompt, preChecked, readyToClean, refusal, resumable, spaceOf } from "../src/lib/tickets-logic.ts";
+import { boardColumns, browsable, bySpace, laneOf, cleanupNotice, guessSite, liveSession, mcpName, mcpPrompt, preChecked, readyToClean, refusal, resumable, spaceOf } from "../src/lib/tickets-logic.ts";
 
 const run = (o = {}) => ({
   status: "delivered",
@@ -95,7 +95,7 @@ test("a Jira source reads the chosen spaces of each site, through its API or an 
   assert.equal(mcpPrompt([]), "The open Jira issues assigned to me.");
   assert.equal(mcpName("claude.ai Atlassian", ["atlassian"]), "atlassian-2");
   assert.equal(mcpName("Atlassian", []), "atlassian");
-  assert.deepEqual(browsable(["github", "githubProject", "jira:acme.atlassian.net", "linear", "mcp:atlassian"]), ["github", "jira:acme.atlassian.net", "mcp:atlassian"]);
+  assert.deepEqual(browsable(["github", "githubProject", "jira:acme.atlassian.net", "linear", ""]), ["github", "githubProject", "jira:acme.atlassian.net", "linear"]);
 });
 
 test("the tickets of several spaces come grouped by space", () => {
@@ -106,4 +106,11 @@ test("the tickets of several spaces come grouped by space", () => {
     groups.map((g) => [g.space, g.tickets.map((t) => t.key)]),
     [["APP", ["APP-2", "APP-1"]], ["API", ["API-9"]]],
   );
+});
+
+test("a board's columns are the source's states, then the states its tickets have that it did not list", () => {
+  assert.deepEqual(boardColumns(["To Do", "In Progress", "Done"], ["in progress", "Blocked", "Done", ""]), ["To Do", "In Progress", "Done", "Blocked"]);
+  assert.deepEqual(boardColumns([], ["Todo", "Backlog", "Todo"]), ["Todo", "Backlog"]);
+  assert.equal(laneOf("in progress", ["To Do", "In Progress"]), "In Progress");
+  assert.equal(laneOf("Blocked", ["To Do"]), "Blocked");
 });

@@ -165,6 +165,7 @@ export const READS: string[] = [
   "tickets_runs",
   "tickets_source_projects",
   "tickets_states",
+  "tickets_board",
   "tickets_attachment",
   "tickets_ticket",
   "tickets_token",

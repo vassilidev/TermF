@@ -9,6 +9,7 @@
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { ago, t } from "$lib/i18n";
   import TicketDetail from "$lib/TicketDetail.svelte";
+  import TicketsBoard from "$lib/TicketsBoard.svelte";
   import { bySpace } from "$lib/tickets-logic";
   import {
     type BrowseFilter,
@@ -104,15 +105,58 @@
     return () => clearTimeout(timer);
   });
 
-  /** A ticket moved in its panel: the list shows its new state. */
+  /** A ticket moved in its panel or on the board: the list shows its new state. */
   function moved(ticket: TicketSummary, to: string) {
     found = (found ?? []).map((x) => (x.url === ticket.url ? { ...x, state: to } : x));
+  }
+
+  /** List or board, kept for the next visit. */
+  let layout = $state<"list" | "board">(read("termf.tickets.layout") === "board" ? "board" : "list");
+  $effect(() => write("termf.tickets.layout", layout));
+
+  /** The source's states, the board's columns, read once per source. */
+  let board = $state<{ columns: string[]; movable: boolean; none: boolean } | null>(null);
+  let boardOf = "";
+  $effect(() => {
+    const [p, s, l] = [project, source, layout];
+    if (l !== "board" || !s || `${p} ${s}` === boardOf) return;
+    boardOf = `${p} ${s}`;
+    board = null;
+    invoke<{ columns: string[]; movable: boolean; none: boolean }>("tickets_board", { project: p, source: s }).then(
+      (b) => boardOf === `${p} ${s}` && (board = b),
+      (e) => boardOf === `${p} ${s}` && ([board, error] = [{ columns: [], movable: false, none: false }, String(e)]),
+    );
+  });
+
+  function read(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function write(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // A private window keeps the choice for this visit only.
+    }
   }
 </script>
 
 
 <div class="browse">
   <div class="filters">
+    <Segments
+      label={t("tkbLayout")}
+      options={[
+        { id: "list", label: t("tkbList") },
+        { id: "board", label: t("tkbBoard") },
+      ]}
+      selected={layout}
+      onselect={(l) => (layout = l as typeof layout)}
+    />
     {#if sources.length > 1}
       <Segments
         label={t("tjdSource")}
@@ -167,7 +211,29 @@
   {/if}
   {#if mcp}<p class="muted small hint">{t("tjdMcpSlow")}</p>{/if}
 
-  <div class="split">
+  <div class="split" class:wide={layout === "board" && !chosen}>
+    {#if layout === "board"}
+      <div class="boardpane">
+        {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
+        <TicketsBoard
+          {project}
+          {source}
+          {sourceName}
+          tickets={found}
+          columns={board?.columns ?? null}
+          movable={board?.movable ?? false}
+          none={board?.none ?? false}
+          {chosen}
+          {starting}
+          {next}
+          {more}
+          onmore={() => load(next)}
+          onopen={(ticket) => (chosen = ticket)}
+          {onlaunch}
+          onmoved={moved}
+        />
+      </div>
+    {:else}
     <div class="list" aria-busy={found === null}>
       {#if error}
         <p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>
@@ -207,7 +273,9 @@
         {/if}
       {/if}
     </div>
+    {/if}
 
+    {#if layout === "list" || chosen}
     <aside class="pane-detail" aria-label={chosen ? `${chosen.key} ${chosen.title}` : t("tjdPick")}>
       {#if !chosen}
         <p class="muted pick-one">{t("tjdPick")}</p>
@@ -217,6 +285,7 @@
         {/key}
       {/if}
     </aside>
+    {/if}
   </div>
 </div>
 
@@ -275,6 +344,18 @@
     flex: 1;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
     min-height: 0;
+  }
+
+  .split.wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .boardpane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border-right: 1px solid var(--border);
   }
 
   .list,

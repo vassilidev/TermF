@@ -556,6 +556,31 @@ pub(crate) fn pick_transition(key: &str, listed: &Value, to: &str) -> Result<Str
     }
 }
 
+/// A board's columns from Jira's `/project/{key}/statuses` answers (each a list by issue type): every status once,
+/// to do first, then in progress, then done, each in the order Jira gives them.
+pub(crate) fn statuses_of(answers: &[Value]) -> Vec<String> {
+    let mut found: Vec<(u8, String)> = Vec::new();
+    for answer in answers {
+        for kind in answer.as_array().into_iter().flatten() {
+            for status in kind["statuses"].as_array().into_iter().flatten() {
+                let Some(name) = status["name"].as_str() else {
+                    continue;
+                };
+                let rank = match status["statusCategory"]["key"].as_str() {
+                    Some("new") => 0,
+                    Some("done") => 2,
+                    _ => 1,
+                };
+                if !found.iter().any(|(_, n)| n.eq_ignore_ascii_case(name)) {
+                    found.push((rank, name.to_owned()));
+                }
+            }
+        }
+    }
+    found.sort_by_key(|(rank, _)| *rank);
+    found.into_iter().map(|(_, name)| name).collect()
+}
+
 /// The statuses `listed` (Jira's `/transitions`) leads to, without repeats.
 pub(crate) fn targets(listed: &Value) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
@@ -698,6 +723,49 @@ impl Jira {
             reference: ticket.clone(),
         };
         Ok((found, details_of(&self.base, fields)))
+    }
+
+    /// The statuses of the spaces' workflows, as a board's columns.
+    pub(crate) fn board(&self, spaces: &[String]) -> Result<Vec<String>> {
+        let answers = spaces
+            .iter()
+            .filter(|s| project_key(s))
+            .map(|s| self.call("GET", &format!("/rest/api/3/project/{s}/statuses"), None))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(statuses_of(&answers))
+    }
+
+    /// Assigns the ticket to the account itself (`me`), to nobody (`none`), or to the account with this e-mail.
+    pub(crate) fn assign(&self, ticket: &TicketRef, to: &str) -> Result<()> {
+        let key = key(&ticket.key).with_context(|| format!("not a Jira key: {}", ticket.key))?;
+        let account = match to.trim() {
+            "none" => Value::Null,
+            "me" => self.call("GET", "/rest/api/3/myself", None)?["accountId"].clone(),
+            who => {
+                let found = self.call(
+                    "GET",
+                    &format!("/rest/api/3/user/search?query={}", crate::http::encode(who)),
+                    None,
+                )?;
+                let first = found
+                    .as_array()
+                    .and_then(|l| l.first())
+                    .cloned()
+                    .unwrap_or_default();
+                ensure!(
+                    first["accountId"].is_string(),
+                    "no Jira account for {who:?} on {}",
+                    self.base
+                );
+                first["accountId"].clone()
+            }
+        };
+        self.call(
+            "PUT",
+            &format!("/rest/api/3/issue/{key}/assignee"),
+            Some(&json!({ "accountId": account })),
+        )?;
+        Ok(())
     }
 
     /// The statuses the ticket can move to from where it is.
