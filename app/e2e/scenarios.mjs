@@ -650,6 +650,45 @@ export const scenarios = [
     },
   },
   {
+    name: "narrow window: the navigation on its icons with their names, ⌘B unfolds it; beside ⌘I the Library's details cover the list and fold away",
+    views: [],
+    sandbox: { size: [1024, 700] },
+    async run(t) {
+      const { s } = t;
+      const width = () => s.exec(() => Math.round(document.querySelector(".nav").getBoundingClientRect().width));
+      await t.ready();
+      await t.project();
+      await s.wait(async () => (await width()) === 52, { what: "the navigation on its icons in a 1024 px window" });
+      const untitled = await s.exec(() => [...document.querySelectorAll(".nav .views .nav-item")].filter((b) => !b.title).length);
+      check(untitled === 0, `${untitled} icons of the folded navigation without their name`);
+      await t.command("toggle-nav");
+      await s.wait(async () => (await width()) === 232 && !(await s.exec(() => document.querySelector(".nav").classList.contains("rail"))), {
+        what: "the navigation unfolded by ⌘B, its names shown",
+      });
+      await t.command("toggle-nav");
+      await s.wait(async () => (await width()) === 52, { what: "the navigation folded again" });
+
+      const pane = t.shown("library");
+      const row = `${pane} [data-group="on"] [role="option"]`;
+      await t.view("library");
+      await s.waitFor(`${pane} .side:not(.over)`);
+      // ⌘I takes the room: the details go over the list, which a click beside or Escape gives back.
+      await s.click(`${pane} .askbar .ask`);
+      await s.waitFor("[data-ask] aside:not(.over)");
+      await s.waitFor(`${pane} .side.over`);
+      await s.click(`${pane} .scrim`);
+      await s.waitGone(`${pane} .side`);
+      await s.click(row);
+      await s.waitFor(`${pane} .side.over`);
+      await s.exec((c) => document.querySelector(c).focus(), `${pane} .side .grip`);
+      await s.press(Key.escape);
+      await s.waitGone(`${pane} .side`);
+      check(!!(await s.exec(() => document.querySelector("[data-ask] aside"))), "Escape in the details closed the ⌘I panel too");
+      await s.click(`${row} input.switch:not([disabled])`);
+      await t.clean();
+    },
+  },
+  {
     name: "splits: in one gesture, from a tab's menu, a border evened out, a tab dropped on an edge, a closed split reopened",
     views: [],
     async run(t) {
@@ -1465,6 +1504,8 @@ export const scenarios = [
   {
     name: "library: a skill switched off for the project, written in its file, then undone",
     views: [],
+    // A laptop's window: under 1100 px, the details sheet beside the list leaves its switches in reach.
+    sandbox: { size: [1024, 700] },
     async run(t) {
       const { s, box } = t;
       const pane = t.shown("library");
@@ -1690,6 +1731,8 @@ export const scenarios = [
   {
     name: "design system: the repository's own font, its specimen, its components and every button of the view",
     views: ["design"],
+    // Narrow, with the ⌘I panel open beside the view: every button of the view stays in reach.
+    sandbox: { size: [1024, 700] },
     async run(t) {
       await t.ready();
       await t.project();
