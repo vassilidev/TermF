@@ -118,7 +118,7 @@
         <div class="tile">
           <span class="muted">{t("opsmoreCpu")}</span>
           <b class:warn={(shape.cpu ?? 0) >= 80}>{shape.cpu === null ? "—" : `${pct(shape.cpu)} %`}</b>
-          {#if shape.load}<small class="muted">{t("opsmoreCpuText", { pct: pct(shape.cpu ?? 0), load: shape.load[0], cpus: shape.cpus ?? "?" })}</small>{/if}
+          {#if shape.load}<small class="muted">{t("opsmoreCpuText", { load: shape.load[0], cpus: shape.cpus ?? "?" })}</small>{/if}
         </div>
         <div class="tile">
           <span class="muted">{t("opsmoreMemory")}</span>
