@@ -14,7 +14,7 @@ A project can follow several sources at once, and their inbox shows in the app:
 | GitHub Issues | The GitHub CLI, with no setting at all |
 | GitHub Projects | The GitHub CLI: `[trackers.github] project = "owner/number"` |
 | GitLab issues (gitlab.com or your own) | `glab` when it is signed in, otherwise a token |
-| Jira Cloud | A token |
+| Jira Cloud, several sites and spaces | A token, or Claude Code's Atlassian connection |
 | Linear | A token |
 | Azure DevOps Boards | A token |
 | Any MCP server | A read-only Claude Code session (Haiku) that queries the server |
@@ -23,7 +23,7 @@ Tokens go to the system keychain, never in a file.
 
 ## Follow a source
 
-1. Open the project's **Configuration** and add its sources, or accept the ones the setup proposes: a GitLab remote proposes GitLab, `ABC-12` keys in the commits propose Linear or Jira.
+1. Open the project's **Configuration** and add its sources, or accept the ones the setup proposes: a GitLab remote proposes GitLab, `ABC-12` keys in the commits propose Linear or Jira. For Jira, **Connect Jira step by step**: see [Jira, several sites and spaces](jira.md). Or ask the CTO with <kbd>⌘I</kbd>: it finds your tracker and connects it, through its card.
 2. The inbox lists your tickets. A failing source does not block the others.
 3. Pick a ticket, or paste a URL or a key: `owner/repo#42`, `#42`, `ACME-123`, `ENG-123`, `group/project#42`, `AB#123`.
 4. **With the team** starts a team run. **Launch** (<kbd>⌘⇧L</kbd>) opens a Claude Code session in the ticket's own worktree.
@@ -36,9 +36,17 @@ termf inbox
 termf run <ticket>
 ```
 
+## Browse, board and details {#browse}
+
+**Tickets › Browse** shows every ticket of a source, beyond the ones waiting for you: as a list grouped by space, or as a board whose columns are the source's statuses. Drag a card to move the ticket in its tracker, or open it in full in TermF, with its description, files and comments.
+
+![The ticket board of a Jira site, with To do, In Progress, In Review and Done columns](shot:board "The board of a Jira site. Sample data.")
+
+See [The ticket board](kanban.md) and [A ticket in full](ticket-details.md).
+
 ## Settings
 
-Each source has its own table in the project's file, `[trackers.*]`: the board, team or query, mine only, the states to show, a comment with the pull request's link, a transition. A self-hosted GitLab takes `[trackers.gitlab] host`.
+Each source has its own table in the project's file, `[trackers.*]`, and each Jira site its own `[[trackers.jira]]`: the board, team or query, mine only, the states to show, a comment with the pull request's link, a transition. A self-hosted GitLab takes `[trackers.gitlab] host`.
 
 By default, nothing is written back to the tracker: no comment, no transition, until you turn it on.
 

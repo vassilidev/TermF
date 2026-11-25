@@ -7,7 +7,7 @@ The Ops view gives you, and one approval at a time the agents, access to the pro
 
 ## Connections and recipes {#ops}
 
-You declare connections (SSH, Postgres, MySQL, Kubernetes, CloudWatch, Google Cloud Logging, Loki, Datadog) and run recipes on them: tail the logs, list the pods, run a read-only command. An agent can ask to run a recipe too, and every request shows you the exact command, the target and the environment before it runs.
+You declare connections (SSH, Postgres, MySQL, Redis, Kubernetes, CloudWatch, Google Cloud Logging, Loki, Datadog) and run recipes on them: tail the logs, list the pods, run a read-only command. An agent can ask to run a recipe too, and every request shows you the exact command, the target and the environment before it runs.
 
 ![Ops: the project's connections, a production SSH server with its checks, and the recipes that run on it](shot:ops "A connection, tested, with its recipes. Sample data.")
 
@@ -28,7 +28,7 @@ You declare connections (SSH, Postgres, MySQL, Kubernetes, CloudWatch, Google Cl
 ### Settings
 
 - Connections live in the project's file, as `[[ops.connections]]`.
-- The project's own recipes sit next to the shipped ones: logs, Kubernetes pods and logs, a read-only SSH command, a service restart.
+- The project's own recipes sit next to the shipped ones: logs, Kubernetes pods and logs, a read-only SSH command, a service restart, a server's health, Nginx, Laravel and Redis.
 
 ```sh
 # connections
@@ -43,9 +43,21 @@ termf ops recipes | run <recipe>
 >
 > **Tried so far.** Covered by automated tests, including command injection attempts against a real shell; adding an SSH connection is driven in the real app on macOS by an end-to-end test.
 
+## Servers, Redis and Forge {#servers}
+
+An SSH connection also shows panels that read the server for you, and a few changes that wait for your confirmation:
+
+- [Server health](server-health.md): CPU, memory, disks, services, ports and SSL certificates;
+- [Nginx](nginx.md): whether it runs, `nginx -t`, its sites, its logs live, a safe reload;
+- [Laravel](laravel.md): `php artisan about`, the scheduler, Horizon, failed jobs, `laravel.log` live.
+
+A [Redis](redis.md) connection lists its keys and reads their values. The **Forge** tab imports a [Laravel Forge](forge.md) account's servers and sites, and redeploys them.
+
+From <kbd>⌘I</kbd>, the DevOps engineer can add, change, test or delete a connection and do these changes too, each through its card. See [Agents that act for you](agent-actions.md).
+
 ## The database studio {#sql-console}
 
-The **SQL** tab of Ops is a database studio for the project's Postgres, MySQL, MariaDB, SQLite and ClickHouse databases, always read-only: the schema, an editor that completes names, the DBA, saved queries and exports. See [Database studio](database-studio.md).
+The **SQL** tab of Ops is a database studio for the project's Postgres, MySQL, MariaDB, SQLite and ClickHouse databases, always read-only: the schema and its diagram, an editor that completes names, charts of a result, the DBA, saved queries and exports. See [Database studio](database-studio.md).
 
 ## Live logs and the production .env {#live-logs}
 

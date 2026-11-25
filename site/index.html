@@ -46,6 +46,14 @@
       "downloadUrl": "https://vassilidev.github.io/TermF/download.html",
       "image": "https://vassilidev.github.io/TermF/og.png",
       "screenshot": "https://vassilidev.github.io/TermF/shots/home-light.webp",
+      "featureList": [
+        "A CTO agent and a team of Claude Code agents that take a ticket to a reviewed pull request",
+        "Agents that act in the app through approval cards, secrets typed by you and kept in a vault",
+        "Jira with several sites and spaces, and a ticket board for every source",
+        "A read-only database studio with charts and a schema diagram",
+        "Ops: server health, Nginx, Redis, Laravel and Laravel Forge",
+        "Every Claude Code, Codex and Gemini session in tabs and splits"
+      ],
       "license": "https://github.com/vassilidev/TermF/blob/main/LICENSE",
       "isAccessibleForFree": true,
       "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
@@ -187,7 +195,17 @@
           <picture><source media="(prefers-color-scheme: dark)" srcset="shots/home-dark-800.webp 800w, shots/home-dark.webp 1600w" sizes="880px"><img src="shots/home-light.webp" srcset="shots/home-light-800.webp 800w, shots/home-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The Home of a project: what waits for your answer, the agents at work live, and the bar to ask the CTO."></picture>
         </div>
       </article>
-      <article class="card" style="--i:1" id="live">
+      <article class="card" style="--i:1">
+        <div class="card-text">
+          <h3>Agents act for you, with your OK</h3>
+          <p>Press <kbd>⌘I</kbd> on any screen and ask. The agent does the work itself: adds a database, connects Jira, redeploys a site. Each action waits on a card you approve, and a password goes to the vault, never to the agent.</p>
+          <a class="more" href="docs/agent-actions.html"><span>How agents act for you</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+        </div>
+        <div class="card-vis shot">
+          <picture><source media="(prefers-color-scheme: dark)" srcset="shots/act-dark-800.webp 800w, shots/act-dark.webp 1600w" sizes="880px"><img src="shots/act-light.webp" srcset="shots/act-light-800.webp 800w, shots/act-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The Ask panel on Ops: an agent wants to add a production database, and its card asks for the password, which goes to the vault."></picture>
+        </div>
+      </article>
+      <article class="card" style="--i:2" id="live">
         <div class="card-text">
           <h3>Watch the team work, live</h3>
           <p><!-- gen:count -->29<!-- /gen:count --> agents, each a Claude Code session with one job. The CTO brings in only the ones your ticket needs, and you see what each one is doing right now.</p>
@@ -213,7 +231,7 @@
           </div>
         </div>
       </article>
-      <article class="card" style="--i:2">
+      <article class="card" style="--i:3">
         <div class="card-text">
           <h3>See the change before you say yes</h3>
           <p>Every changed screen, before and after, side by side or with a slider. Pin a comment where it matters and send it back to the agent.</p>
@@ -223,7 +241,27 @@
           <picture><source media="(prefers-color-scheme: dark)" srcset="shots/review-dark-800.webp 800w, shots/review-dark.webp 1600w" sizes="880px"><img src="shots/review-light.webp" srcset="shots/review-light-800.webp 800w, shots/review-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The visual review of a run: a changed screen of the invoices page, why it changed, and the buttons to refuse, ask for a change or approve."></picture>
         </div>
       </article>
-      <article class="card" style="--i:3">
+      <article class="card" style="--i:4">
+        <div class="card-text">
+          <h3>Every ticket on one board</h3>
+          <p>Jira with several sites and spaces, GitHub, Linear or Azure DevOps, on a board with their own columns. Drag a card to move the ticket, read it in full, or hand it to the team.</p>
+          <a class="more" href="docs/kanban.html"><span>How the ticket board works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+        </div>
+        <div class="card-vis shot">
+          <picture><source media="(prefers-color-scheme: dark)" srcset="shots/board-dark-800.webp 800w, shots/board-dark.webp 1600w" sizes="880px"><img src="shots/board-light.webp" srcset="shots/board-light-800.webp 800w, shots/board-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The ticket board of a Jira site: To do, In Progress, In Review and Done, each card with its key, title and assignee."></picture>
+        </div>
+      </article>
+      <article class="card" style="--i:5">
+        <div class="card-text">
+          <h3>Your databases and servers</h3>
+          <p>Query a database read-only, chart the result, see the whole schema. Check a server's health, Nginx, Redis and Laravel, and redeploy from Forge. Every change waits for your OK.</p>
+          <a class="more" href="docs/database-studio.html"><span>How the database studio works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+        </div>
+        <div class="card-vis shot">
+          <picture><source media="(prefers-color-scheme: dark)" srcset="shots/chart-dark-800.webp 800w, shots/chart-dark.webp 1600w" sizes="880px"><img src="shots/chart-light.webp" srcset="shots/chart-light-800.webp 800w, shots/chart-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The database studio: a read-only query, its result drawn as a bar chart, and the saved queries beside it."></picture>
+        </div>
+      </article>
+      <article class="card" style="--i:6">
         <div class="card-text">
           <h3>Every session in one window</h3>
           <p>Claude Code, Codex, Gemini or a shell, in tabs and splits. Each one shows what its agent is doing, and when it waits for you.</p>
@@ -236,26 +274,6 @@
             <div class="sess"><svg viewBox="0 0 24 24"><path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg><b>billing<small>Gemini</small></b><span class="state done">Done</span><code>Tests 12 passed (12)</code></div>
             <div class="sess"><svg class="sh" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></svg><b>api<small>shell</small></b><span></span><code>pnpm vitest run tests/invoices</code></div>
           </div>
-        </div>
-      </article>
-      <article class="card" style="--i:4">
-        <div class="card-text">
-          <h3>Git, tickets and CI, built in</h3>
-          <p>Branches, worktrees, commits and conflicts in one view. Tickets come from GitHub, GitLab, Jira, Linear or Azure DevOps, and a failed CI run goes back to the agent in one click.</p>
-          <a class="more" href="docs/git.html"><span>How the Git view works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-        </div>
-        <div class="card-vis shot">
-          <picture><source media="(prefers-color-scheme: dark)" srcset="shots/git-dark-800.webp 800w, shots/git-dark.webp 1600w" sizes="880px"><img src="shots/git-light.webp" srcset="shots/git-light-800.webp 800w, shots/git-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The Git view: local and remote branches, the worktrees of the runs, and the history of every branch drawn as a graph."></picture>
-        </div>
-      </article>
-      <article class="card" style="--i:5">
-        <div class="card-text">
-          <h3>Your secrets and servers stay safe</h3>
-          <p>Agents never read a secret, and every command on a server waits for your OK. Your projects, runs and logs stay on your computer.</p>
-          <a class="more" href="docs/vault.html"><span>How the vault works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-        </div>
-        <div class="card-vis shot">
-          <picture><source media="(prefers-color-scheme: dark)" srcset="shots/vault-dark-800.webp 800w, shots/vault-dark.webp 1600w" sizes="880px"><img src="shots/vault-light.webp" srcset="shots/vault-light-800.webp 800w, shots/vault-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The vault: a GitHub login with its password hidden and its current 2FA code, never given to agents."></picture>
         </div>
       </article>
     </div>
