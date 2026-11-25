@@ -136,7 +136,9 @@ fn repo_path(project: &Project, repo: Option<&str>) -> Result<PathBuf> {
 ///
 /// `read_prod`: the data folder, when the sender read prod data (the trifecta rule): the session that gets the
 /// message is marked first, and only one behind `termf guard` gets it (a new one has no way out at all).
-/// `direct`: always the direct conversation, never a step at work (a question asked from a screen).
+/// `direct`: always the direct conversation, never a step at work (a question asked from a screen). `panel`: the
+/// conversation is the ⌘I panel's, which acts on TermF's screens (`SessionSpec::actions`).
+#[allow(clippy::too_many_arguments)]
 pub fn address(
     app: &AppHandle,
     id: &str,
@@ -145,6 +147,7 @@ pub fn address(
     repo: Option<&str>,
     read_prod: Option<&Path>,
     direct: bool,
+    panel: bool,
 ) -> Result<Addressed> {
     ensure!(!text.trim().is_empty(), "the message is empty");
     let agents = agents(app);
@@ -194,7 +197,9 @@ pub fn address(
     let cwd = repo_path(&project, repo)?;
     let sessions = agents.sessions()?.into_iter();
     let guarded = sessions.filter(|s| read_prod.is_none() || s.spec.guard);
-    let session = match direct_conversation(guarded.collect(), id, role, &cwd) {
+    // The panel's conversation acts on the screens, another one does not: neither takes the other's place.
+    let mine = guarded.filter(|s| s.spec.actions == panel);
+    let session = match direct_conversation(mine.collect(), id, role, &cwd) {
         Some(session) => {
             mark(session.id)?;
             agents.send(session.id, text)?;
@@ -209,6 +214,7 @@ pub fn address(
                 project: Some(project.id.clone()),
                 role: Some(role.into()),
                 guard: read_prod.is_some(),
+                actions: panel,
                 disallowed_tools: match read_prod {
                     Some(_) => termf_core::taint::EGRESS_DENY
                         .iter()
@@ -386,6 +392,11 @@ pub fn call(
         .context("this conversation has no project")?;
     if matches!(tool, McpCall::OpsRecipes {} | McpCall::OpsRun { .. }) {
         let mut value = crate::ops::mcp(app, &conversation, &project, tool, gone)?;
+        mask(&mut value);
+        return Ok(value);
+    }
+    if matches!(tool, McpCall::Actions {} | McpCall::DoAction { .. }) {
+        let mut value = crate::actions::call(app, &conversation, &project, tool, gone)?;
         mask(&mut value);
         return Ok(value);
     }
@@ -568,7 +579,16 @@ fn run_tool(
                 json!({ "via": "step", "run": run, "step": key, "conversation": session })
             }
             (None, None, Some(role)) => {
-                let to = address(app, id, &role, &text, repo.as_deref(), read_prod, false)?;
+                let to = address(
+                    app,
+                    id,
+                    &role,
+                    &text,
+                    repo.as_deref(),
+                    read_prod,
+                    false,
+                    false,
+                )?;
                 json!({ "via": to.via, "run": to.run, "step": to.step, "conversation": to.session.id })
             }
             _ => bail!("give run and step, or role"),
@@ -631,8 +651,12 @@ fn run_tool(
             let answer = memory::ask(app, id, &question, None)?;
             json!({ "answer": answer.text, "conversation": answer.session, "cost": answer.cost })
         }
-        McpCall::OpsRecipes {} | McpCall::OpsRun { .. } | McpCall::RequestSecret { .. } => {
-            bail!("Ops tools and request_secret run apart")
+        McpCall::OpsRecipes {}
+        | McpCall::OpsRun { .. }
+        | McpCall::RequestSecret { .. }
+        | McpCall::Actions {}
+        | McpCall::DoAction { .. } => {
+            bail!("Ops tools, request_secret and the screens' actions run apart")
         }
     })
 }
@@ -765,7 +789,7 @@ pub async fn cto_open(app: AppHandle, project: String) -> CmdResult<AgentSession
 }
 
 /// `@role` in the CTO conversation, or a question asked from a screen (`direct`): the message goes to the role, and
-/// the CTO hears of it.
+/// the CTO hears of it. `panel`: from the ⌘I panel, whose conversations act on the screens.
 #[tauri::command]
 pub async fn cto_address(
     app: AppHandle,
@@ -774,6 +798,7 @@ pub async fn cto_address(
     text: String,
     repo: Option<String>,
     direct: Option<bool>,
+    panel: Option<bool>,
 ) -> CmdResult<Addressed> {
     blocking(app, move |app| {
         let to = address(
@@ -784,6 +809,7 @@ pub async fn cto_address(
             repo.as_deref(),
             None,
             direct.unwrap_or(false),
+            panel.unwrap_or(false),
         )?;
         if let Err(e) = tell(app, &project, &role, &text, &to) {
             eprintln!("termf: the CTO conversation was not told: {e:#}");

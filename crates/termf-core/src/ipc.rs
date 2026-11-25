@@ -56,6 +56,9 @@ pub const MCP_OPS: [&str; 2] = ["ops_recipes", "ops_run"];
 /// A key the project's agents then get from the vault, asked to the user in TermF's own card: the agent never gets
 /// its value.
 pub const MCP_SECRETS: [&str; 1] = ["request_secret"];
+/// The actions of TermF's screens: the list (`actions`, read) and one of them (`do_action`), which the user approves
+/// in TermF's own card. Every conversation of the ⌘I panel gets them.
+pub const MCP_SCREEN: [&str; 2] = ["actions", "do_action"];
 pub const MCP_ACTIONS: [&str; 10] = [
     "start_team_run",
     "answer",
@@ -285,6 +288,17 @@ pub enum McpCall {
         purpose: String,
         #[serde(default)]
         signup_url: Option<String>,
+    },
+    /// The actions of the screen the user talks from, and TermF's global ones, with their arguments.
+    Actions {},
+    /// One of them, once the user approves it in TermF; `hints`: where the user finds each value TermF asks them for
+    /// itself (a password, a token), which the agent never gives.
+    DoAction {
+        action: String,
+        #[serde(default)]
+        args: serde_json::Map<String, Value>,
+        #[serde(default)]
+        hints: BTreeMap<String, String>,
     },
 }
 
@@ -1384,6 +1398,7 @@ mod tests {
             .chain(&MCP_EXPERT)
             .chain(&MCP_OPS)
             .chain(&MCP_SECRETS)
+            .chain(&MCP_SCREEN)
             .copied()
             .collect();
         for name in &names {
@@ -1403,6 +1418,7 @@ mod tests {
                 ("purpose", json!("stock photos")),
                 ("name", json!("Weekly watch")),
                 ("cron", json!("0 9 * * 1")),
+                ("action", json!("ops.add_connection")),
             ] {
                 call.insert(key.into(), value);
             }
@@ -1422,6 +1438,7 @@ mod tests {
                 "request_secret" => &["variable", "purpose"],
                 "propose_conventions" => &["text", "name"],
                 "schedule_task" => &["name", "cron"],
+                "do_action" => &["action"],
                 _ => &[],
             };
             call.retain(|k, _| k == "tool" || fields.contains(&k.as_str()));

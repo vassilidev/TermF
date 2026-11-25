@@ -127,6 +127,10 @@ pub struct SessionSpec {
     /// the user first: a project's CTO conversation. No terminal takes it over: its tools would not follow.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub mcp: bool,
+    /// A conversation of the ⌘I panel: the actions of TermF's screens (`actions`, `do_action`), each approved by the
+    /// user in TermF. The CTO's and the expert's conversations always have them.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub actions: bool,
     /// Each Bash command goes through `termf guard` first, as in a ticket run's tile: no push, no pull request,
     /// no write to the tracker or the CI. Such a session never starts without it; taken over, its terminal gets the
     /// same hook.

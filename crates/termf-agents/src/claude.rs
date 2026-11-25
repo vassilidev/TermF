@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Value, json};
 use termf_core::context::Gauge;
-use termf_core::ipc::{MCP_ACTIONS, MCP_BROWSER, MCP_EXPERT, MCP_OPS, MCP_READ, MCP_SECRETS};
+use termf_core::ipc::{
+    MCP_ACTIONS, MCP_BROWSER, MCP_EXPERT, MCP_OPS, MCP_READ, MCP_SCREEN, MCP_SECRETS,
+};
 
 use crate::{AgentEvent, AgentRuntime, Launch, Outcome, Parser, SessionSpec, Usage};
 
@@ -31,16 +33,18 @@ fn expert(spec: &SessionSpec) -> bool {
 
 /// The tools of `termf mcp` a session gets: the expert's conversation searches the project memory; a CTO
 /// conversation reads and acts; any other session the ones its allowed tools name: `mcp__termf__ask_expert`
-/// asks the expert, `mcp__termf__browser_*` (or one `mcp__termf__browser_…`) drives its own browser.
+/// asks the expert, `mcp__termf__browser_*` (or one `mcp__termf__browser_…`) drives its own browser. Those three
+/// and every conversation of the ⌘I panel (`actions`) also act on TermF's screens.
 pub fn mcp_tools(spec: &SessionSpec) -> Vec<&'static str> {
     if expert(spec) {
-        return MCP_EXPERT.to_vec();
+        return MCP_EXPERT.iter().chain(&MCP_SCREEN).copied().collect();
     }
     if spec.mcp {
         return MCP_READ
             .iter()
             .chain(&MCP_ACTIONS)
             .chain(&MCP_OPS)
+            .chain(&MCP_SCREEN)
             .copied()
             .collect();
     }
@@ -59,12 +63,27 @@ pub fn mcp_tools(spec: &SessionSpec) -> Vec<&'static str> {
     if spec.guard {
         tools.extend(MCP_OPS.iter().filter(|t| allowed(OPS, t)));
     }
+    if spec.actions {
+        tools.extend(MCP_SCREEN);
+    }
     tools
+}
+
+/// The permissions of the screens' actions: their list freely, each action only once the user approves it (TermF
+/// shows its own card besides).
+fn screen_permissions(permissions: &mut Value) {
+    let [list, act] = MCP_SCREEN.map(|t| Value::from(format!("mcp__termf__{t}")));
+    for (key, tool) in [("allow", list), ("ask", act)] {
+        match permissions[key].as_array_mut() {
+            Some(rules) => rules.push(tool),
+            None => permissions[key] = json!([tool]),
+        }
+    }
 }
 
 /// What a session with TermF's tools may do: call its read tools, and each of its actions only once the user
 /// approves it (`ask` wins over any `allow`, the managed settings' included); no command, no edit, no web. The
-/// expert, read-only, has no action, and its read-only sub-agents search wide. Ops are allowed here: TermF asks
+/// expert, read-only, has no action but the screens', and its read-only sub-agents search wide. Ops are allowed here: TermF asks
 /// the user in its own card, with the exact command.
 pub fn mcp_settings(spec: &SessionSpec) -> Value {
     let tools = |names: &[&str]| -> Vec<String> {
@@ -79,15 +98,18 @@ pub fn mcp_settings(spec: &SessionSpec) -> Value {
         "WebFetch",
         "WebSearch",
     ];
-    if expert(spec) {
-        return json!({ "permissions": { "allow": tools(&MCP_EXPERT), "deny": deny } });
-    }
-    deny.push("Agent");
-    json!({ "permissions": {
-        "allow": tools(&MCP_READ).into_iter().chain(tools(&MCP_OPS)).collect::<Vec<_>>(),
-        "ask": tools(&MCP_ACTIONS),
-        "deny": deny,
-    } })
+    let mut settings = if expert(spec) {
+        json!({ "permissions": { "allow": tools(&MCP_EXPERT), "deny": deny } })
+    } else {
+        deny.push("Agent");
+        json!({ "permissions": {
+            "allow": tools(&MCP_READ).into_iter().chain(tools(&MCP_OPS)).collect::<Vec<_>>(),
+            "ask": tools(&MCP_ACTIONS),
+            "deny": deny,
+        } })
+    };
+    screen_permissions(&mut settings["permissions"]);
+    settings
 }
 
 /// `--model`, `--effort`, `--permission-mode` and the tools, as the spec sets them.
@@ -188,6 +210,8 @@ impl AgentRuntime for ClaudeCode {
                 ["--restricted", "--tools", built_in, "--strict-mcp-config"].map(Into::into),
             );
             settings["permissions"] = mcp_settings(spec)["permissions"].take();
+        } else if spec.actions {
+            screen_permissions(&mut settings["permissions"]);
         }
         for dir in launch.dirs {
             args.extend(["--add-dir".into(), dir.to_string_lossy().into_owned()]);

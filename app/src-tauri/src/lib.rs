@@ -1,3 +1,4 @@
+mod actions;
 mod agentenv;
 mod agents;
 mod api;
@@ -311,6 +312,7 @@ pub fn run() {
             app.manage(vault::start(app.handle(), config_dir.clone(), &data_dir));
             app.manage(ops::state(config_dir.clone(), data_dir.clone()));
             app.manage(agentenv::state(config_dir.clone()));
+            app.manage(actions::ActionsState::default());
             app.manage(memory::start(
                 app.handle(),
                 config_dir.clone(),
@@ -696,6 +698,7 @@ pub fn run() {
             ops::ops_query_delete,
             ops::ops_query_recipe,
             ops::ops_ask,
+            actions::actions_reply,
             agentenv::agentenv_requests,
             agentenv::agentenv_answer,
             agentenv::agentenv_settings,
