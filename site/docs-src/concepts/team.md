@@ -13,10 +13,11 @@ Each project has one permanent conversation with the CTO, on the project's Home.
 2. It reads the repositories, the runs, the tickets and what waits for you, then answers in place.
 3. When something needs doing, it asks through a card: start a team run, answer a question, approve a step, stop a run.
 4. Approve or deny the card. Write `@front` (or any role) to reach a role at work, `@expert` for the [project expert](#expert).
+5. Done with a subject? **Topic done** archives the thread and starts an empty one. The CTO keeps the project's memory, not the thread. See [In a conversation](ask-panel.md#conversation).
 
 ### What it can do
 
-It reads the project's repositories with Read, Grep and Glob. It has no shell and no network, and it acts only through TermF's own tools: it can read the project, the runs, the tickets and what waits for you, and it can start a team run, answer a question, request changes, approve, stop, or send a message to a role. Every one of these actions waits on your approval card.
+It reads the project's repositories with Read, Grep and Glob. It has no shell and no network, and it acts only through TermF's own tools: it can read the project, the runs, the tickets and what waits for you, and it can start a team run, answer a question, request changes, approve, stop, or send a message to a role. It can also do what the screen you ask from offers, such as connecting Jira or moving a ticket: see [Agents that act for you](agent-actions.md). Every one of these actions waits on your approval card.
 
 ### What it costs
 

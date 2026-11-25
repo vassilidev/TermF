@@ -349,6 +349,16 @@ def breadcrumbs(*items):
     return f'<script type="application/ld+json">{json.dumps(data, ensure_ascii=False)}</script>'
 
 
+def article(page, desc, url):
+    """The TechArticle of a doc page, with its first screenshot as its image."""
+    data = {"@context": "https://schema.org", "@type": "TechArticle", "headline": page.title, "description": desc, "url": url,
+            "inLanguage": "en", "isPartOf": {"@id": BASE + "#site"}, "about": {"@id": BASE + "#app"}}
+    shot = re.search(r"\(shot:([\w-]+)", page.md)
+    if shot:
+        data["image"] = BASE + f"shots/{shot.group(1)}-light.webp"
+    return f'<script type="application/ld+json">{json.dumps(data, ensure_ascii=False)}</script>'
+
+
 def head(title, desc, url, prefix, ld=""):
     return f"""<!doctype html>
 <html lang="en">
@@ -509,11 +519,11 @@ def doc_page(page, pages, body):
     toc = "".join(f'<li class="l{lvl}"><a href="#{hid}">{re.sub(r"<[^>]+>", "", label)}</a></li>' for lvl, hid, label in page.toc if lvl <= 3)
     toc_html = f'<aside class="toc" aria-labelledby="toc-h"><p id="toc-h">On this page</p><ul>{toc}</ul></aside>' if toc else '<aside class="toc"></aside>'
     first = re.search(r"<p>(.*?)</p>", body, re.S)
-    desc = text_of(first.group(1)) if first else page.title
+    desc = re.sub(r"\s+([,.;:!?])", r"\1", text_of(first.group(1))) if first else page.title
     desc = desc if len(desc) <= 158 else desc[:155].rsplit(" ", 1)[0] + "…"
     section = dict(SECTIONS)[page.section]
     url = BASE + f"docs/{page.slug}.html"
-    ld = breadcrumbs(("TermF", BASE), ("Docs", BASE + "docs/"), (section, BASE + f"docs/#{page.section}"), (page.title, url))
+    ld = breadcrumbs(("TermF", BASE), ("Docs", BASE + "docs/"), (section, BASE + f"docs/#{page.section}"), (page.title, url)) + "\n" + article(page, desc, url)
     return f"""{head(f"{page.title} · TermF docs", desc, url, prefix, ld)}
 <body class="docs-body">
 <a class="skip" href="#content">Skip to content</a>
