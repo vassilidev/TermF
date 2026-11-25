@@ -150,7 +150,9 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, data_dir: &Path) {
             Some((w.parse::<f64>().ok()?, h.parse::<f64>().ok()?))
         });
         let config = app.config().app.windows.iter().find(|w| w.label == "main");
-        let fitted = config.filter(|_| cfg!(target_os = "macos")).map(|c| (c.width, c.height));
+        let fitted = config
+            .filter(|_| cfg!(target_os = "macos"))
+            .map(|c| (c.width, c.height));
         if let Some((width, height)) = asked.or(fitted) {
             let _ = window.set_size(LogicalSize::new(width, height));
         }
