@@ -2121,11 +2121,11 @@ fn reads_and_writes_jira() {
             .contains("no API token for me@acme.test"),
         "{missing:?}"
     );
-    assert!(!t.sources("acme").unwrap().jira_token);
+    assert_eq!(t.sources("acme").unwrap().jira_tokens, [false]);
     assert!(!t.has_jira_token(&url, "me@acme.test").unwrap());
     t.save_jira_token(&url, "me@acme.test", &format!(" {TOKEN}\n"))
         .unwrap();
-    assert!(t.sources("acme").unwrap().jira_token);
+    assert_eq!(t.sources("acme").unwrap().jira_tokens, [true]);
     assert!(t.has_jira_token(&url, "ME@acme.test").unwrap());
     assert!(!t.has_jira_token(&url, "other@acme.test").unwrap());
 
@@ -2870,14 +2870,14 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
             mine: true,
             transition: None,
         }),
-        jira: Some(JiraTracker {
+        jira: vec![JiraTracker {
             site: "acme.atlassian.net".into(),
             email: "me@acme.test".into(),
             jql: Some(DEFAULT_JQL.into()),
-            project: Some("ACME".into()),
+            spaces: vec!["ACME".into()],
             comment: true,
             transition: Some("In Review".into()),
-        }),
+        }],
         linear: None,
         gitlab: None,
         azure: None,
@@ -2893,7 +2893,7 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
         implicit: false,
     };
     let saved = t.save_sources("acme", &trackers).unwrap();
-    assert!(!saved.jira_token);
+    assert_eq!(saved.jira_tokens, [false]);
     let text = fs::read_to_string(&file).unwrap();
     for kept in ["# Acme's tickets", "auth = \"gh\" # kept", "[workflows]"] {
         assert!(text.contains(kept), "{kept} in {text}");
@@ -2903,7 +2903,8 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
         "project = \"acme/4\"",
         "issues = true",
         "columns = [\"Todo\"]",
-        "[trackers.jira]",
+        "[[trackers.jira]]",
+        "spaces = [\"ACME\"]",
         "site = \"acme.atlassian.net\"",
         "comment = true",
         "transition = \"In Review\"",
@@ -2918,7 +2919,7 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
     }
     let mut expected = trackers.clone();
     expected.github.as_mut().unwrap().columns = vec!["Todo".into()];
-    expected.jira.as_mut().unwrap().jql = None;
+    expected.jira[0].jql = None;
     assert_eq!(saved.trackers, expected);
 
     // An MCP source keeps its last answer while its settings stay the same.
@@ -3002,8 +3003,8 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
     assert!(
         invalid(|b| b.github.as_mut().unwrap().repo = Some("front".into())).contains("owner/name")
     );
-    assert!(invalid(|b| b.jira.as_mut().unwrap().site = "acme".into()).contains("not a Jira site"));
-    assert!(invalid(|b| b.jira.as_mut().unwrap().email = "me".into()).contains("not an e-mail"));
+    assert!(invalid(|b| b.jira[0].site = "acme".into()).contains("not a Jira site"));
+    assert!(invalid(|b| b.jira[0].email = "me".into()).contains("not an e-mail"));
     assert!(
         invalid(|b| b.mcp.get_mut("linear").unwrap().tools = vec!["list_*".into()])
             .contains("not a tool name")
