@@ -6,8 +6,10 @@ import { ENVS, SSLMODES, clean, isServer, passwordName, target, type Check, type
 import { loadOps, ops, runSql } from "$lib/ops.svelte";
 import { toast } from "$lib/ui/toast.svelte";
 
-/** The kinds an agent adds: a database TermF reads, or an SSH server. */
-const KINDS: Kind[] = ["ssh", "postgres", "mysql", "mariadb", "clickhouse", "sqlite"];
+/** The kinds an agent adds: a database TermF reads, an SSH server, or Redis. */
+const KINDS: Kind[] = ["ssh", "postgres", "mysql", "mariadb", "clickhouse", "sqlite", "redis"];
+/** A password the card asks for, kept in the vault. */
+const locked = (k: Kind) => isServer(k) || k === "redis";
 
 const kindLabel = (k: Kind) => t(`opsKind${k[0].toUpperCase()}${k.slice(1)}` as Parameters<typeof t>[0]);
 const text = (v: unknown) => (typeof v === "string" ? v : undefined);
@@ -33,7 +35,8 @@ function connectionOf(a: Args): Connection {
     via: text(a.via),
     database: text(a.database),
     sslmode: text(a.sslmode),
-    ...(isServer(kind) ? { secrets: { password: passwordName(name) } } : {}),
+    path: text(a.path),
+    ...(locked(kind) ? { secrets: { password: passwordName(name) } } : {}),
   });
 }
 
@@ -56,14 +59,15 @@ const addConnection: Action = {
     user: { type: "string", description: "SSH: the login. A database: its user." },
     jump: { type: "string", description: "SSH only: a bastion (ProxyJump)." },
     via: { type: "string", description: "A database server: the project's SSH connection to tunnel through." },
-    database: { type: "string", description: "A database's name; SQLite: the absolute path of its file." },
+    database: { type: "string", description: "A database's name; SQLite: the absolute path of its file; Redis: its number (0 by default)." },
+    path: { type: "string", description: "SSH only: a Laravel site's folder on the server (/home/forge/acme.com), for its recipes." },
     sslmode: { type: "string", description: "A database server's TLS, in Postgres' words.", enum: [...SSLMODES] },
     description: { type: "string", description: "One line on what it is." },
     ai_access: { type: "string", description: "What agents may see of its output: none (default), redacted, full.", enum: ["none", "redacted", "full"] },
     password: { type: "string", secret: true, description: "A database server's password." },
   },
   required: ["name", "kind", "env"],
-  asks: (a) => (isServer(a.kind as Kind) ? ["password"] : []),
+  asks: (a) => (locked(a.kind as Kind) ? ["password"] : []),
   label: "actOpsAdd",
   labels: { password: "opsSecretPassword" },
   describe: (a) => {
@@ -79,7 +83,7 @@ const addConnection: Action = {
     toast(t("actOpsAdded", { name: connection.name }));
     return {
       added: connection,
-      password: isServer(connection.kind) ? (password ? "kept in the vault" : "not given: the user adds it in the vault before it connects") : undefined,
+      password: locked(connection.kind) ? (password ? "kept in the vault" : "not given: the user adds it in the vault before it connects") : undefined,
       next: "Test it with ops.test_connection.",
     };
   },

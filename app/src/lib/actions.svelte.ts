@@ -9,6 +9,7 @@ import { gitActions } from "$lib/git-actions";
 import { t } from "$lib/i18n";
 import { libraryActions } from "$lib/library-actions";
 import { opsActions } from "$lib/ops-actions";
+import { opsMoreActions } from "$lib/ops-more-actions";
 import { schedulerActions } from "$lib/scheduler-actions";
 import { settingsActions } from "$lib/settings-actions";
 import { setupActions } from "$lib/setup-actions";
@@ -36,7 +37,7 @@ export type Action = Spec & {
 
 /** Each screen's actions, by view, and those of anywhere. */
 const SCREENS: Record<string, Action[]> = {
-  ops: opsActions,
+  ops: [...opsActions, ...opsMoreActions],
   tickets: ticketActions,
   ci: ciActions,
   library: libraryActions,

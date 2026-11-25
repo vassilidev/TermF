@@ -97,6 +97,28 @@ export async function startFollow(project: string, recipe: string, connection: s
   }
 }
 
+/** Runs a recipe for a connection's panel (health, Nginx, Laravel, Redis); `confirm`: the environment's name, for one
+ * that writes. */
+export async function runRecipe(
+  project: string,
+  recipe: string,
+  connection: string,
+  params: Record<string, string> = {},
+  confirm: string | null = null,
+): Promise<Ran> {
+  const ran = await invoke<Ran>("ops_run", { project, recipe, connection, params, confirm, proposal: null });
+  loadHistory(project);
+  return ran;
+}
+
+/** Follows a log file of an SSH connection in the Live tab. */
+export async function followFile(project: string, connection: string, file: string) {
+  if (ops.live.id !== null) await stopFollow();
+  Object.assign(ops.live, { recipe: "logs-follow", connection, params: { file, lines: "100" } });
+  ops.tab = "live";
+  await startFollow(project, "logs-follow", connection, ops.live.params);
+}
+
 /** Stops the followed stream, its client with it. */
 export async function stopFollow() {
   const id = ops.live.id;
