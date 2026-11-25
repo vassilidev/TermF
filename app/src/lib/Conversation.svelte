@@ -1,3 +1,8 @@
+<script lang="ts" module>
+  /** Messages typed during a turn, per session: sent together once it ends. */
+  const queues = $state<Record<number, string[]>>({});
+</script>
+
 <script lang="ts">
   import { onMount, tick, type Snippet } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
@@ -21,6 +26,7 @@
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import Undo2 from "@lucide/svelte/icons/undo-2";
   import UserRound from "@lucide/svelte/icons/user-round";
+  import X from "@lucide/svelte/icons/x";
   import Action from "$lib/Action.svelte";
   import ActionAsk from "$lib/ActionAsk.svelte";
   import { actionOf, agentActions, approve, perform, refuse, type Call } from "$lib/actions.svelte";
@@ -143,6 +149,9 @@
   const offered = $derived(cto && !closed ? mentioned(draft, roles) : []);
   // A message to another agent does not wait for the CTO's turn.
   const why = $derived(to ? null : blocked(session.state));
+  // During a turn a message waits in a queue instead of being refused.
+  const queueing = $derived(why === "working");
+  const queued = $derived(queues[session.id] ?? []);
   const turning = $derived(session.state === "working" || session.state === "waiting");
   const asking = $derived(session.state === "waiting" ? pending(events) : null);
   /** At work with no word yet and no call running: it reads, plans, or reads what a call gave. */
@@ -348,32 +357,46 @@
 
   async function send(e: SubmitEvent) {
     e.preventDefault();
-    let text = draft.trim();
-    if (!text || why || busy) return;
-    if (outgoing) {
-      const out = await run("send", () => outgoing(text));
-      if (out === undefined) return;
-      if (out === null) {
-        draft = "";
-        return;
-      }
-      text = out;
-    } else if (to) {
-      const { role, text } = to;
-      const args = { project: session.project, role, text, repo: repo || null };
-      const reached = await run("send", () => invoke<{ session: AgentSession }>("cto_address", args));
-      if (reached) {
-        draft = "";
-        upsert(reached.session);
-        showConversation(reached.session.id);
-      }
+    const text = draft.trim();
+    if (!text || busy) return;
+    if (queueing) {
+      queues[session.id] = [...queued, text];
+      draft = "";
       return;
     }
-    const sent = await run("send", () => invoke("agent_send", { id: id(), text }).then(() => true));
-    if (sent) {
-      draft = "";
-      follow(true);
+    if (why) return;
+    if (await deliver(text)) draft = "";
+  }
+
+  // The turn ended: what was queued goes as one message, as Claude Code itself does.
+  $effect(() => {
+    if (why || busy || !queued.length) return;
+    const text = queued.join("\n\n");
+    delete queues[session.id];
+    void deliver(text, null).then((ok) => {
+      if (!ok) queues[session.id] = [text, ...(queues[session.id] ?? [])];
+    });
+  });
+
+  /** Sends `text` now, to `target` when it names another agent; true once it left. */
+  async function deliver(text: string, target = to): Promise<boolean> {
+    if (outgoing) {
+      const out = await run("send", () => outgoing(text));
+      if (out === undefined) return false;
+      if (out === null) return true;
+      text = out;
+    } else if (target) {
+      const { role, text } = target;
+      const args = { project: session.project, role, text, repo: repo || null };
+      const reached = await run("send", () => invoke<{ session: AgentSession }>("cto_address", args));
+      if (!reached) return false;
+      upsert(reached.session);
+      showConversation(reached.session.id);
+      return true;
     }
+    const sent = await run("send", () => invoke("agent_send", { id: id(), text }).then(() => true));
+    if (sent) follow(true);
+    return !!sent;
   }
 
   function enter(e: KeyboardEvent) {
@@ -928,6 +951,18 @@
 
 <form class="composer" class:embedded={embedded || bare} class:bare bind:this={form} onsubmit={send}>
   {#if chips}<div class="chips">{@render chips()}</div>{/if}
+  {#if queued.length}
+    <ul class="queued" aria-label={t("chatQueued")}>
+      {#each queued as text, i (i)}
+        <li>
+          <span>{text}</span>
+          <button type="button" class="icon" aria-label={t("chatUnqueue")} title={t("chatUnqueue")} onclick={() => (queues[session.id] = queued.filter((_, j) => j !== i))}>
+            <X size={13} aria-hidden="true" />
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
   {#if offered.length}
     <ul class="mentions" id="cto-roles" role="listbox" aria-label={t("ctoRoles")}>
       {#each offered as role, i (role)}
@@ -959,18 +994,18 @@
     {#if embedded || bare}
       <!-- On the Home the primary action is the latest decision: sending is an icon in the field. -->
       {@const label = to ? t("ctoSendTo", { role: to.role }) : t("chatSend")}
-      <button type="submit" class="icon-send" aria-label={label} title={label} disabled={!!why || !!busy || !draft.trim()}>
+      <button type="submit" class="icon-send" aria-label={label} title={label} disabled={(!!why && !queueing) || !!busy || !draft.trim()}>
         {#if busy === "send"}<LoaderCircle size={16} aria-hidden="true" class="spin" />{:else}<ArrowUp size={16} aria-hidden="true" />{/if}
       </button>
     {:else}
-      <button type="submit" class="btn primary" disabled={!!why || !!busy || !draft.trim()}>
+      <button type="submit" class="btn primary" disabled={(!!why && !queueing) || !!busy || !draft.trim()}>
         {#if busy === "send"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}{to
           ? t("ctoSendTo", { role: to.role })
           : t("chatSend")}
       </button>
     {/if}
   </div>
-  {#if why}<p class="why" id="chat-why">{t(reasonsWhy[why])}</p>{/if}
+  {#if why}<p class="why" id="chat-why">{t(queueing ? "chatQueueHint" : reasonsWhy[why])}</p>{/if}
 </form>
 
 <style>
@@ -1018,7 +1053,7 @@
   }
 
   .composer.embedded {
-    grid-template: "mentions" auto "field" auto "why" auto / minmax(0, 1fr);
+    grid-template: "queued" auto "mentions" auto "field" auto "why" auto / minmax(0, 1fr);
     row-gap: 0;
     padding: 12px 20px 16px;
     background: var(--panel);
@@ -1047,6 +1082,11 @@
     margin: 0 8px 8px 0;
   }
 
+  .composer.embedded .queued {
+    grid-area: queued;
+    margin-bottom: 6px;
+  }
+
   .composer.embedded .why {
     grid-area: why;
     margin-top: 6px;
@@ -1058,7 +1098,7 @@
   }
 
   .composer.bare {
-    grid-template: "chips" auto "mentions" auto "field" auto "why" auto / minmax(0, 1fr);
+    grid-template: "chips" auto "queued" auto "mentions" auto "field" auto "why" auto / minmax(0, 1fr);
     padding: 10px 12px 12px;
   }
 
@@ -1218,6 +1258,38 @@
     max-width: 820px;
   }
 
+  .turns > :global(*) {
+    min-width: 0;
+  }
+
+  .queued {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .queued li {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .queued span {
+    flex: 1;
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .user {
     align-self: flex-end;
     max-width: 85%;
@@ -1358,6 +1430,11 @@
 
   .sys :global(svg) {
     flex-shrink: 0;
+  }
+
+  .sys > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .sys.failed {
