@@ -51,6 +51,7 @@ You need [Claude Code](https://code.claude.com), signed in, and `git`. Every fil
 - **Jira and a kanban.** Several Jira sites and spaces, a board for every ticket source, and each ticket read in full in the app.
 - **A database studio.** Read-only queries, charts, the whole schema as a diagram, and a DBA that writes the query for you.
 - **Ops.** Server health, Nginx, Redis, Laravel and Laravel Forge, every change waiting for your confirmation.
+- **Code on any machine.** Encrypted sync brings your projects, vault, SSH keys and Claude Code setup to every machine, and *My environment* installs the tools you use on a new one in one go.
 - **Secrets never reach the agents.** Passwords and tokens go to the vault, typed by you. Everything runs on your machine: no TermF server, no account.
 
 <table>

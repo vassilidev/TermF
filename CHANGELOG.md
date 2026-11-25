@@ -3,6 +3,42 @@
 What changed from one release of TermF to the next, by feature. Every feature has its page on the
 [website](https://vassilidev.github.io/TermF/features.html), with its defaults and its limits.
 
+## 0.5.0
+
+TermF 0.5.0 lets you code on any machine: the encrypted sync now carries your whole setup, Claude Code's included, and
+*My environment* installs the tools you use on a new machine in one go.
+
+### Your setup on every machine
+- **Everything TermF keeps can sync.** Every file TermF writes in its configuration folder belongs to a sync choice,
+  except `local.toml` (each machine's repository paths), and a test keeps it that way. The scout's findings now
+  travel with *Configuration*.
+- **Dev config**, a new choice, off by default: Claude Code's `CLAUDE.md`, settings (enabled plugins and their
+  marketplaces included), key bindings, skills, agents, commands, output styles and hooks, the MCP servers of
+  `~/.claude.json`, each project's auto memory, and `~/.gitconfig` with its excludes file. Never sign-in
+  credentials, conversations, caches or plugin copies.
+- **All of `~/.ssh/config`** travels with the SSH keys, not only the hosts TermF added. Update every machine
+  together: a machine still on 0.4.0 syncs the old form.
+- Paths in your home folder are rewritten from one machine to the next, links are never followed, and a file both
+  machines changed shows side by side instead of being overwritten.
+
+### My environment
+- **What you use, in one file.** TermF finds what is installed: Homebrew (taps, formulae, casks, App Store apps,
+  VS Code extensions), npm, pnpm and bun globals, cargo and rustup, pipx and uv tools, gh extensions, Composer
+  globals, the language versions of mise, asdf, fnm, nvm and Volta, programs installed by hand and apps outside
+  Homebrew. You keep what you use in `env.toml`, by group with one line each, and it syncs with your configuration.
+- **Install what's missing**, in one go: one script in a TermF terminal, after a card. Homebrew first if needed,
+  then each manager, skipping what is already there and stopping at the first error. `termf env scan | list | add |
+  remove | script | install` does the same without the app.
+- **With the agent.** *Ask the agent* sorts what was found and finds how to install what you installed by hand.
+  *Prepare a script with the agent* asks a few questions (which machine, what to leave out, pinned versions, TermF
+  and the sync first) and saves a named script next to `env.toml`. Every write goes through a card.
+- On macOS and Linux. On Windows the list works, the install does not yet.
+
+### The website and the README
+- **Code on any machine** joins the front page and the README.
+- macOS needs no extra step on first launch any more: the quarantine and *Open Anyway* instructions are gone, only
+  Windows keeps its SmartScreen step.
+
 ## 0.4.0
 
 TermF 0.4.0 lets the agents act: on any screen, the agent does what the screen offers, with your OK, and never sees
