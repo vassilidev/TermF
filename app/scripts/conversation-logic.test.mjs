@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addressed, blocked, fields, mentioned, merge, nextAfter, pending, pinned, pinnedFirst, stream, summary, thread, ticketNamed, unsaid } from "../src/lib/conversation-logic.ts";
+import { IMAGE_MAX, addressed, blocked, fields, imageType, mentioned, merge, nextAfter, pending, pinned, pinnedFirst, questionAbout, questionIn, stream, summary, thread, ticketNamed, unfit, unsaid } from "../src/lib/conversation-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}) => ({ id: ++n, session: 1, at: 0, kind, ...fields });
@@ -218,4 +218,59 @@ test("a ticket named by a call is found by key, URL or the end of its key, when 
   assert.equal(ticketNamed("#57", known), undefined, "two tickets end in #57");
   assert.equal(ticketNamed("#5", known), undefined);
   assert.equal(ticketNamed("ACME-57", known), undefined);
+});
+
+test("an image goes with a message when Claude reads its type and it fits in 10 MB of base64", () => {
+  for (const type of ["image/png", "image/jpeg", "image/gif", "image/webp"]) assert.equal(unfit({ type, size: 1000 }), null);
+  assert.equal(unfit({ type: "image/svg+xml", size: 10 }), "type");
+  assert.equal(unfit({ type: "image/tiff", size: 10 }), "type");
+  assert.equal(unfit({ type: "", size: 10 }), "type");
+  assert.equal(unfit({ type: "image/png", size: IMAGE_MAX }), null);
+  assert.equal(unfit({ type: "image/png", size: IMAGE_MAX + 1 }), "size");
+  assert.equal(Math.ceil(IMAGE_MAX / 3) * 4, 10 * 1024 * 1024, "its base64 is the API's limit");
+  assert.equal(imageType("/Users/alex/Desktop/Shot 1.PNG"), "image/png");
+  assert.equal(imageType("C:\\acme\\photo.jpeg"), "image/jpeg");
+  assert.equal(imageType("a.jpg"), "image/jpeg");
+  assert.equal(imageType("a.webp"), "image/webp");
+  assert.equal(imageType("a.gif"), "image/gif");
+  assert.equal(imageType("notes.pdf"), "");
+  assert.equal(imageType("png"), "");
+});
+
+test("a message counts its images, which the thread shows with it", () => {
+  n = 0;
+  const [one, two] = thread([ev("user", { text: "what is this?", images: 2 }), end(), ev("user", { text: "thanks" })]);
+  assert.equal(one.images, 2);
+  assert.equal("images" in two, false);
+});
+
+test("a question asked while a card waits is the card's answer, shown once in the thread", () => {
+  const message = questionAbout("What will it delete?\nAnd why?");
+  assert.match(message, /not decided yet/);
+  assert.match(message, /ask for it again/);
+  assert.equal(questionIn(message), "What will it delete?\nAnd why?");
+  assert.equal(questionIn("Error: " + message), "What will it delete?\nAnd why?", "wherever the result puts it");
+  assert.equal(questionIn("no"), null);
+  assert.equal(questionIn(null), null);
+
+  n = 0;
+  const [turn] = thread([
+    ev("user", { text: "clean up" }),
+    ev("tool_use", { call: "t1", name: "Bash", input: { command: "rm -rf build" } }),
+    ev("permission", { request: "r1", tool: "Bash", input: { command: "rm -rf build" }, description: null }),
+    ev("permission_answer", { request: "r1", allow: false, message }),
+    ev("tool_result", { call: "t1", output: message, isError: true, truncated: false }),
+    ev("text", { text: "It deletes the build folder." }),
+  ]);
+  assert.deepEqual(turn.items.map((i) => i.type), ["tool", "permission", "question", "text"]);
+  assert.deepEqual(turn.items[1].answer, { allow: false, message: null, asked: true });
+  assert.equal(turn.items[2].text, "What will it delete?\nAnd why?");
+
+  n = 0;
+  const [termf] = thread([
+    ev("user", { text: "connect redis" }),
+    ev("tool_use", { call: "t1", name: "mcp__termf__do_action", input: { action: "ops.add_connection" } }),
+    ev("tool_result", { call: "t1", output: message, isError: true, truncated: false }),
+  ]);
+  assert.deepEqual(termf.items.map((i) => i.type), ["tool", "question"], "TermF's own card: from the call's result");
 });

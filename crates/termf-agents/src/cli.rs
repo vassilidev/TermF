@@ -10,7 +10,7 @@ use termf_core::claude::Tool;
 use termf_core::cli_agents;
 
 use crate::claude::cut;
-use crate::{AgentEvent, AgentRuntime, Launch, Outcome, Parser, SessionSpec, Usage};
+use crate::{AgentEvent, AgentRuntime, Image, Launch, Outcome, Parser, SessionSpec, Usage};
 
 pub struct Codex;
 pub struct Gemini;
@@ -143,7 +143,7 @@ impl AgentRuntime for Codex {
         Box::<CodexStream>::default()
     }
 
-    fn message(&self, text: &str) -> String {
+    fn message(&self, text: &str, _: &[Image]) -> String {
         text.to_owned()
     }
 
@@ -221,7 +221,7 @@ impl AgentRuntime for Gemini {
         Box::<GeminiStream>::default()
     }
 
-    fn message(&self, text: &str) -> String {
+    fn message(&self, text: &str, _: &[Image]) -> String {
         text.to_owned()
     }
 

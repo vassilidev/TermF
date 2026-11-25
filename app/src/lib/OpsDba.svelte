@@ -4,13 +4,14 @@
   import Bookmark from "@lucide/svelte/icons/bookmark";
   import Check from "@lucide/svelte/icons/check";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
-  import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
+  import CircleCheckBig from "@lucide/svelte/icons/circle-check-big";
   import Play from "@lucide/svelte/icons/play";
   import ShieldX from "@lucide/svelte/icons/shield-x";
   import SquarePen from "@lucide/svelte/icons/square-pen";
   import SquareArrowOutUpRight from "@lucide/svelte/icons/square-arrow-out-up-right";
   import Conversation from "$lib/Conversation.svelte";
   import { agents, showConversation, upsert, type AgentSession } from "$lib/agents.svelte";
+  import type { Image } from "$lib/conversation-logic";
   import { lang, t } from "$lib/i18n";
   import { asked, sqlBlock, type Connection } from "$lib/ops-logic";
   import { ops } from "$lib/ops.svelte";
@@ -37,7 +38,9 @@
   } = $props();
 
   const key = $derived(`${project}/${conn.name}`);
-  const session = $derived(agents.sessions.find((s) => s.id === ops.studio.dba[key]));
+  // An archived one's topic is done: the next question starts a new conversation, with the schema.
+  const session = $derived(agents.sessions.find((s) => s.id === ops.studio.dba[key] && !s.archived));
+  let conv = $state<ReturnType<typeof Conversation>>();
   let sending = $state(false);
   let error = $state("");
   let draft = $state("");
@@ -51,7 +54,7 @@
   }
 
   /** Through `ops_ask`: the first question starts the conversation, with the schema. */
-  async function post(kind: "write" | "explain" | "optimize", what: string) {
+  async function post(kind: "write" | "explain" | "optimize", what: string, images: Image[] = []) {
     const s = await invoke<AgentSession>("ops_ask", {
       project,
       connection: conn.name,
@@ -59,6 +62,7 @@
       kind,
       text: what.trim(),
       lang,
+      images,
     });
     upsert(s);
     ops.studio.dba[key] = s.id;
@@ -83,11 +87,6 @@
   function quote(text: string) {
     const said = asked(text);
     return said.kind === "write" ? said.text : t(said.kind === "explain" ? "opsdbExplainAsk" : "opsdbOptimizeAsk");
-  }
-
-  function fresh() {
-    delete ops.studio.dba[key];
-    error = "";
   }
 
   const access = $derived(
@@ -127,8 +126,8 @@
         <button class="icon-btn" title={t("opsdbAskOpen")} aria-label={t("opsdbAskOpen")} onclick={() => showConversation(id)}>
           <SquareArrowOutUpRight size={14} aria-hidden="true" />
         </button>
-        <button class="icon-btn" title={t("opsdbAskNew")} aria-label={t("opsdbAskNew")} disabled={working} onclick={fresh}>
-          <MessageSquarePlus size={14} aria-hidden="true" />
+        <button class="icon-btn" title={t("topicDoneHelp")} aria-label={t("topicDone")} onclick={() => conv?.endTopic()}>
+          <CircleCheckBig size={14} aria-hidden="true" />
         </button>
       </div>
     {/if}
@@ -139,10 +138,12 @@
   {#if session}
     {#key session.id}
       <Conversation
+        bind:this={conv}
         {session}
         bare
+        fresh={false}
         placeholder={t("opsdbAskFollow")}
-        outgoing={(text) => post("write", text).then(() => null)}
+        outgoing={(text, images) => post("write", text, images).then(() => null)}
         after={query}
         {quote}
       />

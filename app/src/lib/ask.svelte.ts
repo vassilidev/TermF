@@ -193,7 +193,7 @@ export function threadOf(project: string | null, role: string): AgentSession | u
   if (role === "expert") return expertOf(project);
   const kept = thread(project, role);
   // A conversation the panel started before it acted on the screens gives way to a new one, which does.
-  return agents.sessions.find((a) => a.id === kept?.id && (kept.step || a.actions));
+  return agents.sessions.find((a) => a.id === kept?.id && !a.archived && (kept.step || a.actions));
 }
 
 function started(session: AgentSession, view: string) {
@@ -255,7 +255,7 @@ export async function send(text: string): Promise<boolean> {
  * `send` instead, written to another role with `@role`, or following up a run's step, which is routed again (the step
  * may be over: the role's own conversation then takes it).
  */
-export async function outgoing(text: string): Promise<string | null> {
+export async function outgoing(text: string, images: unknown[] = []): Promise<string | null> {
   const role = currentRole();
   const to = target(text, role, ask.roles);
   const shown = threadOf(askedProject(), role);
@@ -263,6 +263,7 @@ export async function outgoing(text: string): Promise<string | null> {
     if (shown) ask.screens[shown.id] = ui.view;
     return compose(to.text, chips(), screenName(ui.view));
   }
+  if (images.length) throw new Error(t("ciqElsewhere"));
   if (!(await send(text))) throw new Error(ask.error);
   return null;
 }

@@ -807,6 +807,7 @@ pub async fn ops_ask(
     kind: String,
     text: String,
     lang: String,
+    images: Option<Vec<termf_agents::Image>>,
 ) -> CmdResult<AgentSession> {
     blocking(app, move |app, state, vault| {
         let ops = state.ops(vault);
@@ -838,7 +839,8 @@ pub async fn ops_ask(
         };
         let agents = crate::agents::agents(app);
         if let Some(id) = session {
-            agents.send(id, &termf_ops::dba::next(&ask))?;
+            let images = images.unwrap_or_default();
+            agents.send_with(id, &termf_ops::dba::next(&ask), &images)?;
             return agents
                 .sessions()?
                 .into_iter()
