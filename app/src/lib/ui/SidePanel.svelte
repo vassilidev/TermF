@@ -53,6 +53,8 @@
   let aside = $state<HTMLElement>();
   let room = $state(0);
   const over = $derived(room > 0 && room - size < ROOM);
+  // Over the content, a strip of it stays beside the panel to click.
+  const shown = $derived(over ? Math.min(size, room - 48) : size);
 
   // The positioned parent's width: a parent shown as `contents` (the ⌘I panel's) has none.
   $effect(() => {
@@ -111,10 +113,10 @@
   {#if over}
     <!-- The pointer's way out; the keyboard's is Escape or the fold button. -->
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="scrim" onclick={() => (open = false)}></div>
+    <div class="scrim" style:right="{shown}px" onclick={() => (open = false)}></div>
   {/if}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape in the panel folds it while it covers the content) -->
-  <aside class="side" class:over style:width="{size}px" aria-label={title} bind:this={aside} onkeydown={close}>
+  <aside class="side" class:over style:width="{shown}px" aria-label={title} bind:this={aside} onkeydown={close}>
     <!-- A focusable separator is a widget (WAI-ARIA window splitter): the arrows move it. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
     <div
@@ -167,7 +169,6 @@
     position: absolute;
     z-index: 20;
     inset: 0 0 0 auto;
-    max-width: calc(100% - 48px);
     box-shadow: var(--shadow-3);
   }
 
