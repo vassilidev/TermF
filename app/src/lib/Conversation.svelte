@@ -22,6 +22,8 @@
   import Undo2 from "@lucide/svelte/icons/undo-2";
   import UserRound from "@lucide/svelte/icons/user-round";
   import Action from "$lib/Action.svelte";
+  import ActionAsk from "$lib/ActionAsk.svelte";
+  import { agentActions, approve, perform, refuse, type Call } from "$lib/actions.svelte";
   import StreamSteps, { type Step } from "$lib/ui/StreamSteps.svelte";
   import { toast } from "$lib/ui/toast.svelte";
   import { afterChange, changeOf, diffOf, question, within } from "$lib/ask-logic";
@@ -106,6 +108,10 @@
   let live = $state<string | null>(null);
   let draft = $state("");
   let reasons = $state<Record<string, string>>({});
+  /** What the user types in an action's card (a password, a token), by permission request or call: never sent. */
+  let actionSecrets = $state<Record<string, Record<string, string>>>({});
+  const DO_ACTION = "mcp__termf__do_action";
+  const who = $derived(session.role ?? session.title);
   let busy = $state("");
   let error = $state("");
   let loadError = $state("");
@@ -232,6 +238,8 @@
     mcp__termf__usage: "recetteCtoToolUsage",
     mcp__termf__ops_recipes: "recetteCtoToolOpsRecipes",
     mcp__termf__ops_run: "recetteCtoToolOpsRun",
+    mcp__termf__actions: "actToolList",
+    mcp__termf__do_action: "actToolDo",
   };
   const toolName = (name: string) => (termfTools[name] ? t(termfTools[name]) : name);
   const asks = (tool: string) =>
@@ -399,8 +407,19 @@
     focusSession(tile.id);
   }
 
+  /** TermF's own card for an action: what the user typed in it goes with the action, then is forgotten. */
+  function settleCall(call: Call, allow: boolean) {
+    const key = `call:${call.id}`;
+    const secrets = actionSecrets[key] ?? {};
+    delete actionSecrets[key];
+    return allow ? perform(call, secrets) : refuse(call, reasons[key] ?? "");
+  }
+
   function answer(ask: Permission, allow: boolean) {
     const message = allow ? null : reasons[ask.request]?.trim() || null;
+    // An action allowed here runs with what the user typed in this card, once its call reaches TermF.
+    if (ask.tool === DO_ACTION && allow) approve(session.id, ask.input, actionSecrets[ask.request] ?? {});
+    delete actionSecrets[ask.request];
     return run("answer", () => invoke("agent_answer", { id: id(), request: ask.request, allow, message }).then(() => true));
   }
 
@@ -655,7 +674,19 @@
         <ShieldQuestionMark size={16} aria-hidden="true" />{asks(item.tool)}
       </p>
       {#if item.description}<p class="ask-text">{item.description}</p>{/if}
-      {#if termfTools[item.tool]}
+      {#if item.tool === DO_ACTION}
+        <ActionAsk
+          session={session.id}
+          project={session.project ?? ""}
+          {who}
+          input={item.input}
+          bind:values={() => actionSecrets[item.request] ?? {}, (v) => (actionSecrets[item.request] = v)}
+        />
+        <details class="raw">
+          <summary><ChevronRight size={14} aria-hidden="true" class="chevron" />{t("ux3t5Details")}</summary>
+          <pre class="mono code">{pretty(item.input)}</pre>
+        </details>
+      {:else if termfTools[item.tool]}
         {@const said = phrase(item.input)}
         {#if said}<p class="ask-what">{said}</p>{/if}
         {#each unsaid(item.input) as [name, entries] (name)}
@@ -858,6 +889,27 @@
       {#if turn.end}{@render ending(turn.end)}{/if}
     {/each}
     {#if live}<div class="text live">{@render rich(live)}</div>{/if}
+    {#each agentActions.waiting.filter((c) => c.session === session.id) as call (call.id)}
+      <!-- An action no permission card approved: TermF's own card asks. -->
+      <div class="ask" role="group" aria-label={t("actCardTitle", { who })}>
+        <p class="ask-title"><ShieldQuestionMark size={16} aria-hidden="true" />{t("actCardTitle", { who })}</p>
+        <ActionAsk session={session.id} project={call.project} {who} input={call} bind:values={() => actionSecrets[`call:${call.id}`] ?? {}, (v) => (actionSecrets[`call:${call.id}`] = v)} />
+        <div class="answer">
+          <input
+            class="field"
+            placeholder={t("chatReason")}
+            aria-label={t("chatReason")}
+            bind:value={() => reasons[`call:${call.id}`] ?? "", (v) => (reasons[`call:${call.id}`] = v)}
+          />
+          <button class="btn sm" onclick={() => settleCall(call, false)}>
+            <ShieldX size={14} aria-hidden="true" />{t("chatDeny")}
+          </button>
+          <button class="btn sm primary" onclick={() => settleCall(call, true)}>
+            <ShieldCheck size={14} aria-hidden="true" />{t("chatAllow")}
+          </button>
+        </div>
+      </div>
+    {/each}
     {#if thinking}
       <p class="thinking" role="status"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{t("liveThinking")}</p>
     {/if}

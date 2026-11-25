@@ -649,7 +649,9 @@ mod tests {
         let seen = std::cell::RefCell::new(Vec::new());
         let call = |tool: McpCall| {
             let reply = match &tool {
-                McpCall::Actions {} => json!({"screen": "ops", "actions": [{"id": "ops.add_connection"}]}),
+                McpCall::Actions {} => {
+                    json!({"screen": "ops", "actions": [{"id": "ops.add_connection"}]})
+                }
                 _ => json!({"done": true}),
             };
             seen.borrow_mut().push(tool);
@@ -673,9 +675,11 @@ mod tests {
                 .unwrap()
                 .contains("ops.add_connection")
         );
-        let add = send(json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "do_action",
+        let add = send(
+            json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "do_action",
             "arguments": {"action": "ops.add_connection", "args": {"name": "acme-prod", "kind": "mysql"},
-                          "hints": {"password": "DB_PASSWORD in the server's .env"}}}}));
+                          "hints": {"password": "DB_PASSWORD in the server's .env"}}}}),
+        );
         assert_eq!(add["result"]["isError"], json!(false), "{add}");
         let mut args = serde_json::Map::new();
         args.insert("name".into(), json!("acme-prod"));
@@ -688,8 +692,10 @@ mod tests {
                 hints: [("password".into(), "DB_PASSWORD in the server's .env".into())].into(),
             }
         );
-        let stray = send(json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "do_action",
-            "arguments": {"action": "ops.add_connection", "password": "s3cret"}}}));
+        let stray = send(
+            json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "do_action",
+            "arguments": {"action": "ops.add_connection", "password": "s3cret"}}}),
+        );
         assert_eq!(
             stray["result"]["isError"],
             json!(true),

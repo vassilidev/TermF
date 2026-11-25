@@ -214,7 +214,12 @@ mod tests {
             .unwrap_err();
         assert!(format!("{late:#}").contains("did not answer in time"));
         let left = state
-            .ask(call(Some("ci.rerun")), Duration::from_secs(5), &show, &|| true)
+            .ask(
+                call(Some("ci.rerun")),
+                Duration::from_secs(5),
+                &show,
+                &|| true,
+            )
             .unwrap_err();
         assert_eq!(format!("{left:#}"), "the caller went away");
         assert_eq!(

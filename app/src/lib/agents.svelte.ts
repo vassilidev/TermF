@@ -25,6 +25,8 @@ export type AgentSession = {
   role?: string | null;
   /** TermF's tools: the project's CTO or expert conversation, or one of the expert's answers to an agent. */
   mcp?: boolean;
+  /** A conversation of the ⌘I panel: it acts on TermF's screens. */
+  actions?: boolean;
   state: AgentState;
   cost: number;
   context: Gauge | null;

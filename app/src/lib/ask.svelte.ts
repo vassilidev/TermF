@@ -61,6 +61,8 @@ export const ask = $state({
   threads: stored<Record<string, Thread>>(THREADS, {}),
   /** The screen each conversation started from (session → view), for Conversations. */
   origins: stored<Record<number, string>>(ORIGINS, {}),
+  /** The screen the user last wrote to each conversation from (session → view): whose actions it may do. */
+  screens: {} as Record<number, string>,
 });
 
 const screens: Partial<Record<ViewId, Parameters<typeof t>[0]>> = {
@@ -189,11 +191,13 @@ export function threadOf(project: string | null, role: string): AgentSession | u
   if (project === null) return undefined;
   if (role === "cto") return ctoOf(project);
   if (role === "expert") return expertOf(project);
-  const id = thread(project, role)?.id;
-  return agents.sessions.find((a) => a.id === id);
+  const kept = thread(project, role);
+  // A conversation the panel started before it acted on the screens gives way to a new one, which does.
+  return agents.sessions.find((a) => a.id === kept?.id && (kept.step || a.actions));
 }
 
 function started(session: AgentSession, view: string) {
+  ask.screens[session.id] = view;
   if (ask.origins[session.id]) return;
   ask.origins[session.id] = view;
   keep(ORIGINS, ask.origins);
@@ -229,6 +233,7 @@ export async function send(text: string): Promise<boolean> {
         text: body,
         repo: ask.given[view]?.repo ?? null,
         direct: view !== "run",
+        panel: true,
       });
       upsert(reached.session);
       ask.threads[key] = { id: reached.session.id, step: reached.via === "step" };
@@ -253,7 +258,11 @@ export async function send(text: string): Promise<boolean> {
 export async function outgoing(text: string): Promise<string | null> {
   const role = currentRole();
   const to = target(text, role, ask.roles);
-  if (!reroute(to.role, role, !!thread(askedProject(), role)?.step)) return compose(to.text, chips(), screenName(ui.view));
+  const shown = threadOf(askedProject(), role);
+  if (!reroute(to.role, role, !!thread(askedProject(), role)?.step)) {
+    if (shown) ask.screens[shown.id] = ui.view;
+    return compose(to.text, chips(), screenName(ui.view));
+  }
   if (!(await send(text))) throw new Error(ask.error);
   return null;
 }

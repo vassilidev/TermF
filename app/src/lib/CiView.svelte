@@ -168,6 +168,16 @@
     if (p && ci.tab === "deploys" && !deploys.tokensRead) untrack(() => loadDeploys(p, true));
   });
 
+  // A project that deploys with a tool opens on its deployments, once per project.
+  let landed = "";
+  $effect(() => {
+    const p = project;
+    const targets = deploys.targets;
+    if (!p || deploys.targetsOf !== p || targets === null || landed === p) return;
+    landed = p;
+    if (targets.length && ci.tab === "runs") ci.tab = "deploys";
+  });
+
   $effect(() => {
     void ci.branch;
     untrack(() => loadBranch());
@@ -534,7 +544,9 @@
       {:else if !overview.length}
         {#if form}<div class="pad">{@render dispatchForm()}</div>{/if}
         {#if workflowsKnown && !workflowsKnown.length}
-          <EmptyState icon={Workflow} title={t("cvNoWorkflow")} text={t("cvNoWorkflowText")} action={{ label: t("cvSetupCi"), icon: Sparkles, run: setupCi }} />
+          <EmptyState icon={Workflow} title={t("cvNoWorkflow")} text={t("cvNoWorkflowText")} action={{ label: t("cvSetupCi"), icon: Sparkles, run: setupCi }}>
+            <p class="deploy-hint">{t("actCiDeployHint")} <button class="lnk" onclick={() => (ci.tab = "tools")}>{t("actCiConnectTool")}</button></p>
+          </EmptyState>
         {:else if workflowsKnown}
           <EmptyState icon={Workflow} title={t("ciEmpty")} text={t("cvNoRunText")} action={{ label: t("ciDispatchLong"), icon: Rocket, run: openForm }} onask={setupCi} askLabel={t("cvAskDevops")} />
         {:else}
@@ -738,6 +750,10 @@
 
   .pad {
     padding: 16px 24px 0;
+  }
+
+  .deploy-hint {
+    margin: 4px 0 0;
   }
 
   .pad-s {

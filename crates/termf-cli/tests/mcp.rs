@@ -253,12 +253,13 @@ fn serves_only_the_tools_termf_names_for_the_session() {
 
 #[test]
 fn a_panel_conversation_asks_termf_for_a_screen_s_action() {
-    let (socket, requests) = fake_termf("actions", |request| {
-        match request["params"]["tool"]["tool"].as_str() {
+    let (socket, requests) = fake_termf(
+        "actions",
+        |request| match request["params"]["tool"]["tool"].as_str() {
             Some("do_action") => json!({"ok": {"connections": ["acme-local", "acme-prod"]}}),
             _ => json!({"error": "The user refused this in TermF: it did not run."}),
-        }
-    });
+        },
+    );
     let mut server = Server::with_tools(&socket, true, Some("actions,do_action"));
     let init = server.ask(1, "initialize", json!({"protocolVersion": "2025-06-18"}));
     let instructions = init["result"]["instructions"].as_str().unwrap();

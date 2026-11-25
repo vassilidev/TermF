@@ -4,6 +4,8 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import { t } from "$lib/i18n";
 import {
   historyRow,
+  isSql,
+  runsOn,
   shippedTexts,
   streamed,
   type Connection,
@@ -142,6 +144,29 @@ export async function loadSchema(project: string, connection: string, again = fa
   } catch (e) {
     ops.studio.schemas[key] = { error: String(e) };
   }
+}
+
+/** The SQL console's recipe for a database: one that reads, the query free. */
+export const sqlRecipe = (c: Connection | undefined) =>
+  c ? ops.recipes.find((r) => isSql(r) && runsOn(r, c) && !r.params.some((p) => p.type === "sql" && p.values?.length)) : undefined;
+
+/** Runs a query in the SQL console, read-only: its result shows there. */
+export async function runSql(project: string, conn: Connection, query: string): Promise<Ran> {
+  const recipe = sqlRecipe(conn);
+  if (!recipe) throw new Error(t("actNoSqlRecipe", { name: conn.name }));
+  const param = recipe.params.find((p) => p.type === "sql")?.name ?? "query";
+  const ran = await invoke<Ran>("ops_run", {
+    project,
+    recipe: recipe.name,
+    connection: conn.name,
+    params: { [param]: query },
+    confirm: null,
+    proposal: null,
+  });
+  // The query as launched, for a full export: the result's own carries the console's LIMIT.
+  ops.sql.result = { ...ran, query };
+  loadHistory(project);
+  return ran;
 }
 
 export async function loadHistory(project: string) {

@@ -1309,6 +1309,15 @@ fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
         mcp: true,
         ..env.spec()
     };
+    let answering = SessionSpec {
+        budget: Some(0.5),
+        ..expert.clone()
+    };
+    assert_eq!(
+        crate::mcp_tools(&answering),
+        termf_core::ipc::MCP_EXPERT,
+        "an answer to another agent never acts on the screens"
+    );
     let (args, tools) = run(expert);
     assert_eq!(tools, "memory_search,memory_read,actions,do_action");
     assert_eq!(
