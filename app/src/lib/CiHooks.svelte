@@ -3,6 +3,7 @@
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Copy from "@lucide/svelte/icons/copy";
   import ExternalLink from "@lucide/svelte/icons/external-link";
+  import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
@@ -31,13 +32,17 @@
   let deliveriesError = $state("");
   let busy = $state<number | "delete" | "create" | null>(null);
   let removing = $state(false);
-  let adding = $state<{ url: string; events: string; confirm: boolean } | null>(null);
+  /** A new webhook, or with `hook` the one being changed. */
+  let adding = $state<{ url: string; events: string; confirm: boolean; hook?: Hook } | null>(null);
 
   const hooks = $derived(deploys.hooksOf === repo ? deploys.hooks : null);
   const hook = $derived(hooks?.find((h) => h.id === selected) ?? hooks?.[0]);
   const noAdmin = $derived(deploys.hooksError.startsWith(NO_ADMIN));
   const events = { push: ["push"], prs: ["push", "pull_request"], all: ["*"] } as Record<string, string[]>;
   const command = "gh auth refresh -s admin:repo_hook";
+  /** The Segments choice a webhook's events match; `keep` for any other set, kept as it is. */
+  const kindOf = (h: Hook) => Object.keys(events).find((k) => [...events[k]].sort().join() === [...h.events].sort().join()) ?? "keep";
+  const eventsOf = (a: NonNullable<typeof adding>) => (a.events === "keep" && a.hook ? a.hook.events : events[a.events]);
 
   let request = 0;
   $effect(() => {
@@ -108,6 +113,15 @@
     if (!a) return;
     busy = "create";
     try {
+      if (a.hook) {
+        const id = a.hook.id;
+        await invoke("ci_hook_update", { repo, hook: id, url: a.url.trim(), events: eventsOf(a) });
+        adding = null;
+        toast(t("uxs2HookUpdated", { host: where(a.url.trim()) }));
+        await loadHooks(repo);
+        selected = id;
+        return;
+      }
       const made = await invoke<Hook>("ci_hook_create", { repo, url: a.url.trim(), events: events[a.events] });
       adding = null;
       toast(t("cvHookCreated", { host: where(made.url) }));
@@ -135,6 +149,7 @@
     { id: "push", label: t("cvEventsPush") },
     { id: "prs", label: t("cvEventsPrs") },
     { id: "all", label: t("cvEventsAll") },
+    ...(adding?.hook && kindOf(adding.hook) === "keep" ? [{ id: "keep", label: adding.hook.events.join(", ") }] : []),
   ]);
 </script>
 
@@ -142,7 +157,7 @@
   {#if adding}
     {@const a = adding}
     <form class="add" onsubmit={(e) => (e.preventDefault(), validUrl(a.url) && (a.confirm = true))} aria-labelledby="hook-add-title">
-      <h3 id="hook-add-title">{t("cvHookAddTitle")}</h3>
+      <h3 id="hook-add-title">{a.hook ? t("uxs2HookEditTitle") : t("cvHookAddTitle")}</h3>
       <Field label={t("cvHookUrl")} help={t("cvHookUrlHelp")} example="https://forge.laravel.com/servers/…/deploy/http?token=…" bind:value={a.url} spellcheck="false" />
       <div class="events">
         <span class="label">{t("cvHookEvents")}</span>
@@ -150,11 +165,22 @@
       </div>
       <div class="buttons">
         <Button variant="quiet" size="sm" type="button" onclick={() => (adding = null)}>{t("cancel")}</Button>
-        <Button variant="primary" size="sm" type="submit" disabled={!validUrl(a.url)}>{t("cvHookAddGo")}</Button>
+        <Button variant="primary" size="sm" type="submit" disabled={!validUrl(a.url)}>{a.hook ? t("save") : t("cvHookAddGo")}</Button>
       </div>
     </form>
-    <ConfirmDialog bind:open={a.confirm} title={t("cvHookAddConfirm")} confirm={t("cvHookAddGo")} onconfirm={create}>
-      <p>{t("cvHookAddConfirmText", { url: a.url.trim(), events: eventOptions.find((o) => o.id === a.events)?.label ?? "" })}</p>
+    {@const shownEvents = eventOptions.find((o) => o.id === a.events)?.label ?? ""}
+    <ConfirmDialog
+      bind:open={a.confirm}
+      title={a.hook ? t("uxs2HookEditConfirm") : t("cvHookAddConfirm")}
+      confirm={a.hook ? t("save") : t("cvHookAddGo")}
+      onconfirm={create}
+    >
+      {#if a.hook}
+        <p>{t("uxs2HookEditConfirmText", { url: a.url.trim(), events: shownEvents })}</p>
+        {#if a.url.trim() !== a.hook.url}<p class="notice warn">{t("uxs2HookEditLoses", { url: a.hook.url })}</p>{/if}
+      {:else}
+        <p>{t("cvHookAddConfirmText", { url: a.url.trim(), events: shownEvents })}</p>
+      {/if}
     </ConfirmDialog>
   {/if}
 {/snippet}
@@ -213,6 +239,7 @@
             </p>
           </div>
           {#if slug}<Button size="sm" variant="quiet" icon={ExternalLink} onclick={() => openUrl(`https://github.com/${slug}/settings/hooks/${hook.id}`)}>{t("cvOnGithub")}</Button>{/if}
+          <Button size="sm" variant="quiet" icon={Pencil} onclick={() => (adding = { url: hook.url, events: kindOf(hook), confirm: false, hook })}>{t("uxs2HookEdit")}</Button>
           <Button size="sm" variant="quiet-danger" icon={Trash2} loading={busy === "delete"} onclick={() => (removing = true)}>{t("cvHookDelete")}</Button>
         </header>
         <h3>{t("cvDeliveries")}</h3>

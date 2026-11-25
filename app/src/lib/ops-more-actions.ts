@@ -128,6 +128,21 @@ const forgeAccount: Action = {
   },
 };
 
+const forgeForget: Action = {
+  id: "ops.forge_remove_account",
+  description:
+    "Removes the project's Laravel Forge account, as the Forge tab's Remove does: Ops no longer lists its servers and deployments; the connections and deploy targets already imported stay. `token` true also deletes its API token from the vault, unless another project's account uses it.",
+  fields: { token: { type: "boolean", description: "Also delete the token from the vault; false by default." } },
+  label: "uxs2ActForgeRemove",
+  describe: (a) => t(a.token === true ? "uxs2ActForgeRemoveTokenText" : "uxs2ActForgeRemoveText"),
+  loses: (a) => t(a.token === true ? "uxs2ForgeRemoveTokenLoses" : "uxs2ForgeRemoveLoses"),
+  async run(a, _secrets, project) {
+    const keptFor = await invoke<string[]>("forge_account_delete", { project, forgetToken: a.token === true });
+    toast(t("uxs2ForgeRemoved"));
+    return keptFor.length ? { removed: true, token: `kept: ${keptFor.join(", ")} use it too` } : { removed: true };
+  },
+};
+
 const forgeImport: Action = {
   id: "ops.forge_import",
   description:
@@ -164,4 +179,4 @@ const forgeDeploy: Action = {
   },
 };
 
-export const opsMoreActions: Action[] = [redisWrite, nginxReload, laravelJob, forgeAccount, forgeImport, forgeDeploy];
+export const opsMoreActions: Action[] = [redisWrite, nginxReload, laravelJob, forgeAccount, forgeForget, forgeImport, forgeDeploy];

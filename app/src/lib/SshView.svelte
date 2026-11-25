@@ -26,6 +26,7 @@
   import SecretView from "$lib/SecretView.svelte";
   import SshPanel from "$lib/SshPanel.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
@@ -120,6 +121,28 @@
       return t("sshUploaded", { name: key.name });
     });
     if (done) asking = "";
+  }
+
+  /** A host whose deletion is asked, with the lines it takes out of ~/.ssh/config. */
+  let removing = $state<{ alias: string; lines: string[] } | null>(null);
+  let removeOpen = $state(false);
+
+  async function askRemove(alias: string) {
+    ssh.error = "";
+    try {
+      const { diff } = await invoke<{ diff: string }>("ssh_host_delete_preview", { alias });
+      removing = { alias, lines: diff.replace(/\n$/, "").split("\n") };
+      removeOpen = true;
+    } catch (e) {
+      ssh.error = String(e);
+    }
+  }
+
+  function removeHost(alias: string) {
+    return act(async () => {
+      await invoke("ssh_host_delete", { alias });
+      return t("uxs2SshDeleted", { alias });
+    });
   }
 
   async function moveToTrash(key: SshKey) {
@@ -577,6 +600,11 @@
                         {#if editable && !reason}
                           <button class="btn sm" onclick={() => { ssh.panel = { kind: "host", host }; }}>{t("sshEdit")}</button>
                         {/if}
+                        {#if editable}
+                          <button class="btn sm quiet danger" disabled={ssh.busy} onclick={() => askRemove(host.patterns[0])}>
+                            <Trash2 size={14} aria-hidden="true" />{t("uxs2SshDelete")}
+                          </button>
+                        {/if}
                       </div>
                     {/if}
                   </td>
@@ -589,6 +617,14 @@
               {/each}
             </tbody>
           </table>
+        {/if}
+        {#if removing}
+          {@const gone = removing.alias}
+          <ConfirmDialog bind:open={removeOpen} title={t("uxs2SshDeleteTitle", { alias: gone })} confirm={t("uxs2SshDelete")} danger onconfirm={() => removeHost(gone)}>
+            <p>{t("uxs2SshDeleteBody")}</p>
+            <pre class="code diff">{#each removing.lines as line, i (i)}<span class="l{line[0] === '-' ? ' del' : ''}">{line}
+</span>{/each}</pre>
+          </ConfirmDialog>
         {/if}
       </div>
     {:else}
@@ -881,6 +917,27 @@
 
   td.file {
     overflow-wrap: anywhere;
+  }
+
+  .code {
+    max-height: 240px;
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    font: var(--text-xs) / 1.6 var(--font-mono);
+    white-space: pre;
+  }
+
+  .diff .l {
+    display: block;
+  }
+
+  .diff .del {
+    background: var(--danger-soft);
+    color: var(--danger);
   }
 
   .strong {

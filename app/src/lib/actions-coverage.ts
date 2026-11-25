@@ -144,6 +144,7 @@ export const READS: string[] = [
   "setup_preview",
   "setup_repos",
   "ssh_host_preview",
+  "ssh_host_delete_preview",
   "ssh_inventory",
   "ssh_test",
   "sync_devices",
@@ -232,7 +233,7 @@ export const EXCLUDED: [why: string, commands: string[]][] = [
   ],
   [
     "SSH keys and ~/.ssh open servers and GitHub as the user: generating, converting, rotating, uploading, assigning or trashing a key, or editing ~/.ssh/config, is the user's alone.",
-    ["ssh_agent_add", "ssh_agent_remove", "ssh_assign", "ssh_fix_permissions", "ssh_generate", "ssh_github_upload", "ssh_host_save", "ssh_rotate", "ssh_trash", "keys_generate", "keys_convert"],
+    ["ssh_agent_add", "ssh_agent_remove", "ssh_assign", "ssh_fix_permissions", "ssh_generate", "ssh_github_upload", "ssh_host_save", "ssh_host_delete", "ssh_rotate", "ssh_trash", "keys_generate", "keys_convert"],
   ],
   [
     "What agents may do or reach (Claude Code's settings, hooks and MCP servers, the vault keys they get, the team's free reads, remote control): an agent changing it would widen its own rights.",
