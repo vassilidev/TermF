@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   asks,
-  hear,
   tellable,
   batchTasks,
   budgetError,
@@ -517,53 +516,6 @@ test("liveCost: what the steps added up, and what their sessions at work spent s
   const sessions = { 1: 1, 2: 2 };
   assert.equal(liveCost(run(steps, { cost: 1.5 }), (s) => sessions[s] ?? 0), 3, "T1's session spent 1.5 more than its step counts");
   assert.equal(liveCost(run(steps, { cost: 1.5 }), () => 0), 1.5, "a session not read yet adds nothing");
-});
-
-test("tell: the reply ends with its turn, or when the agent fails or exits", () => {
-  const reply = () => ({ session: 4, who: "CTO", sent: "hi", text: "", heard: false, done: false, error: null });
-  const ev = (kind, more = {}) => ({ id: 1, session: 4, at: 1, kind, ...more });
-  let r = reply();
-  for (const e of [
-    ev("delta", { text: "before" }),
-    ev("exited", { code: 0 }),
-    ev("user", { text: "hi" }),
-    ev("delta", { text: "Hel" }),
-    ev("delta", { text: "lo" }),
-    { ...ev("delta", { text: "other" }), session: 5 },
-  ])
-    hear(r, e);
-  assert.deepEqual([r.text, r.done], ["Hello", false], "what it said after the message; the end of the turn before it is not its end");
-  hear(r, ev("turn_end", { error: null }));
-  assert.deepEqual([r.done, r.error], [true, null]);
-  hear(r, ev("user", { text: "again" }));
-  hear(r, ev("delta", { text: "!" }));
-  assert.deepEqual([r.text, r.done], ["Hello", true], "its answer stays as its turn ended");
-
-  r = reply();
-  hear(r, ev("user", { text: "hi" }));
-  hear(r, ev("exited", { code: 1 }));
-  assert.equal(r.done, true, "its process ended during the turn");
-  hear(r, ev("error", { message: "the agent's process ended during its turn" }));
-  assert.equal(r.error, "the agent's process ended during its turn");
-  r = reply();
-  hear(r, ev("error", { message: "the session's budget is spent" }));
-  assert.deepEqual([r.done, r.error], [true, "the session's budget is spent"], "it failed before it heard the message: never waits for ever");
-  r = reply();
-  hear(r, ev("user", { text: "hi" }));
-  hear(r, ev("turn_end", { error: "overloaded" }));
-  assert.deepEqual([r.done, r.error], [true, "overloaded"]);
-
-  // The third review of PR #135: another message, or one from TermF, may start a turn before ours.
-  r = reply();
-  for (const e of [
-    ev("user", { text: "The checks failed: fix them" }),
-    ev("delta", { text: "Fixing" }),
-    ev("turn_end", { error: null }),
-    ev("user", { text: "@expert why?\n\nhi" }),
-    ev("delta", { text: "Hello" }),
-  ])
-    hear(r, e);
-  assert.deepEqual([r.text, r.heard, r.done], ["Hello", true, false], "the answer starts with the turn that holds our message");
 });
 
 test("negations: no lookbehind, which WebKit before Safari 16.4 cannot load", () => {

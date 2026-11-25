@@ -23,17 +23,9 @@ test("no assignment's value is read back from reactive state (assignment_value_s
   assert.deepEqual(found, [], "assign in a statement (`{ a.b = x; }`): the assignment's value is not the proxy kept in state");
 });
 
-/** Components that hear an agent's events without being its thread, and why. */
-const NOT_A_THREAD = {
-  "lib/RunTell.svelte": "a message to the team's lead or a step, with its reply in one line and a link to the conversation",
-};
-
 test("an agent's thread is drawn by Conversation.svelte only", () => {
   const hearing = components.filter((f) => /"agent-event"|"agent_events"/.test(read(f)));
-  assert.ok(hearing.includes("lib/Conversation.svelte"), "the events were looked for where they are");
-  for (const [f, why] of Object.entries(NOT_A_THREAD)) assert.ok(hearing.includes(f) && why.length > 20, `${f} is still listed for a reason`);
-  const own = hearing.filter((f) => f !== "lib/Conversation.svelte" && !(f in NOT_A_THREAD));
-  assert.deepEqual(own, [], "show the agent with <Conversation> (bare in a panel) instead of a thread of its own");
+  assert.deepEqual(hearing, ["lib/Conversation.svelte"], "show the agent with <Conversation> (bare in a panel) instead of a thread of its own");
 });
 
 /** Empty states with nothing to do, by the text key they show, and why that is right. */

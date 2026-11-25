@@ -567,34 +567,3 @@ export function tellable(run: TeamRun, open: boolean): Step[] {
     .filter((s) => s.state === "running" || (open && run.state !== "running" && s.kind === "agent" && !s.worktree))
     .sort((a, b) => Number(b.state === "running") - Number(a.state === "running"));
 }
-
-/** The answer to `sent`, a message from the Run page: what its conversation said since, and how its turn ended. */
-export type Reply = { session: number; who: string; sent: string; text: string; heard: boolean; done: boolean; error: string | null };
-/** What `hear` reads of an agent's event (a `StoredEvent`). */
-type HeardEvent = { session: number; kind: string; text?: string; parent?: string; message?: string | null; error?: string | null };
-
-/**
- * `reply` once the agent's event `e` came. A process that ends before the message is heard ends the turn under way,
- * after which the session takes the message up; an error ends the wait at any time.
- */
-export function hear(reply: Reply, e: HeardEvent): void {
-  if (e.session !== reply.session) return;
-  // A process that ends during a turn says so after it ends.
-  if (e.kind === "error") {
-    reply.done = true;
-    reply.error ??= e.message ?? null;
-  } else if (reply.done && reply.heard) return;
-  else if (e.kind === "user") {
-    // A turn TermF or another message starts first is not the answer; queued messages go together.
-    if (!e.text?.includes(reply.sent)) return;
-    reply.heard = true;
-    reply.done = false;
-    reply.error = null;
-  } else if (!reply.heard) return;
-  else if (e.kind === "delta") reply.text += e.text ?? "";
-  else if (e.kind === "text" && !e.parent) reply.text = e.text ?? "";
-  else if (e.kind === "turn_end" || e.kind === "exited") {
-    reply.done = true;
-    reply.error = e.error ?? null;
-  }
-}
