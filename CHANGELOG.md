@@ -3,6 +3,106 @@
 What changed from one release of TermF to the next, by feature. Every feature has its page on the
 [website](https://vassilidev.github.io/TermF/features.html), with its defaults and its limits.
 
+## 0.4.0
+
+TermF 0.4.0 lets the agents act: on any screen, the agent does what the screen offers, with your OK, and never sees
+a secret. Conversations take images and queued messages, tickets come in full on a kanban, the database studio draws
+charts and the whole schema, and Ops adds Redis, Nginx, Laravel, server health and Laravel Forge.
+
+### Agents that act in TermF
+- **They act, you approve.** In the ⌘I panel and in the CTO's and the expert's conversations, an agent no longer
+  gives you values to type: it proposes the action of the screen you are on, and one card shows what it will do.
+  Nothing changes without your OK.
+- **Secrets never go through the agent.** A password or a token is typed in the card and goes straight to the vault,
+  or to the system keychain for a ticket token. The agent can only say where to find it.
+- **Every screen.** Ops connections and saved queries, the database studio, ticket sources, CI/CD (deploy tools,
+  runs, workflows, redeploys, webhooks), the vault, the library and its plugins, Git branches and cleanup, settings,
+  the scheduler, the project's configuration, the setup wizard and the Design system scan. Not only adding: changing
+  and removing too.
+- **A delete says what it loses**, in the card. An action that needs something first, such as a vault that does not
+  exist yet or is locked, proposes that first.
+- **What stays yours**: typing in terminals, answering an agent's own requests, revealing secrets, SSH keys, what the
+  agents may do or reach, and installs. A query run by an agent shows its rows to you, not to the agent.
+- **Empty screens that lead somewhere.** Tickets offers to find and connect your ticket tool with the CTO, and CI/CD
+  without a workflow leads to connecting your deploy tool.
+
+### Conversations
+- **A queue while the agent works.** A message typed during a turn waits above the field, each one removable, and
+  goes as one message when the turn ends.
+- **Images in a message.** Paste, drop or attach PNG, JPEG, GIF or WebP images in any conversation, the DBA's
+  included. TermF stores only how many there were, never the images. Codex and Gemini read text only, and TermF says
+  so.
+- **A question while a card waits.** During an approval request, the field stays open: ask about the action, and the
+  agent answers before asking again. *Ask for help* on the card writes the question for you.
+- **Topic done.** One click in the header, or *New topic* in ⌘K, archives the conversation and starts an empty one
+  with the same role and settings. The CTO and the expert keep the project's memory, not the thread. Undo brings the
+  old one back.
+- **Archives.** Archived conversations sit folded under the list: read one, reopen it, or delete it with a card that
+  says what goes.
+
+### Tickets
+- **Connect Jira in one go.** *Connect Jira step by step* offers Claude Code's Atlassian server first if you have
+  one. Otherwise it finds the sites in your commits or guesses them from your email, checks your email and token and
+  keeps the token in the keychain, then lets you tick the spaces, with those your commits cite already ticked.
+- **Several Jira sites and spaces** in one project. The old single-site setting still reads, and is saved in the new
+  form next time.
+- **Browse every ticket**, grouped by space, with filters (space, status, assignee, current sprint, search) and pages
+  of 50. The Home still shows what waits for you.
+- **The whole ticket in TermF.** The description rendered, never raw JSON. For Jira: the attachments, the status you
+  change in place, the assignee, priority, sprint, sub-tasks and linked tickets. The comments, a field to add one,
+  then start a run or *Ask the CTO*.
+- **A kanban for every source.** *Browse* switches between a list and a *Board* whose columns are the source's real
+  statuses: Jira workflows, a GitHub Project's Status field, Linear and Azure DevOps states. Drag a card to change
+  its status in the source: it moves at once, and comes back with the reason if the tool refuses.
+- **When the source has no board**, as with GitHub Issues without a Project or GitLab, *Organize with AI* asks the
+  CTO to propose columns and set them up. *Sort with AI* proposes moves, a priority and the tickets to start, applied
+  with your OK.
+
+### The database studio
+- **The DBA in the same conversation as everywhere else**: the same messages, approval cards and queue, and under an
+  answer with a query, its check, *Put in the editor*, *Run* and *Save*.
+- **Charts of a result.** *Table* or *Chart*: a line along a date, bars by a text, or your choice of bars, line,
+  area or pie (only when it reads well), with a tooltip and a legend. Export as PNG or SVG.
+- **The whole schema.** Tables as cards, foreign keys drawn from line to line, laid out for you, with search, zoom
+  and *Fit*. Click a table for its indexes and links, *Query this table* or *Ask the DBA*. Foreign keys are read on
+  Postgres, MySQL, MariaDB and SQLite.
+
+### Ops
+- **Redis**, direct or through a server's SSH tunnel, with the password in the vault: keys by pattern (never `KEYS`),
+  each key's type, expiry and value, and `INFO` in plain words. Deletes, expiries and flushes go through a card that
+  says what is lost, then the environment's name to type.
+- **Nginx** on an SSH server: running or not, `nginx -t` and its messages, the enabled sites, and the access and
+  error logs live, with 5xx as errors. *Reload* only after a passing `nginx -t`.
+- **Laravel** on an SSH server with the site's folder: `laravel.log` live with exceptions folded, failed jobs to
+  retry or forget, Horizon, the schedule and `php artisan about`.
+- **Server health**, read only: CPU, load, memory, disks, running services, listening ports and when the SSL
+  certificates served by nginx expire.
+- **Laravel Forge accounts.** One account per project, its token in the vault. *Import from Forge* lists the servers
+  and sites to tick, then creates each server's SSH connection, each site's database (password in the vault) and a
+  Forge deploy target in CI/CD. For each site: its deployments, their logs, and *Redeploy* after a confirmation.
+- Agents do these too, each through its card: Redis writes, the Nginx reload, Laravel jobs, the Forge account, the
+  import and a redeploy.
+
+### Fixes from real use
+- Long lines, such as a refused command, wrap: the conversation no longer scrolls sideways in the ⌘I panel.
+- Text cut short by an ellipsis shows in full on hover, on every screen.
+- In Conversations beside another view, the approval card no longer pushes the thread sideways, answers wrap, and
+  the field keeps its width with the buttons below it when space is short.
+- A long path in SSH keys › Hosts no longer crushes the other columns, and the Git cleanup proposal in ⌘I wraps its
+  buttons.
+- ⌘I and Ops with no project yet offer *New project* instead of pointing at an empty navigation.
+- The swipe review shows your first answer at once.
+- The end-to-end tests pass on Linux again, the narrow window and the terminal selection included.
+
+### The website and the README
+- **The launch film v6**: 49 seconds instead of 76, on what is new, in light and dark.
+- **New docs pages** for agents that act, Jira sites and spaces, the ticket board, a ticket in full, Redis, Nginx,
+  Laravel, server health and Laravel Forge, with new screenshots and front page cards.
+- **A short README**, in English and French, with release and Claude Code badges.
+
+Not tried against the real thing yet: real Jira sites, Redis, Nginx, Laravel and the Forge API, and images with the
+real Claude Code.
+
 ## 0.3.0
 
 TermF 0.3.0 redesigns the whole app: one design system on every screen, an agent one keystroke away with ⌘I, a
