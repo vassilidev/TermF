@@ -1302,7 +1302,8 @@ export const scenarios = [
           document.querySelector(`.tile[data-session="${sid}"] .xterm-helper-textarea`).focus();
         }, id);
       await select();
-      await s.press(Key.mod, "i");
+      // Outside macOS, Ctrl+I in a terminal is the shell's (Tab): the app takes it there with Shift.
+      await s.press(Key.mod, ...(t.mac ? [] : [Key.shift]), "i");
       // A chip's tooltip is the text it sends.
       const chip = (label) =>
         s.exec((l) => [...document.querySelectorAll("[data-ask] .chip")].find((c) => c.querySelector(".label")?.textContent.startsWith(l))?.title ?? null, label);
