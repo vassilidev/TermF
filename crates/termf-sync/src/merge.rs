@@ -36,6 +36,9 @@ pub fn merge3(
     local: &Entry,
     remote: &Entry,
 ) -> Result<Entry, Vec<String>> {
+    if path.ends_with(".jsonl") {
+        return appended(base, local, remote).ok_or_else(Vec::new);
+    }
     if !is_toml(path) {
         return Err(Vec::new());
     }
@@ -68,6 +71,26 @@ pub fn merge3(
     Ok(Entry {
         bytes: mine.to_string().into_bytes(),
         exec,
+    })
+}
+
+/// A journal both machines only added lines to: this machine's lines, then the other's new ones.
+fn appended(base: Option<&Entry>, local: &Entry, remote: &Entry) -> Option<Entry> {
+    let base = base.map_or(&[][..], |b| &b.bytes);
+    let (l, r) = (&local.bytes, &remote.bytes);
+    if !l.starts_with(base) || !r.starts_with(base) || !l.ends_with(b"\n") {
+        return None;
+    }
+    // Without a common history the lines both already had count once.
+    let same = l.iter().zip(r).take_while(|(a, b)| a == b).count();
+    let common = l[..same]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(0, |i| i + 1)
+        .max(base.len());
+    Some(Entry {
+        bytes: [&l[..], &r[common..]].concat(),
+        exec: local.exec,
     })
 }
 
@@ -184,6 +207,27 @@ mod tests {
             merge3("notes.md", None, &entry("a"), &entry("b")).map(|_| ()),
             Err(vec![])
         );
+    }
+
+    #[test]
+    fn journals_keep_the_lines_both_sides_added() {
+        let merged = |base: Option<&str>, local: &str, remote: &str| {
+            merge3(
+                "scout/journal.jsonl",
+                base.map(entry).as_ref(),
+                &entry(local),
+                &entry(remote),
+            )
+            .map(|e| String::from_utf8(e.bytes).unwrap())
+        };
+        assert_eq!(
+            merged(Some("a\n"), "a\nb\n", "a\nc\n").unwrap(),
+            "a\nb\nc\n"
+        );
+        assert_eq!(merged(None, "a\nb\n", "a\nc\n").unwrap(), "a\nb\nc\n");
+        assert_eq!(merged(None, "a\n", "ab\n").unwrap(), "a\nab\n");
+        // A line rewritten instead of added: the whole file conflicts.
+        assert_eq!(merged(Some("a\n"), "x\n", "a\nc\n"), Err(vec![]));
     }
 
     #[test]

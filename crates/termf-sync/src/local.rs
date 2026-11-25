@@ -25,13 +25,15 @@ pub fn scope_of(path: &str) -> Scope {
         ["projects", ..] => Scope::Projects,
         ["vault", ..] => Scope::Vault,
         ["ssh", ..] => Scope::SshKeys,
+        ["dev", ..] => Scope::DevConfig,
         _ => Scope::Config,
     }
 }
 
-/// A path the remote may name: one an export would hold, which cannot leave the config folder on any system.
+/// A path of the config folder the remote may name: one the sync carries, which cannot leave the folder on any
+/// system.
 pub fn valid(path: &str) -> bool {
-    archive::allowed(path) && !path.contains(['\\', ':'])
+    archive::synced(path) && !path.contains(['\\', ':'])
 }
 
 fn project_id(path: &str) -> Option<&str> {
@@ -155,7 +157,7 @@ pub fn read(
     base: &BTreeMap<String, Record>,
     mapping: &mut Mapping,
 ) -> Result<(BTreeMap<String, Entry>, Vec<Skipped>)> {
-    let (files, _links) = archive::raw_files(config_dir, None)?;
+    let (files, _links) = archive::synced_files(config_dir)?;
     let (mut entries, mut skipped) = (BTreeMap::new(), Vec::new());
     for (path, bytes) in files {
         if !scopes.contains(&scope_of(&path)) || !valid(&path) {
@@ -189,14 +191,14 @@ pub fn read(
 }
 
 #[cfg(unix)]
-fn executable(path: &Path) -> Option<bool> {
+pub fn executable(path: &Path) -> Option<bool> {
     use std::os::unix::fs::PermissionsExt;
     Some(fs::metadata(path).ok()?.permissions().mode() & 0o111 != 0)
 }
 
 /// Windows has no execute bit: the synced one is kept.
 #[cfg(not(unix))]
-fn executable(_: &Path) -> Option<bool> {
+pub fn executable(_: &Path) -> Option<bool> {
     None
 }
 
@@ -207,11 +209,21 @@ pub fn write(
     entry: Option<&Entry>,
     mapping: &Mapping,
 ) -> Result<()> {
-    anyhow::ensure!(
-        valid(path) && !archive::through_link(config_dir, path),
-        "cannot write {path}"
-    );
-    let target = config_dir.join(path);
+    anyhow::ensure!(valid(path), "cannot write {path}");
+    let entry = entry.map(|entry| Entry {
+        bytes: match project_id(path) {
+            Some(project) => to_local(project, &entry.bytes, mapping),
+            None => entry.bytes.clone(),
+        },
+        exec: entry.exec,
+    });
+    write_under(config_dir, path, entry.as_ref())
+}
+
+/// Writes (or deletes) `root/rel`, never through a link below `root`; empty folders left behind go, up to `root`.
+pub fn write_under(root: &Path, rel: &str, entry: Option<&Entry>) -> Result<()> {
+    anyhow::ensure!(!archive::through_link(root, rel), "cannot write {rel}");
+    let target = root.join(rel);
     let Some(entry) = entry else {
         match fs::remove_file(&target) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
@@ -219,7 +231,7 @@ pub fn write(
         }
         // Empty folders left behind (a deleted skill) would read as broken items.
         let mut dir = target.parent();
-        while let Some(d) = dir.filter(|d| *d != config_dir) {
+        while let Some(d) = dir.filter(|d| *d != root) {
             if fs::remove_dir(d).is_err() {
                 break;
             }
@@ -227,10 +239,7 @@ pub fn write(
         }
         return Ok(());
     };
-    let bytes = match project_id(path) {
-        Some(project) => to_local(project, &entry.bytes, mapping),
-        None => entry.bytes.clone(),
-    };
+    let bytes = &entry.bytes;
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -265,7 +274,7 @@ pub fn missing_repos(config_dir: &Path) -> Result<Vec<MissingRepo>> {
     Ok(missing)
 }
 
-fn git(git_env: &[(String, String)]) -> Command {
+pub fn git(git_env: &[(String, String)]) -> Command {
     let mut cmd = Command::new("git");
     cmd.env("GIT_TERMINAL_PROMPT", "0")
         .envs(git_env.iter().map(|(k, v)| (k, v)))

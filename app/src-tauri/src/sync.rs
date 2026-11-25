@@ -73,8 +73,9 @@ pub struct SyncState {
 
 pub fn start(app: &AppHandle, config_dir: PathBuf, vault_dir: PathBuf) -> SyncState {
     let mut engine = Engine::new(config_dir, Box::new(OsKeyStore::SYNC)).with_vault(vault_dir);
-    if let Ok(ssh) = termf_ssh::Ssh::current() {
-        engine = engine.with_ssh(ssh);
+    let home = termf_core::expand_tilde("~");
+    if home.is_absolute() {
+        engine = engine.with_home(home);
     }
     let engine = Arc::new(engine);
     let (tx, rx) = mpsc::channel();

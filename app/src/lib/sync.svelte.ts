@@ -7,7 +7,7 @@ import { refresh as refreshSchedule, schedule } from "$lib/schedule.svelte";
 import { showSettings } from "$lib/settings.svelte";
 import { app, callLayouts, load, type ContextSettings, type KeepAwakeState } from "$lib/state.svelte";
 
-export type Scope = "config" | "projects" | "conventions" | "vault" | "sshKeys";
+export type Scope = "config" | "projects" | "conventions" | "vault" | "sshKeys" | "devConfig";
 /** S3: access key id and secret key; WebDAV: user and password. Sent when setting up only. */
 export type Credentials = { user: string; secret: string };
 export type Remote =
@@ -50,6 +50,7 @@ export const scopes: [Scope, Parameters<typeof t>[0], Parameters<typeof t>[0]][]
   ["conventions", "syncScopeConventions", "syncScopeConventionsHelp"],
   ["vault", "vault3SyncScope", "vault3SyncScopeHelp"],
   ["sshKeys", "sync2ScopeSsh", "sync2ScopeSshHelp"],
+  ["devConfig", "syncDevScope", "syncDevScopeHelp"],
 ];
 
 export const sync = $state({

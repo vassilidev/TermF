@@ -1,4 +1,5 @@
 mod fake;
+mod home;
 mod props;
 mod remotes;
 
@@ -838,4 +839,149 @@ fn an_unreadable_file_is_skipped_and_reported_never_deleted() {
     assert!(report.skipped.is_empty(), "{report:?}");
     assert_eq!(report.pushed, ["termf.toml"]);
     assert_eq!(a.engine.status().unwrap().last_error, None);
+}
+
+#[test]
+fn the_scout_travels_and_its_journals_merge() {
+    let sandbox = Sandbox::new("scout");
+    let remote = sandbox.folder();
+    let (a, b) = (sandbox.machine("a"), sandbox.machine("b"));
+    a.put(
+        "scout/rejected.toml",
+        "[[rejected]]\nfingerprint = \"f1\"\n",
+    );
+    a.put("scout/global.toml", "[[entries]]\nitem = \"review\"\n");
+    a.put("scout/claude-version", "2.1.332\n");
+    a.put("scout/journal.jsonl", "{\"n\":1}\n");
+    a.setup(&remote);
+    b.setup(&remote);
+    for path in [
+        "scout/rejected.toml",
+        "scout/global.toml",
+        "scout/claude-version",
+    ] {
+        assert_eq!(b.read(path), a.read(path), "{path}");
+    }
+
+    // Both ran the scout: each journal keeps its lines and gets the other's.
+    a.put("scout/journal.jsonl", "{\"n\":1}\n{\"n\":2}\n");
+    b.put("scout/journal.jsonl", "{\"n\":1}\n{\"n\":3}\n");
+    a.push();
+    assert!(b.push().conflicts.is_empty());
+    a.push();
+    for m in [&a, &b] {
+        assert_eq!(
+            m.read("scout/journal.jsonl"),
+            "{\"n\":1}\n{\"n\":3}\n{\"n\":2}\n"
+        );
+    }
+}
+
+/// What TermF keeps in its config folder and never syncs, with why.
+const NOT_SYNCED: &[(&str, &str)] = &[
+    (
+        "local.toml",
+        "this machine's own paths for the projects' repositories",
+    ),
+    (
+        ".sync",
+        "the sync's own state on this machine: settings, merge bases, the clone",
+    ),
+    (".import", "an import in progress, removed once it is done"),
+];
+
+/// The first path segment of each `config_dir.join(…)` in `file`: a literal, a `format!` literal, or a constant
+/// of the same file. Anything else (a variable) is a path the sync or the archive already chose.
+fn config_dir_entries(file: &str) -> Vec<String> {
+    let constant = |name: &str| {
+        let decl = format!("const {name}: &str = \"");
+        let start = file.find(&decl)? + decl.len();
+        Some(file[start..].split('"').next()?.to_owned())
+    };
+    let mut found = Vec::new();
+    for (i, _) in file.match_indices("config_dir") {
+        let rest = &file[i + "config_dir".len()..];
+        let rest = rest.strip_prefix("()").unwrap_or(rest);
+        let Some(arg) = rest.strip_prefix(".join(") else {
+            continue;
+        };
+        let arg = arg.trim_start();
+        let literal = match arg
+            .strip_prefix("format!(\"")
+            .or_else(|| arg.strip_prefix('"'))
+        {
+            Some(text) => text.split(['"', '{']).next().map(str::to_owned),
+            None => {
+                let name: String = arg
+                    .chars()
+                    .take_while(|c| c.is_ascii_uppercase() || *c == '_')
+                    .collect();
+                if name.is_empty() {
+                    continue;
+                }
+                Some(constant(&name).unwrap_or_else(|| panic!("const {name} not found")))
+            }
+        };
+        if let Some(first) = literal.as_deref().and_then(|l| l.split('/').next()) {
+            found.push(first.to_owned());
+        }
+    }
+    found
+}
+
+fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            rust_files(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
+        }
+    }
+}
+
+/// Like the actions' coverage: a new file in the config folder belongs to a scope, or says here why not.
+#[test]
+fn every_file_termf_keeps_in_its_config_folder_is_synced_or_says_why_not() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut files = Vec::new();
+    for krate in fs::read_dir(root.join("crates")).unwrap().flatten() {
+        rust_files(&krate.path().join("src"), &mut files);
+    }
+    rust_files(&root.join("app/src-tauri/src"), &mut files);
+    let mut seen = BTreeSet::new();
+    for file in &files {
+        seen.extend(config_dir_entries(&fs::read_to_string(file).unwrap()));
+    }
+    assert!(seen.len() >= 8, "the sources were read: {seen:?}");
+    for name in &seen {
+        assert!(
+            local::valid(name) || NOT_SYNCED.iter().any(|(n, _)| n == name),
+            "{name} is in TermF's config folder but in no sync scope: give it one (`archive::SYNCED`, \
+             `local::scope_of`), or say why not in NOT_SYNCED"
+        );
+    }
+    for (name, why) in NOT_SYNCED {
+        assert!(why.len() > 20, "a real reason for {name}");
+        assert!(seen.contains(*name), "{name} is not written anymore");
+    }
+    // Where the audit found each kind of setting: in a synced file, of the right scope.
+    for (path, scope) in [
+        ("scout/journal.jsonl", Scope::Config),
+        ("scout/rejected.toml", Scope::Config),
+        ("schedules.toml", Scope::Config),
+        // Ops connections, saved SQL queries, the Forge account, Jira sites: keys of the project's file.
+        ("projects/acme.toml", Scope::Projects),
+        ("projects/acme/recipes/deploy.toml", Scope::Projects),
+        (
+            "projects/acme/library/skills/review/SKILL.md",
+            Scope::Projects,
+        ),
+        ("projects/acme/conventions/c/source.md", Scope::Conventions),
+    ] {
+        assert!(
+            local::valid(path) && local::scope_of(path) == scope,
+            "{path}"
+        );
+    }
 }

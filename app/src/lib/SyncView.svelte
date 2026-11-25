@@ -59,9 +59,9 @@
   let dav = $state({ url: "", user: "", secret: "" });
   /** The probe's answer: the remote already holds a sync to join. null until probed. */
   let joining = $state<boolean | null>(null);
-  // The vault and the SSH keys only when asked, as on the command line.
+  // The vault, the SSH keys and the dev config only when asked, as on the command line.
   let chosen = $state<Scope[]>(
-    scopes.map(([scope]) => scope).filter((scope) => scope !== "vault" && scope !== "sshKeys"),
+    scopes.map(([scope]) => scope).filter((scope) => !["vault", "sshKeys", "devConfig"].includes(scope)),
   );
   let deviceName = $state("");
   /** Ticking the SSH keys waits for this confirmation: `apply` runs once confirmed. */
@@ -1028,6 +1028,10 @@
 
   .scopes .muted {
     font-size: var(--text-sm);
+  }
+
+  .scopes .check > span:not(.muted) {
+    flex: none;
   }
 
   .buttons {

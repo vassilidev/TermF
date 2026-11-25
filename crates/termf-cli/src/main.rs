@@ -63,7 +63,7 @@ usage:
   termf ssh assign <key> [<repo>]       make a repository (default: here) use only this key
   termf ssh assign --none [<repo>]      back to the default keys
   termf ssh trash <key>                 move a key to ~/.ssh/.termf-trash
-  termf sync setup --git <url> | --folder <path> [--name <device>] [--scopes config,projects,conventions,vault]
+  termf sync setup --git <url> | --folder <path> [--name <device>] [--scopes config,projects,conventions,vault,ssh-keys,dev-config]
                                         sync this machine's config, encrypted, through a remote
   termf sync setup --s3 <endpoint> --bucket <name> [--region <region>] [--prefix <path>] | --webdav <url>
                                         the same through S3 (curl 8.3 or newer) or WebDAV; asks the credentials
@@ -74,8 +74,9 @@ usage:
   termf sync devices                    machines syncing, and when they last did
   termf sync change-password            re-encrypt everything; other machines need the new password
   termf sync recover                    set a new password with the recovery key
-  termf sync scopes <list>              choose what syncs: config, projects, conventions, vault
-                                        and ssh-keys (the keys of ~/.ssh, only when named)
+  termf sync scopes <list>              choose what syncs: config, projects, conventions, vault,
+                                        ssh-keys (~/.ssh keys and config), dev-config (Claude Code,
+                                        git), the last two only when named
   termf sync forget <device>            remove another machine and change the data key
   termf sync disable                    stop syncing on this machine
   termf run <ticket> [--project <id>] [--repo <name>]
