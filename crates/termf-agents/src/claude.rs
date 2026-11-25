@@ -10,7 +10,7 @@ use termf_core::ipc::{
     MCP_ACTIONS, MCP_BROWSER, MCP_EXPERT, MCP_OPS, MCP_READ, MCP_SCREEN, MCP_SECRETS,
 };
 
-use crate::{AgentEvent, AgentRuntime, Launch, Outcome, Parser, SessionSpec, Usage};
+use crate::{AgentEvent, AgentRuntime, Image, Launch, Outcome, Parser, SessionSpec, Usage};
 
 /// How many characters of a tool's output an event keeps.
 pub const TOOL_OUTPUT: usize = 4000;
@@ -243,8 +243,25 @@ impl AgentRuntime for ClaudeCode {
         Box::<Stream>::default()
     }
 
-    fn message(&self, text: &str) -> String {
-        json!({ "type": "user", "message": { "role": "user", "content": text } }).to_string()
+    fn images(&self) -> bool {
+        true
+    }
+
+    fn message(&self, text: &str, images: &[Image]) -> String {
+        let content = if images.is_empty() {
+            json!(text)
+        } else {
+            let mut blocks: Vec<Value> = images
+                .iter()
+                .map(|i| json!({ "type": "image", "source": { "type": "base64", "media_type": i.media_type, "data": i.data } }))
+                .collect();
+            // The API refuses an empty text block: a message may be its images alone.
+            if !text.is_empty() {
+                blocks.push(json!({ "type": "text", "text": text }));
+            }
+            Value::Array(blocks)
+        };
+        json!({ "type": "user", "message": { "role": "user", "content": content } }).to_string()
     }
 
     fn interrupt(&self) -> Option<String> {
@@ -743,7 +760,7 @@ mod tests {
 
     #[test]
     fn writes_stdin_lines() {
-        let line: Value = serde_json::from_str(&ClaudeCode.message("hi \"there\"\n")).unwrap();
+        let line: Value = serde_json::from_str(&ClaudeCode.message("hi \"there\"\n", &[])).unwrap();
         assert_eq!(line["message"]["content"], "hi \"there\"\n");
         let interrupt: Value = serde_json::from_str(&ClaudeCode.interrupt().unwrap()).unwrap();
         assert_eq!(interrupt["request"]["subtype"], "interrupt");

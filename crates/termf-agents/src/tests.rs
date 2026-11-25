@@ -502,7 +502,7 @@ fn a_message_written_during_a_turn_goes_once_it_ends() {
         .events(id)
         .into_iter()
         .filter_map(|e| match e {
-            AgentEvent::User { text } => Some(text),
+            AgentEvent::User { text, .. } => Some(text),
             _ => None,
         })
         .collect();
@@ -1440,6 +1440,64 @@ fn a_role_that_allows_the_browser_gets_it_from_termf_mcp() {
 }
 
 #[test]
+fn images_go_in_the_message_and_nowhere_else() {
+    let env = Env::new("images");
+    let id = env.agents.create(env.spec()).unwrap().id;
+    let image = |media: &str, data: &str| Image {
+        media_type: media.into(),
+        data: data.into(),
+    };
+    let png = image("image/png", "iVBORw0KGgoTERMFSHOT");
+    let refused = |images: &[Image]| {
+        let e = env.agents.send_with(id, "hello", images).unwrap_err();
+        e.to_string()
+    };
+    assert!(refused(&[image("image/svg+xml", "PHN2Zz4=")]).contains("not image/svg+xml"));
+    let big = "A".repeat(IMAGE_MAX + 1);
+    assert!(refused(&[image("image/jpeg", &big)]).contains("over 10 MB"));
+    assert!(
+        env.agents.send_with(id, " ", &[]).is_err(),
+        "nothing to send"
+    );
+    assert!(env.args().is_empty(), "a refused message starts nothing");
+
+    env.agents
+        .send_with(id, "hello, what is this?", std::slice::from_ref(&png))
+        .unwrap();
+    env.settle(id, 1, State::Idle);
+    let line: serde_json::Value =
+        serde_json::from_str(env.log("stdin").lines().next().unwrap()).unwrap();
+    assert_eq!(
+        line["message"]["content"],
+        json!([
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgoTERMFSHOT"}},
+            {"type": "text", "text": "hello, what is this?"},
+        ])
+    );
+    assert!(env.events(id).contains(&AgentEvent::User {
+        text: "hello, what is this?".into(),
+        images: 1
+    }));
+    for stored in ["termf.db".into(), format!("agents/{id}/events.jsonl")] {
+        let bytes = fs::read(env.root.join("data").join(&stored)).unwrap();
+        assert!(
+            !String::from_utf8_lossy(&bytes).contains("TERMFSHOT"),
+            "{stored} keeps no image"
+        );
+    }
+
+    env.agents.send_with(id, "", &[png]).unwrap();
+    env.settle(id, 2, State::Idle);
+    let line: serde_json::Value =
+        serde_json::from_str(env.log("stdin").lines().nth(1).unwrap()).unwrap();
+    assert_eq!(
+        line["message"]["content"].as_array().unwrap().len(),
+        1,
+        "an image alone: no empty text block"
+    );
+}
+
+#[test]
 fn termf_notices_reach_the_agent_apart_from_the_user() {
     let env = Env::new("notices");
     let notice = |about: &str, text: &str| Notice {
@@ -1476,7 +1534,7 @@ fn termf_notices_reach_the_agent_apart_from_the_user() {
         env.events(id)
             .iter()
             .filter_map(|e| match e {
-                AgentEvent::User { text } => Some(text.as_str()),
+                AgentEvent::User { text, .. } => Some(text.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>(),
@@ -2072,6 +2130,12 @@ fn codex_runs_a_process_per_turn_and_resumes_its_thread() {
     let (outcome, cost, ..) = turn_end(&env.events(id));
     assert_eq!((outcome, cost), (Outcome::Done, 0.0));
 
+    let image = Image {
+        media_type: "image/png".into(),
+        data: "iVBORw0KGgo=".into(),
+    };
+    let refused = env.agents.send_with(id, "look", &[image]).unwrap_err();
+    assert!(refused.to_string().contains("text only"), "{refused}");
     env.agents.send(id, "and again").unwrap();
     env.until("the second turn", || {
         env.turns(id) == 2 && env.exits(id) == 2 && env.session(id).state == State::Idle
@@ -2191,7 +2255,8 @@ fn gemini_reads_the_instructions_once_and_keeps_secrets_out() {
     );
     assert!(
         events.contains(&AgentEvent::User {
-            text: "what is this".into()
+            text: "what is this".into(),
+            images: 0
         }),
         "your words alone"
     );

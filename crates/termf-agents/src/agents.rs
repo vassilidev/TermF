@@ -18,8 +18,8 @@ use termf_term::{shell_command, shell_quote};
 
 use crate::store::{self, Store};
 use crate::{
-    AgentEvent, AgentRuntime, AgentSession, ClaudeCode, Codex, Gemini, Launch, Notice, Outcome,
-    SessionSpec, State, StoredEvent, Update, Usage, now,
+    AgentEvent, AgentRuntime, AgentSession, ClaudeCode, Codex, Gemini, IMAGE_MAX, IMAGE_TYPES,
+    Image, Launch, Notice, Outcome, SessionSpec, State, StoredEvent, Update, Usage, now,
 };
 
 /// The `termf mcp` server of a session with TermF's tools, one per process: what `--mcp-config` takes, and what
@@ -232,7 +232,7 @@ impl Agents {
         let mut live = inner.live.lock().unwrap();
         let entry = live.entry(id).or_default();
         match prompt.filter(|p| !p.trim().is_empty()) {
-            Some(text) => inner.deliver(&store, id, entry, Some(text))?,
+            Some(text) => inner.deliver(&store, id, entry, Some(text), &[])?,
             // A runtime that runs a process per turn starts with its first message.
             None if inner.runtime(&store, id)?.per_turn() => {}
             None => inner.launch(&store, id, entry)?,
@@ -257,12 +257,37 @@ impl Agents {
 
     /// Sends a message between two turns. A session without a process resumes its conversation first.
     pub fn send(&self, id: i64, text: &str) -> Result<()> {
-        ensure!(!text.trim().is_empty(), "the message is empty");
+        self.send_with(id, text, &[])
+    }
+
+    /// Sends a message and its images, which go in the message only: nothing stores them.
+    pub fn send_with(&self, id: i64, text: &str, images: &[Image]) -> Result<()> {
+        ensure!(
+            !text.trim().is_empty() || !images.is_empty(),
+            "the message is empty"
+        );
+        for image in images {
+            ensure!(
+                IMAGE_TYPES.contains(&image.media_type.as_str()),
+                "Claude reads PNG, JPEG, GIF and WebP images, not {}",
+                image.media_type
+            );
+            ensure!(
+                image.data.len() <= IMAGE_MAX,
+                "an image is over 10 MB once encoded: Claude refuses it"
+            );
+        }
         let inner = &self.inner;
         let store = inner.store()?;
         let _ = inner.command(&store.session(id)?.spec);
+        let runtime = inner.runtime(&store, id)?;
+        ensure!(
+            images.is_empty() || runtime.images(),
+            "{} reads text only: send the message without its images",
+            runtime.label()
+        );
         let mut live = inner.live.lock().unwrap();
-        inner.deliver(&store, id, live.entry(id).or_default(), Some(text))
+        inner.deliver(&store, id, live.entry(id).or_default(), Some(text), images)
     }
 
     /// Sends a message now between two turns; during one, keeps it for its end (`true`), when it goes as the
@@ -278,7 +303,7 @@ impl Agents {
             entry.queued.push(text.to_owned());
             return Ok(true);
         }
-        inner.deliver(&store, id, entry, Some(text))?;
+        inner.deliver(&store, id, entry, Some(text), &[])?;
         Ok(false)
     }
 
@@ -294,7 +319,7 @@ impl Agents {
         entry.wake |= wake;
         inner.record(&store, id, AgentEvent::Notice(notice));
         if entry.wake && !entry.busy && store.session(id)?.state == State::Idle {
-            inner.deliver(&store, id, entry, None)?;
+            inner.deliver(&store, id, entry, None, &[])?;
         }
         Ok(())
     }
@@ -737,13 +762,14 @@ impl Inner {
             .context("cannot write to the agent")
     }
 
-    /// Starts a turn with the user's message, or with TermF's notices alone (`text: None`).
+    /// Starts a turn with the user's message and its images, or with TermF's notices alone (`text: None`).
     fn deliver(
         self: &Arc<Self>,
         store: &Store,
         id: i64,
         entry: &mut Live,
         text: Option<&str>,
+        images: &[Image],
     ) -> Result<()> {
         ensure!(!entry.busy, BUSY);
         match store.session(id)?.state {
@@ -770,7 +796,7 @@ impl Inner {
                 instructions.trim()
             );
         }
-        self.write(entry, &runtime.message(&line))?;
+        self.write(entry, &runtime.message(&line, images))?;
         if runtime.per_turn()
             && let Some(process) = entry.process.as_mut()
         {
@@ -782,7 +808,8 @@ impl Inner {
         entry.wake = false;
         entry.interrupting = false;
         if let Some(text) = text {
-            self.record(store, id, AgentEvent::User { text });
+            let images = images.len();
+            self.record(store, id, AgentEvent::User { text, images });
         }
         self.set_state(store, id, entry, State::Working)
     }
@@ -1107,7 +1134,7 @@ impl Inner {
         }
         let due = entry.wake || !entry.queued.is_empty();
         if current && due && !entry.busy && session.state == State::Idle {
-            self.deliver(store, id, entry, None)?;
+            self.deliver(store, id, entry, None, &[])?;
         }
         Ok(())
     }
@@ -1233,7 +1260,7 @@ impl Inner {
         // What waited for the end of the turn: a message written meanwhile, a notice that wakes the agent.
         let due = entry.wake || !entry.queued.is_empty();
         if runtime.per_turn() && due && !entry.busy && session.state == State::Idle {
-            self.deliver(store, id, entry, None)?;
+            self.deliver(store, id, entry, None, &[])?;
         }
         Ok(())
     }

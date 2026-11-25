@@ -624,6 +624,7 @@ pub fn run() {
             agents::agent_start,
             agents::agent_send,
             agents::agent_send_or_queue,
+            agents::agent_image,
             agents::agent_interrupt,
             agents::agent_answer,
             agents::agent_stop,
