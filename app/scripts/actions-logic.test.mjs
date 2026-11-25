@@ -39,6 +39,10 @@ test("a call that gives a secret, an unknown or a wrong argument never reaches t
   const inputs = { ...add, fields: { inputs: { type: "object", description: "Inputs." } }, required: [] };
   assert.equal(refused(inputs, { inputs: { env: "prod" } }, null), null);
   assert.match(refused(inputs, { inputs: { env: 1 } }, null), /an object of texts/);
+  const list = { ...add, fields: { branches: { type: "array", description: "Branches." } }, required: [] };
+  assert.equal(refused(list, { branches: ["feat/old"] }, null), null);
+  assert.match(refused(list, { branches: "feat/old" }, null), /a list of texts/);
+  assert.deepEqual(forAgent(list).arguments.properties.branches.items, { type: "string" });
 });
 
 test("the card asks only the secrets these arguments need", () => {

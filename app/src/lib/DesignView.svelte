@@ -115,6 +115,7 @@
   // Read again each time it comes on screen: the team may have fixed things meanwhile.
   $effect(() => {
     const repo = design.repo;
+    void design.scans;
     if (repo && onScreen("design")) untrack(() => scan(repo));
   });
 

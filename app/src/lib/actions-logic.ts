@@ -2,10 +2,11 @@
 
 /**
  * An argument of a screen's action. `secret`: TermF's card asks the user for it and it goes to the vault or the
- * keychain; the agent never gives it and never sees it. `object`: a map of texts (a workflow's inputs).
+ * keychain; the agent never gives it and never sees it. `object`: a map of texts (a workflow's inputs); `array`: a
+ * list of texts.
  */
 export type Field = {
-  type: "string" | "integer" | "boolean" | "object";
+  type: "string" | "integer" | "boolean" | "object" | "array";
   description: string;
   enum?: string[];
   secret?: boolean;
@@ -43,6 +44,7 @@ export function forAgent(spec: Spec) {
         description: f.description,
         ...(f.enum ? { enum: f.enum } : {}),
         ...(f.type === "object" ? { additionalProperties: { type: "string" } } : {}),
+        ...(f.type === "array" ? { items: { type: "string" } } : {}),
       };
   }
   const required = (spec.required ?? []).filter((k) => !spec.fields[k]?.secret);
@@ -54,7 +56,7 @@ export function forAgent(spec: Spec) {
   };
 }
 
-const kinds = { string: "a text", integer: "an integer", boolean: "true or false", object: "an object of texts" };
+const kinds = { string: "a text", integer: "an integer", boolean: "true or false", object: "an object of texts", array: "a list of texts" };
 
 function typed(f: Field, value: unknown): boolean {
   switch (f.type) {
@@ -64,6 +66,8 @@ function typed(f: Field, value: unknown): boolean {
       return Number.isInteger(value);
     case "object":
       return isObject(value) && Object.values(value).every((v) => typeof v === "string");
+    case "array":
+      return Array.isArray(value) && value.every((v) => typeof v === "string");
     default:
       return typeof value === "string";
   }

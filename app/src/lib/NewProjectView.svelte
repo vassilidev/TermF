@@ -66,6 +66,13 @@
   );
   const at = $derived(Math.min(draft.step, ids.length - 1));
   const here = $derived(ids[at]);
+
+  $effect(() => {
+    const step = readyStep;
+    if (here !== "ready" || !ready || !step) return;
+    creating.apply = () => step.create();
+    return () => (creating.apply = null);
+  });
   const home = $derived(app.workspace?.home ?? "");
   const projects = $derived(app.workspace?.projects ?? []);
   const taken = $derived(projects.filter((p) => p.id !== existing?.id).map((p) => p.name));
