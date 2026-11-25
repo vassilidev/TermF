@@ -68,7 +68,10 @@ const unlock: Action = {
   describe: () => t("actVaultUnlockText"),
   needs: async () => {
     const s = await status();
-    return !s.initialized ? "There is no vault yet: propose vault.create instead." : s.unlocked ? "The vault is open already." : null;
+    if (!s.initialized) return "There is no vault yet: propose vault.create instead.";
+    if (s.unlocked) return "The vault is open already.";
+    // A security key asks for a touch, and maybe a PIN, that only the Vault view's screen asks for.
+    return s.keys > 0 ? "This vault opens with a security key too: ask the user to open it in the Vault view." : null;
   },
   async run(_a, secrets) {
     setStatus(await invoke<VaultStatus>("vault_unlock", { password: secrets.password ?? "", pin: null }));
