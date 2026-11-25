@@ -97,6 +97,10 @@ charts and the whole schema, and Ops adds Redis, Nginx, Laravel, server health a
   Forge account, a webhook, a copy in the Library.
 - In a narrow window, lists stack above their detail instead of crushing it: contents, the SQL studio, tickets.
 
+### Install
+- On macOS, the app is signed with a Developer ID and notarized by Apple: it opens like any other app, without
+  going through Privacy & Security.
+
 ### The website and the README
 - **The launch film v6**: 49 seconds instead of 76, on what is new, in light and dark.
 - **New docs pages** for agents that act, Jira sites and spaces, the ticket board, a ticket in full, Redis, Nginx,

@@ -93,7 +93,23 @@ jobs:
       - name: Frontend dependencies
         working-directory: app
         run: pnpm install --frozen-lockfile
-      # macOS: signed ad hoc (bundle.macOS.signingIdentity "-"), not with a Developer ID nor notarized yet.
+      # macOS: with the DEVELOPER_ID_P12 secret, Tauri signs the app and the .dmg with that Developer ID; without
+      # it, ad hoc (bundle.macOS.signingIdentity "-"). Tauri gets no Apple ID, so notarizing is the step after it.
+      - name: Developer ID
+        if: runner.os == 'macOS'
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          if [ -z "$P12" ]; then
+            echo "::warning::No DEVELOPER_ID_P12 secret: the macOS app is signed ad hoc, not notarized."
+            exit 0
+          fi
+          cert=$(printf %s "$P12" | tr -d '\r\n ')
+          echo "::add-mask::$cert"
+          # Matches the imported certificate, and replaces the ad hoc "-" of tauri.conf.json.
+          { echo "APPLE_CERTIFICATE=$cert"; echo "APPLE_CERTIFICATE_PASSWORD=$P12_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=Developer ID Application"; } >> "$GITHUB_ENV"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -111,11 +127,55 @@ jobs:
             ${{ needs.meta.outputs.signed == 'true' && '--config src-tauri/tauri.updater.conf.json' || '' }}
           tagName: ${{ needs.meta.outputs.tag }}
           releaseName: TermF ${{ needs.meta.outputs.tag }}
-          releaseBody: Unsigned early build. See the README for how to open it on macOS and Windows.
+          releaseBody: Draft. The notes come from CHANGELOG.md when it is published.
           releaseDraft: true
           prerelease: ${{ needs.meta.outputs.prerelease }}
           includeUpdaterJson: ${{ !matrix.universal }}
           updaterJsonPreferNsis: true
+      # Apple usually takes minutes, sometimes hours: a .dmg still waiting after 30 minutes leaves the release and
+      # is kept as an artifact, and notarized.yml puts it back, stapled, once Apple accepts it.
+      - name: Notarize the .dmg
+        id: notarize
+        if: runner.os == 'macOS' && env.APPLE_SIGNING_IDENTITY != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+        run: |
+          if [ -z "$NOTARY_APPLE_ID" ]; then
+            echo "::warning::No NOTARY_APPLE_ID secret: the .dmg is signed, not notarized."
+            exit 0
+          fi
+          dmg=$(ls target/${{ matrix.target }}/release/bundle/dmg/*.dmg)
+          name=$(basename "$dmg")
+          auth=(--apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD")
+          id=$(xcrun notarytool submit "$dmg" "${auth[@]}" --output-format json | jq -r .id)
+          xcrun notarytool wait "$id" "${auth[@]}" --timeout 30m > /dev/null || true
+          status=$(xcrun notarytool info "$id" "${auth[@]}" --output-format json | jq -r .status)
+          case $status in
+            Accepted)
+              xcrun stapler staple "$dmg"
+              xcrun stapler validate "$dmg"
+              gh release upload "$TAG" "$dmg" --clobber -R "$GITHUB_REPOSITORY" ;;
+            "In Progress")
+              echo "::warning::Apple is still notarizing $name: notarized.yml puts it back in $TAG once Apple accepts it."
+              gh release delete-asset "$TAG" "$name" -y -R "$GITHUB_REPOSITORY"
+              mkdir pending && cp "$dmg" pending/ && echo "$id" > pending/notary-id && echo "$TAG" > pending/tag
+              echo "pending=true" >> "$GITHUB_OUTPUT" ;;
+            *)
+              xcrun notarytool log "$id" "${auth[@]}" || true
+              echo "::error::Apple did not notarize $name ($status)"
+              exit 1 ;;
+          esac
+      - name: Keep the .dmg for notarized.yml
+        if: steps.notarize.outputs.pending == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ matrix.target }}
+          path: pending/
+          if-no-files-found: error
 
   # Once every build is in: SHA256SUMS for the install scripts, and what the updater will see.
   checksums:
