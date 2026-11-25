@@ -438,6 +438,7 @@
                 </section>
               {/if}
             {/each}
+            {#if devenv.scanning}<Skeleton shape="list" rows={2} label={t("myenvScanning")} />{/if}
           {:else if devenv.scanning}
             <Skeleton shape="list" rows={6} label={t("myenvScanning")} />
           {:else}
@@ -460,9 +461,6 @@
             </button>
             {#if script}
               <button class="btn sm" onclick={() => dropScript(script)}><Trash2 size={14} aria-hidden="true" />{t("delete")}</button>
-            {/if}
-            {#if canAsk}
-              <button class="btn sm" onclick={askScript}><Sparkles size={14} aria-hidden="true" />{t("myenvAskScript")}</button>
             {/if}
             <button class="btn sm primary" onclick={() => askInstall(script || null)} disabled={windows || text === null || (!script && !entries.length)}>
               <Download size={14} aria-hidden="true" />{t("myenvRunScript")}
@@ -754,6 +752,7 @@
     border-radius: var(--radius-lg);
     background: var(--well);
     font: var(--text-xs) / 1.55 var(--font-mono);
+    font-variant-ligatures: none;
     tab-size: 2;
   }
 
