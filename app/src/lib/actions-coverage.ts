@@ -164,6 +164,8 @@ export const READS: string[] = [
   "tickets_sources",
   "tickets_runs",
   "tickets_source_projects",
+  "tickets_states",
+  "tickets_attachment",
   "tickets_ticket",
   "tickets_token",
   "tools_check",
@@ -257,7 +259,7 @@ export const EXCLUDED: [why: string, commands: string[]][] = [
   ],
   [
     "What goes through the system's dialogs, the clipboard or another app (exports, imports, PDFs, a link or a file opened): an agent has none of them.",
-    ["config_export", "config_import_apply", "library_import_claude", "ops_sql_export", "ops_sql_export_all", "ops_chart_save", "design_pdf", "claude_export", "keys_clipboard_clear", "files_open_external", "open_url"],
+    ["config_export", "config_import_apply", "library_import_claude", "ops_sql_export", "ops_sql_export_all", "ops_chart_save", "tickets_attachment_save", "design_pdf", "claude_export", "keys_clipboard_clear", "files_open_external", "open_url"],
   ],
   ["Following a recipe's live output streams it to the user's screen: an agent reads a recipe's output with termf mcp's ops_run.", ["ops_follow_start", "ops_follow_stop"]],
   ["Keyboard shortcuts are the user's hands.", ["keys_set"]],

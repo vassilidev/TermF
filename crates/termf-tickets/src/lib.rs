@@ -30,14 +30,16 @@ mod store;
 mod tests;
 
 pub use azure::{Azure, DEFAULT_WIQL};
-pub use browse::{Assignee, Browse, Page, Status, TrackerProject};
+pub use browse::{
+    Assignee, Attachment, Browse, Detail, Details, Page, Related, Status, TrackerProject,
+};
 use github::Etags;
 pub use github::GitHub;
 pub use gitlab::GitLab;
 pub use guard::{egress, guard, reads};
 pub use jira::{DEFAULT_JQL, Jira};
 pub use linear::Linear;
-pub use mcp::{Mcp, McpServer, Reached};
+pub use mcp::{Mcp, McpServer, Reached, Site};
 pub use run::{
     Change, CheckError, Cleanup, CommitSummary, Delivery, DeliveryPreview, FileChange, Launch,
     PrCheck, PrMerge, Unpushed,
@@ -630,10 +632,12 @@ impl Tickets {
                 Box::new(github)
             }
             "jira" => {
-                let jira = trackers
-                    .jira
-                    .with_context(|| format!("project {project} has no Jira source"))?;
-                Box::new(self.jira(&jira)?)
+                ensure!(
+                    !trackers.jira.is_empty(),
+                    "project {project} has no Jira source"
+                );
+                let sites = trackers.jira.iter().map(|j| self.jira(j));
+                Box::new(jira::JiraSites(sites.collect::<Result<_>>()?))
             }
             "linear" => {
                 let linear = trackers
@@ -680,18 +684,26 @@ impl Tickets {
 
     /// What a delivered run writes on its ticket, as its project allows: the pull request's link, and the
     /// state to move it to. Nothing by default.
+    #[cfg(test)]
     fn writes(&self, project: &str, provider: &str) -> (bool, Option<String>) {
+        self.writes_at(project, provider, "")
+    }
+
+    /// The same for the ticket at `url`: a Jira ticket by the settings of the site it is on.
+    fn writes_at(&self, project: &str, provider: &str, url: &str) -> (bool, Option<String>) {
         let Ok(trackers) = self.trackers(project) else {
             return (false, None);
         };
         match provider {
+            "jira" => {
+                let on = |j: &&JiraTracker| jira::base(&j.site).is_ok_and(|b| url.starts_with(&b));
+                let site = trackers.jira.iter().find(on).or(trackers.jira.first());
+                site.map_or((false, None), |j| (j.comment, j.transition.clone()))
+            }
             "github" => trackers.github.map_or((false, None), |g| {
                 let on_board = g.project.is_some();
                 (g.comment, g.transition.filter(|_| on_board))
             }),
-            "jira" => trackers
-                .jira
-                .map_or((false, None), |j| (j.comment, j.transition)),
             "linear" => trackers
                 .linear
                 .map_or((false, None), |l| (l.comment, l.transition)),
@@ -936,10 +948,9 @@ impl Tickets {
             if fitting.is_empty() {
                 return Ok(None);
             }
-            let jira = projects.iter().any(|p| {
-                let jira = p.trackers.jira.as_ref();
-                jira.is_some_and(|j| j.takes(team))
-            });
+            let jira = projects
+                .iter()
+                .any(|p| p.trackers.jira.iter().any(|j| j.takes(team)));
             ensure!(
                 space.is_some() || !jira,
                 "{key} could be a Jira or a Linear ticket: paste its address"
@@ -994,23 +1005,21 @@ impl Tickets {
         let Some((key, host)) = jira::parse(input) else {
             return Ok(None);
         };
-        let fitting: Vec<&ProjectInfo> = projects
-            .iter()
-            .filter(|p| {
-                let Some(j) = &p.trackers.jira else {
-                    return false;
-                };
-                match &host {
-                    Some(host) => jira::host(&j.site).is_ok_and(|h| &h == host),
-                    None => key.rsplit_once('-').is_some_and(|(k, _)| j.takes(k)),
-                }
-            })
-            .collect();
-        let Some(host) = host else {
+        // The site a project's Jira source would read the ticket on.
+        let site_of = |p: &ProjectInfo| -> Option<String> {
+            let mut sites = p.trackers.jira.iter();
+            let found = match &host {
+                Some(host) => sites.find(|j| jira::host(&j.site).is_ok_and(|h| &h == host)),
+                None => sites.find(|j| key.rsplit_once('-').is_some_and(|(k, _)| j.takes(k))),
+            };
+            found.map(|j| j.site.clone())
+        };
+        let fitting: Vec<&ProjectInfo> = projects.iter().filter(|p| site_of(p).is_some()).collect();
+        let Some(host) = host.as_deref() else {
             if fitting.is_empty() {
                 let mut prefixes: Vec<&str> = projects
                     .iter()
-                    .filter_map(|p| p.trackers.jira.as_ref())
+                    .flat_map(|p| &p.trackers.jira)
                     .flat_map(JiraTracker::keys)
                     .collect();
                 prefixes.sort();
@@ -1027,13 +1036,13 @@ impl Tickets {
                 return Ok(None);
             }
             let p = one(input, fitting, String::new())?;
-            let site = &p.trackers.jira.as_ref().context("no Jira source")?.site;
-            return Ok(Some(p.resolution(jira::reference(site, &key)?, None)));
+            let site = site_of(p).context("no Jira source")?;
+            return Ok(Some(p.resolution(jira::reference(&site, &key)?, None)));
         };
         let none = format!("{input} is in no project: add a Jira source for {host} to a project");
         let p = one(input, fitting, none)?;
-        let site = &p.trackers.jira.as_ref().context("no Jira source")?.site;
-        Ok(Some(p.resolution(jira::reference(site, &key)?, None)))
+        let site = site_of(p).context("no Jira source")?;
+        Ok(Some(p.resolution(jira::reference(&site, &key)?, None)))
     }
 
     /// A ticket an MCP source listed last time, by its URL or key.
@@ -1148,11 +1157,13 @@ impl Tickets {
                 self.github()
                     .board_items(&board, &github.columns, github.mine, limit)
             }
-            Source::Jira => {
-                let tracker = project.trackers.jira.as_ref().ok_or_else(missing)?;
-                let jql = tracker.jql.as_deref().map(str::trim);
-                let jql = jql.filter(|q| !q.is_empty()).unwrap_or(DEFAULT_JQL);
-                self.jira(tracker)?.issues(jql, limit)
+            Source::Jira(host) => {
+                let tracker = project.trackers.jira_site(host).ok_or_else(missing)?;
+                let mut found = self.jira(tracker)?.issues(&tracker.inbox_jql(), limit)?;
+                for ticket in &mut found {
+                    ticket.source = source.id();
+                }
+                Ok(found)
             }
             Source::Gitlab => {
                 let tracker = project.trackers.gitlab.as_ref().ok_or_else(missing)?;

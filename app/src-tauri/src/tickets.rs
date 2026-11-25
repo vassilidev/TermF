@@ -14,8 +14,8 @@ use termf_core::TicketCleanup;
 use termf_core::ipc::SessionSummary;
 use termf_onboarding::setup::TrackerHints;
 use termf_tickets::{
-    Browse, Configured, Delivery, DeliveryPreview, Inbox, McpServer, Page, PrCheck, PrMerge,
-    Reached, Resolution, Run, RunEvent, Sources, Ticket, TicketRef, TicketSummary, Tickets,
+    Browse, Configured, Delivery, DeliveryPreview, Detail, Inbox, McpServer, Page, PrCheck,
+    PrMerge, Reached, Resolution, Run, RunEvent, Sources, TicketRef, TicketSummary, Tickets,
     TrackerProject, Trackers, Unpushed,
 };
 
@@ -592,14 +592,86 @@ pub async fn tickets_source_projects(
     .await
 }
 
-/// One ticket in full, as its tracker gives it.
+/// One ticket in full, as its tracker gives it, with what it says of it beyond its text.
 #[tauri::command]
 pub async fn tickets_ticket(
     app: AppHandle,
     project: String,
     ticket: TicketRef,
-) -> CmdResult<Ticket> {
+) -> CmdResult<Detail> {
     blocking(app, move |app| tickets(app).ticket(&project, &ticket)).await
+}
+
+/// The states a ticket can move to from where it is; none: its tracker says nothing of them.
+#[tauri::command]
+pub async fn tickets_states(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+) -> CmdResult<Vec<String>> {
+    blocking(app, move |app| {
+        tickets(app).ticket_states(&project, &ticket)
+    })
+    .await
+}
+
+/// Moves a ticket to a state in its tracker: the user's own gesture, or an action the user approved.
+#[tauri::command]
+pub async fn tickets_move(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+    to: String,
+) -> CmdResult<()> {
+    blocking(app, move |app| {
+        tickets(app).move_ticket(&project, &ticket, &to)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn tickets_comment(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+    body: String,
+) -> CmdResult<()> {
+    blocking(app, move |app| {
+        tickets(app).comment_ticket(&project, &ticket, &body)
+    })
+    .await
+}
+
+/// A Jira attachment's bytes, or its thumbnail's, read with the site's token.
+#[tauri::command]
+pub async fn tickets_attachment(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+    id: String,
+    thumbnail: bool,
+) -> CmdResult<tauri::ipc::Response> {
+    blocking(app, move |app| {
+        let bytes = tickets(app).attachment(&project, &ticket, &id, thumbnail)?;
+        Ok(tauri::ipc::Response::new(bytes))
+    })
+    .await
+}
+
+/// Writes an attachment where the user chose to save it.
+#[tauri::command]
+pub async fn tickets_attachment_save(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+    id: String,
+    path: String,
+) -> CmdResult<()> {
+    blocking(app, move |app| {
+        let bytes = tickets(app).attachment(&project, &ticket, &id, false)?;
+        std::fs::write(&path, bytes).with_context(|| format!("cannot write {path}"))
+    })
+    .await
 }
 
 #[tauri::command]

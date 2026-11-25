@@ -1,21 +1,18 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
-  import ExternalLink from "@lucide/svelte/icons/external-link";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
-  import Play from "@lucide/svelte/icons/play";
   import Search from "@lucide/svelte/icons/search";
   import SearchX from "@lucide/svelte/icons/search-x";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Segments from "$lib/ui/Segments.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { ago, t } from "$lib/i18n";
-  import { blocks, type Span } from "$lib/markdown-logic";
+  import TicketDetail from "$lib/TicketDetail.svelte";
+  import { bySpace } from "$lib/tickets-logic";
   import {
-    openUrl,
     type BrowseFilter,
     type BrowsePage,
-    type TicketDetail,
     type TicketSummary,
     type TrackerProject,
   } from "$lib/tickets.svelte";
@@ -50,11 +47,11 @@
   let error = $state("");
   let more = $state(false);
   let chosen = $state<TicketSummary | null>(null);
-  let detail = $state<TicketDetail | null>(null);
-  let detailError = $state("");
 
   const mcp = $derived(source.startsWith("mcp:"));
-  const jiraLike = $derived(source === "jira" || mcp);
+  const jiraLike = $derived(source === "jira" || source.startsWith("jira:") || mcp);
+  /** Several spaces read at once: the list groups them. */
+  const grouped = $derived(jiraLike && !filter.projects.length && (projects?.length ?? 0) > 1);
 
   $effect(() => {
     if (!sources.includes(source)) source = sources[0] ?? "";
@@ -107,47 +104,12 @@
     return () => clearTimeout(timer);
   });
 
-  let detailRequest = 0;
-  async function show(ticket: TicketSummary) {
-    chosen = ticket;
-    [detail, detailError] = [null, ""];
-    const asked = ++detailRequest;
-    try {
-      const got = await invoke<TicketDetail>("tickets_ticket", {
-        project,
-        ticket: { provider: ticket.provider, key: ticket.key, url: ticket.url },
-      });
-      if (asked === detailRequest) detail = got;
-    } catch (e) {
-      if (asked === detailRequest) detailError = String(e);
-    }
-  }
-
-  function open(e: MouseEvent, url: string) {
-    e.preventDefault();
-    openUrl(url);
+  /** A ticket moved in its panel: the list shows its new state. */
+  function moved(ticket: TicketSummary, to: string) {
+    found = (found ?? []).map((x) => (x.url === ticket.url ? { ...x, state: to } : x));
   }
 </script>
 
-{#snippet line(list: Span[])}{#each list as span, i (i)}{#if span.kind === "strong"}<strong>{@render line(span.spans)}</strong
-      >{:else if span.kind === "code"}<code>{span.text}</code>{:else if span.kind === "link"}<a
-        href={span.url}
-        onclick={(e) => open(e, span.url)}>{span.text}</a
-      >{:else}{span.text}{/if}{/each}{/snippet}
-
-{#snippet text(body: string)}
-  {#each blocks(body) as block, i (i)}
-    {#if block.kind === "code"}
-      <pre class="mono">{block.text}</pre>
-    {:else if block.kind === "list" && block.start === null}
-      <ul>{#each block.items as item, j (j)}<li>{@render line(item)}</li>{/each}</ul>
-    {:else if block.kind === "list"}
-      <ol start={block.start}>{#each block.items as item, j (j)}<li>{@render line(item)}</li>{/each}</ol>
-    {:else if block.kind === "paragraph" || block.kind === "heading"}
-      <p class:heading={block.kind === "heading"}>{@render line(block.spans)}</p>
-    {/if}
-  {/each}
-{/snippet}
 
 <div class="browse">
   <div class="filters">
@@ -215,24 +177,27 @@
       {:else if !found.length && !error}
         <EmptyState icon={SearchX} title={t("tjdNone")} text={t("tjdNoneHelp")} />
       {:else}
-        <ul>
-          {#each found as ticket (ticket.url)}
-            <li>
-              <button class="ticket" class:chosen={chosen?.url === ticket.url} onclick={() => show(ticket)}>
-                <span class="what">
-                  <span class="name">{ticket.title}</span>
-                  <span class="desc"
-                    ><span class="mono">{ticket.key}</span>{` · ${t("ticketUpdated", { ago: ago(Date.parse(ticket.updated) / 1000) })}`}{ticket.assignees
-                      .length
-                      ? ` · ${t("ticketsUiAssignees", { names: ticket.assignees.join(", ") })}`
-                      : ""}</span
+        {#each grouped ? bySpace(found) : [{ space: "", tickets: found }] as group (group.space)}
+          {#if grouped}<h4 class="space"><span class="mono">{group.space}</span><span class="muted">{group.tickets.length}</span></h4>{/if}
+          <ul>
+            {#each group.tickets as ticket (ticket.url)}
+              <li>
+                <button class="ticket" class:chosen={chosen?.url === ticket.url} onclick={() => (chosen = ticket)}>
+                  <span class="what">
+                    <span class="name">{ticket.title}</span>
+                    <span class="desc"
+                      ><span class="mono">{ticket.key}</span>{` · ${t("ticketUpdated", { ago: ago(Date.parse(ticket.updated) / 1000) })}`}{ticket.assignees
+                        .length
+                        ? ` · ${t("ticketsUiAssignees", { names: ticket.assignees.join(", ") })}`
+                        : ""}</span
+                    ></span
                   >
-                </span>
-                {#if ticket.state}<span class="tag">{ticket.state}</span>{/if}
-              </button>
-            </li>
-          {/each}
-        </ul>
+                  {#if ticket.state}<span class="tag">{ticket.state}</span>{/if}
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/each}
         {#if next}
           <div class="more">
             <button class="btn" onclick={() => load(next)} disabled={more}>
@@ -243,55 +208,13 @@
       {/if}
     </div>
 
-    <aside class="detail" aria-label={chosen ? `${chosen.key} ${chosen.title}` : t("tjdPick")}>
+    <aside class="pane-detail" aria-label={chosen ? `${chosen.key} ${chosen.title}` : t("tjdPick")}>
       {#if !chosen}
         <p class="muted pick-one">{t("tjdPick")}</p>
       {:else}
-        <header>
-          <span class="mono key">{chosen.key}</span>
-          {#if (detail ?? chosen).state}<span class="tag">{(detail ?? chosen).state}</span>{/if}
-        </header>
-        <h3>{detail?.title ?? chosen.title}</h3>
-        <p class="muted small">
-          {[
-            detail?.author ? t("tjdBy", { author: detail.author }) : "",
-            t("ticketUpdated", { ago: ago(Date.parse(chosen.updated) / 1000) }),
-            chosen.assignees.length ? t("ticketsUiAssignees", { names: chosen.assignees.join(", ") }) : "",
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
-        <div class="buttons">
-          <button class="btn primary" onclick={() => chosen && onlaunch(chosen)} disabled={!!starting}>
-            {#if starting === chosen.url}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<Play size={14} aria-hidden="true" />{/if}{t("tjdLaunch")}
-          </button>
-          <button class="btn" onclick={() => chosen && openUrl(chosen.url)}>
-            <ExternalLink size={14} aria-hidden="true" />{t("tjdOpenIn", { source: sourceName(source) })}
-          </button>
-        </div>
-        {#if detailError}
-          <p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{detailError}</p>
-        {:else if !detail}
-          <Skeleton shape="lines" rows={6} />
-        {:else}
-          {#if detail.labels.length}
-            <p class="labels">{#each detail.labels as label (label)}<span class="tag">{label}</span>{/each}</p>
-          {/if}
-          <div class="body">
-            {#if detail.body.trim()}{@render text(detail.body)}{:else}<p class="muted">{t("tjdNoBody")}</p>{/if}
-          </div>
-          {#if detail.comments.length}
-            <h4>{t("tjdComments", { count: detail.comments.length })}</h4>
-            <ol class="comments">
-              {#each detail.comments as comment, i (i)}
-                <li>
-                  <p class="muted small">{comment.author ?? "?"} · {ago(Date.parse(comment.created) / 1000)}</p>
-                  <div class="body">{@render text(comment.body)}</div>
-                </li>
-              {/each}
-            </ol>
-          {/if}
-        {/if}
+        {#key chosen.url}
+          <TicketDetail {project} ticket={chosen} {starting} {onlaunch} onopen={(ticket) => (chosen = ticket)} onmoved={moved} />
+        {/key}
       {/if}
     </aside>
   </div>
@@ -355,7 +278,7 @@
   }
 
   .list,
-  .detail {
+  .pane-detail {
     min-height: 0;
     overflow-y: auto;
   }
@@ -436,80 +359,18 @@
     padding: 12px;
   }
 
-  .detail {
-    padding: 16px 20px;
-  }
-
   .pick-one {
     margin-top: 24px;
     text-align: center;
   }
 
-  .detail header {
+  .space {
     display: flex;
-    align-items: center;
     gap: 8px;
-  }
-
-  .key {
-    color: var(--muted);
-  }
-
-  h3 {
-    margin: 6px 0 2px;
-    font-size: var(--text-lg);
-  }
-
-  h4 {
-    margin: 18px 0 6px;
-    font-size: var(--text-sm);
-  }
-
-  .buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 12px 0;
-  }
-
-  .labels {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .body {
-    overflow-wrap: anywhere;
-    line-height: 1.55;
-  }
-
-  .body :global(pre) {
-    overflow-x: auto;
-    padding: 8px;
-    border-radius: var(--radius-sm);
-    background: var(--hover);
-  }
-
-  .heading {
-    font-weight: 600;
-  }
-
-  .comments {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
     margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .comments li {
-    padding-left: 10px;
-    border-left: 2px solid var(--border);
-  }
-
-  .comments p {
-    margin: 0;
+    padding: 10px 12px 4px;
+    font-size: var(--text-xs);
+    letter-spacing: 0.02em;
   }
 
   .mono {

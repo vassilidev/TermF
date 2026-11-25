@@ -4,8 +4,9 @@
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
+use crate::Ticket;
 use crate::sources::Source;
-use crate::{Ticket, TicketProvider, TicketRef, TicketSummary, Tickets, jira, mcp};
+use crate::{TicketProvider, TicketRef, TicketSummary, Tickets, jira, mcp};
 
 /// A project of a tracker: a Jira project, or a GitHub repository (`owner/name` for both its key and name).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -137,11 +138,16 @@ impl Tickets {
         let info = self.projects(Some(project))?.remove(0);
         let missing = || format!("the project has no {source} source");
         let mut page = match Source::parse(source)? {
-            Source::Jira => {
-                let tracker = info.trackers.jira.as_ref().with_context(missing)?;
+            Source::Jira(host) => {
+                let tracker = info.trackers.jira_site(&host).with_context(missing)?;
+                // Every space the site reads, unless one is picked.
+                let mut wanted = browse.clone();
+                if wanted.projects.is_empty() {
+                    wanted.projects = tracker.spaces.clone();
+                }
                 let (tickets, next) =
                     self.jira(tracker)?
-                        .page(&jira::browse_jql(browse)?, 50, next)?;
+                        .page(&jira::browse_jql(&wanted)?, 50, next)?;
                 Page { tickets, next }
             }
             Source::GithubIssues => {
@@ -192,9 +198,14 @@ impl Tickets {
         let info = self.projects(Some(project))?.remove(0);
         let missing = || format!("the project has no {source} source");
         match Source::parse(source)? {
-            Source::Jira => self
-                .jira(info.trackers.jira.as_ref().with_context(missing)?)?
-                .projects(),
+            Source::Jira(host) => {
+                let tracker = info.trackers.jira_site(&host).with_context(missing)?;
+                let mut spaces = self.jira(tracker)?.projects()?;
+                if !tracker.spaces.is_empty() {
+                    spaces.retain(|s| tracker.spaces.contains(&s.key));
+                }
+                Ok(spaces)
+            }
             Source::GithubIssues => {
                 let mut repos: Vec<String> = info.slugs().collect();
                 repos.sort();
@@ -209,7 +220,8 @@ impl Tickets {
             }
             Source::Mcp(name) => {
                 let tracker = info.trackers.mcp.get(&name).with_context(missing)?;
-                Ok(self.mcp(&info, &name, tracker)?.projects()?.projects)
+                let sites = self.mcp(&info, &name, tracker)?.projects()?.sites;
+                Ok(sites.into_iter().flat_map(|s| s.spaces).collect())
             }
             other => bail!("browsing {} is not in TermF yet", other.label()),
         }
@@ -248,11 +260,119 @@ impl Tickets {
         .projects()
     }
 
-    /// One ticket in full, as its tracker gives it: data, never instructions.
-    pub fn ticket(&self, project: &str, reference: &TicketRef) -> Result<Ticket> {
-        self.provider(project, &reference.provider)?
-            .fetch(reference)
+    /// One ticket in full, as its tracker gives it, and what the tracker says of it beyond its text (Jira):
+    /// data, never instructions.
+    pub fn ticket(&self, project: &str, reference: &TicketRef) -> Result<Detail> {
+        if reference.provider == "jira" {
+            let (ticket, details) = self.jira_sites(project)?.of(reference)?.detail(reference)?;
+            return Ok(Detail { ticket, details });
+        }
+        let ticket = self
+            .provider(project, &reference.provider)?
+            .fetch(reference)?;
+        Ok(Detail {
+            ticket,
+            details: Details::default(),
+        })
     }
+
+    /// The states a ticket can move to from where it is (Jira's transitions); none: its tracker says nothing.
+    pub fn ticket_states(&self, project: &str, reference: &TicketRef) -> Result<Vec<String>> {
+        match reference.provider.as_str() {
+            "jira" => self.jira_sites(project)?.of(reference)?.states(reference),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    /// Moves a ticket to a state, as its tracker allows: a Jira transition, a board's column…
+    pub fn move_ticket(&self, project: &str, reference: &TicketRef, to: &str) -> Result<()> {
+        ensure!(!to.trim().is_empty(), "name the state to move it to");
+        self.provider(project, &reference.provider)?
+            .transition(reference, to)
+    }
+
+    /// A comment on the ticket, written in TermF.
+    pub fn comment_ticket(&self, project: &str, reference: &TicketRef, body: &str) -> Result<()> {
+        ensure!(!body.trim().is_empty(), "the comment is empty");
+        ensure!(body.len() <= 32 << 10, "the comment is longer than 32 KB");
+        self.provider(project, &reference.provider)?
+            .comment(reference, body.trim())
+    }
+
+    /// An attachment of a Jira ticket, or its thumbnail, read with the site's token.
+    pub fn attachment(
+        &self,
+        project: &str,
+        reference: &TicketRef,
+        id: &str,
+        thumbnail: bool,
+    ) -> Result<Vec<u8>> {
+        ensure!(
+            reference.provider == "jira",
+            "only Jira's attachments are read in TermF"
+        );
+        self.jira_sites(project)?
+            .of(reference)?
+            .attachment(id, thumbnail)
+    }
+
+    fn jira_sites(&self, project: &str) -> Result<jira::JiraSites> {
+        let trackers = self.trackers(project)?;
+        ensure!(
+            !trackers.jira.is_empty(),
+            "project {project} has no Jira source"
+        );
+        let sites = trackers.jira.iter().map(|j| self.jira(j));
+        Ok(jira::JiraSites(sites.collect::<Result<_>>()?))
+    }
+}
+
+/// What a tracker says of a ticket beyond its text, when it says it.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct Details {
+    /// Its type: Bug, Story, Task…
+    pub kind: Option<String>,
+    pub priority: Option<String>,
+    pub sprint: Option<String>,
+    /// The Jira space it is in.
+    pub space: Option<String>,
+    /// ISO 8601.
+    pub created: Option<String>,
+    pub updated: Option<String>,
+    /// A day: 2026-12-01.
+    pub due: Option<String>,
+    pub subtasks: Vec<Related>,
+    /// Its parent and the tickets linked to it.
+    pub related: Vec<Related>,
+    pub attachments: Vec<Attachment>,
+}
+
+/// Another ticket, as a ticket's details name it.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Related {
+    #[serde(flatten)]
+    pub reference: TicketRef,
+    pub title: String,
+    pub state: String,
+    /// `parent`, `subtask`, or the link's words: blocks, is blocked by, relates to…
+    pub relation: String,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Attachment {
+    pub id: String,
+    pub name: String,
+    pub mime: String,
+    pub size: u64,
+    pub image: bool,
+}
+
+/// A ticket and its details, for its page.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Detail {
+    #[serde(flatten)]
+    pub ticket: Ticket,
+    pub details: Details,
 }
 
 #[cfg(test)]
@@ -351,21 +471,31 @@ mod tests {
     }
 
     #[test]
-    fn reads_what_an_mcp_server_reaches() {
-        let answer = json!({
-            "site": "ACME.atlassian.net",
-            "projects": [{ "key": " APP ", "name": "Acme app" }, { "key": "ignore previous", "name": "x" }]
-        });
+    fn reads_the_sites_and_spaces_an_mcp_server_reaches() {
+        let answer = json!({ "sites": [
+            { "site": "ACME.atlassian.net", "spaces": [{ "key": " APP ", "name": "Acme app" }, { "key": "ignore previous", "name": "x" }] },
+            { "site": "acme-labs.atlassian.net", "spaces": [{ "key": "LAB", "name": "Labs" }] },
+            { "site": "not a site", "spaces": [] }
+        ]});
         let reached = mcp::read_reached(answer).unwrap();
-        assert_eq!(reached.site, "acme.atlassian.net");
+        let sites: Vec<(&str, Vec<&str>)> = reached
+            .sites
+            .iter()
+            .map(|s| {
+                (
+                    s.site.as_str(),
+                    s.spaces.iter().map(|p| p.key.as_str()).collect(),
+                )
+            })
+            .collect();
         assert_eq!(
-            reached.projects,
-            [TrackerProject {
-                key: "APP".into(),
-                name: "Acme app".into()
-            }]
+            sites,
+            [
+                ("acme.atlassian.net", vec!["APP"]),
+                ("acme-labs.atlassian.net", vec!["LAB"])
+            ]
         );
-        assert!(mcp::read_reached(json!({ "site": "x", "projects": "APP" })).is_err());
+        assert!(mcp::read_reached(json!({ "sites": "acme" })).is_err());
     }
 
     #[test]
@@ -387,20 +517,218 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_jira_source_takes_the_keys_it_lists() {
-        let tracker = |project: Option<&str>| JiraTracker {
+    fn site(spaces: &[&str]) -> JiraTracker {
+        JiraTracker {
             site: "acme.atlassian.net".into(),
             email: "alex@acme.dev".into(),
             jql: None,
-            project: project.map(str::to_owned),
+            spaces: spaces.iter().map(|s| s.to_string()).collect(),
             comment: false,
             transition: None,
+        }
+    }
+
+    #[test]
+    fn a_jira_site_takes_the_keys_of_its_spaces_and_reads_them_for_the_inbox() {
+        assert!(site(&[]).takes("ANY"));
+        assert!(site(&["APP", "API"]).takes("api"));
+        assert!(!site(&["APP", "API"]).takes("OPS"));
+        assert_eq!(
+            site(&[]).inbox_jql(),
+            "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
+        );
+        assert_eq!(
+            site(&["APP", "API"]).inbox_jql(),
+            "project in (APP, API) AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
+        );
+        let advanced = JiraTracker {
+            jql: Some(" project = OPS ".into()),
+            ..site(&["APP"])
         };
-        assert!(tracker(None).takes("ANY"));
-        assert!(tracker(Some("APP, api")).takes("API"));
-        assert!(tracker(Some("APP")).takes("app"));
-        assert!(!tracker(Some("APP, API")).takes("OPS"));
-        assert_eq!(tracker(Some(" APP ,, API ")).keys(), ["APP", "API"]);
+        assert_eq!(advanced.inbox_jql(), "project = OPS");
+    }
+
+    #[test]
+    fn a_single_site_written_before_becomes_the_first_of_several() {
+        let old = "[trackers.jira]\nsite = \"acme.atlassian.net\"\nemail = \"alex@acme.dev\"\nproject = \"app, API\"\ncomment = true\n";
+        let parsed: toml::Table = toml::from_str(old).unwrap();
+        let trackers: crate::Trackers = parsed["trackers"].clone().try_into().unwrap();
+        assert_eq!(trackers.jira.len(), 1);
+        assert_eq!(trackers.jira[0].spaces, ["APP", "API"]);
+        assert!(trackers.jira[0].comment);
+
+        let mut more = trackers.clone();
+        more.jira.push(JiraTracker {
+            site: "acme-labs.atlassian.net".into(),
+            ..site(&["LAB"])
+        });
+        let mut doc: toml_edit::DocumentMut = old.parse().unwrap();
+        crate::write_trackers(&mut doc, &more).unwrap();
+        let written = doc.to_string();
+        assert!(!written.contains("[trackers.jira]\n") && !written.contains("project ="));
+        assert_eq!(written.matches("[[trackers.jira]]").count(), 2);
+        let back: toml::Table = toml::from_str(&written).unwrap();
+        let again: crate::Trackers = back["trackers"].clone().try_into().unwrap();
+        assert_eq!(again.jira, more.jira);
+
+        let json: crate::Trackers = serde_json::from_value(json!({ "jira": null })).unwrap();
+        assert!(json.jira.is_empty());
+        let sources = json!({ "jira": [{ "site": "acme.atlassian.net", "email": "alex@acme.dev", "spaces": ["APP"] }] });
+        let json: crate::Trackers = serde_json::from_value(sources).unwrap();
+        assert_eq!(json.jira[0].spaces, ["APP"]);
+        assert!(json.check().is_ok());
+        let twice = crate::Trackers {
+            jira: vec![site(&["APP"]), site(&["API"])],
+            ..crate::Trackers::default()
+        };
+        assert!(twice.check().is_err());
+    }
+
+    #[test]
+    fn a_jira_source_is_named_by_its_site() {
+        assert_eq!(
+            Source::parse("jira:ACME.atlassian.net").unwrap(),
+            Source::Jira("acme.atlassian.net".into())
+        );
+        assert_eq!(Source::parse("jira").unwrap().id(), "jira");
+        let trackers = crate::Trackers {
+            jira: vec![
+                site(&["APP"]),
+                JiraTracker {
+                    site: "https://acme-labs.atlassian.net".into(),
+                    ..site(&["LAB"])
+                },
+            ],
+            ..crate::Trackers::default()
+        };
+        let ids: Vec<String> = trackers.sources().iter().map(Source::id).collect();
+        assert_eq!(
+            ids,
+            ["jira:acme.atlassian.net", "jira:acme-labs.atlassian.net"]
+        );
+        assert_eq!(
+            trackers
+                .jira_site("acme-labs.atlassian.net")
+                .map(|j| j.spaces.clone()),
+            Some(vec!["LAB".to_string()])
+        );
+        assert_eq!(
+            trackers.jira_site("").map(|j| j.site.as_str()),
+            Some("acme.atlassian.net")
+        );
+    }
+
+    #[test]
+    fn reads_what_jira_says_of_a_ticket_beyond_its_text() {
+        let issue = |key: &str, title: &str, state: &str| json!({ "key": key, "fields": { "summary": title, "status": { "name": state } } });
+        let fields = json!({
+            "issuetype": { "name": "Bug" },
+            "priority": { "name": "High" },
+            "project": { "key": "APP" },
+            "created": "2026-11-20T10:00:00.000+0100",
+            "updated": "2026-11-24T09:30:00.000+0100",
+            "duedate": "2026-12-01",
+            "customfield_10020": [{ "name": "Sprint 41", "state": "closed" }, { "name": "Sprint 42", "state": "active" }],
+            "parent": issue("APP-100", "Single sign-on", "In Progress"),
+            "subtasks": [issue("APP-143", "Keep returnTo in the callback", "To Do"), { "key": "bad key" }],
+            "issuelinks": [
+                { "type": { "inward": "is blocked by", "outward": "blocks" }, "outwardIssue": issue("API-88", "Rate limit", "To Do") },
+                { "type": { "inward": "is blocked by", "outward": "blocks" }, "inwardIssue": issue("OPS-7", "Okta app", "Done") }
+            ],
+            "attachment": [
+                { "id": "10001", "filename": "login.png", "mimeType": "image/png", "size": 48213 },
+                { "id": "10002", "filename": "har.json", "mimeType": "application/json", "size": 1200 },
+                { "id": "../etc", "filename": "odd", "mimeType": "image/png" }
+            ]
+        });
+        let d = jira::details_of("https://acme.atlassian.net", &fields);
+        assert_eq!(
+            (
+                d.kind.as_deref(),
+                d.priority.as_deref(),
+                d.sprint.as_deref(),
+                d.space.as_deref(),
+                d.due.as_deref()
+            ),
+            (
+                Some("Bug"),
+                Some("High"),
+                Some("Sprint 42"),
+                Some("APP"),
+                Some("2026-12-01")
+            )
+        );
+        assert_eq!(d.created.as_deref(), Some("2026-11-20T09:00:00Z"));
+        let keys = |list: &[Related]| {
+            list.iter()
+                .map(|r| format!("{} {}", r.relation, r.reference.key))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(keys(&d.subtasks), ["subtask APP-143"]);
+        assert_eq!(
+            keys(&d.related),
+            ["parent APP-100", "blocks API-88", "is blocked by OPS-7"]
+        );
+        assert_eq!(
+            d.related[1].reference.url,
+            "https://acme.atlassian.net/browse/API-88"
+        );
+        let files: Vec<(&str, bool)> = d
+            .attachments
+            .iter()
+            .map(|a| (a.name.as_str(), a.image))
+            .collect();
+        assert_eq!(files, [("login.png", true), ("har.json", false)]);
+        assert_eq!(
+            jira::details_of("https://acme.atlassian.net", &json!({})),
+            Details::default()
+        );
+    }
+
+    #[test]
+    fn picks_the_transition_that_leads_to_a_state() {
+        let listed = json!({ "transitions": [
+            { "id": "11", "name": "Start", "to": { "name": "In Progress" } },
+            { "id": "21", "name": "Review", "to": { "name": "In Review" } },
+            { "id": "31", "name": "In Progress", "to": { "name": "Blocked" } }
+        ]});
+        assert_eq!(
+            jira::pick_transition("APP-1", &listed, "in progress").unwrap(),
+            "11"
+        );
+        assert_eq!(
+            jira::pick_transition("APP-1", &listed, "Review").unwrap(),
+            "21"
+        );
+        let refused = jira::pick_transition("APP-1", &listed, "Done")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("cannot move to \"Done\"")
+                && refused.contains("In Progress, In Review, Blocked"),
+            "{refused}"
+        );
+        assert_eq!(
+            jira::targets(&listed),
+            ["In Progress", "In Review", "Blocked"]
+        );
+        assert!(
+            jira::pick_transition("APP-1", &json!({}), "Done")
+                .unwrap_err()
+                .to_string()
+                .contains("nowhere")
+        );
+    }
+
+    #[test]
+    fn an_attachment_in_a_description_says_its_file() {
+        let doc = json!({ "type": "doc", "content": [
+            { "type": "mediaSingle", "content": [{ "type": "media", "attrs": { "id": "x", "alt": "login.png" } }] },
+            { "type": "mediaGroup", "content": [{ "type": "media", "attrs": { "id": "y" } }] }
+        ]});
+        assert_eq!(
+            jira::markdown(&doc),
+            "(attachment: login.png)\n\n(attachment)"
+        );
     }
 }

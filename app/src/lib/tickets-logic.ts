@@ -71,15 +71,10 @@ export function preChecked(projects: { key: string }[], cited: string[]): string
   return found.length || projects.length !== 1 ? found : [projects[0].key];
 }
 
-/** The inbox's JQL for the chosen projects: the user's open tickets there; none chosen, Jira's default. */
-export function inboxJql(keys: string[]): string | null {
-  return keys.length ? `project in (${keys.join(", ")}) AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC` : null;
-}
-
-/** What an MCP source lists, in the words Claude Code reads. */
-export function mcpPrompt(keys: string[], site: string): string {
-  const where = site ? ` on ${site}` : "";
-  return keys.length ? `The open Jira issues assigned to me in the projects ${keys.join(", ")}${where}.` : `The open Jira issues assigned to me${where}.`;
+/** What an MCP source lists, in the words Claude Code reads: the user's open tickets in each site's spaces. */
+export function mcpPrompt(sites: { site: string; keys: string[] }[]): string {
+  const where = sites.map((s) => (s.keys.length ? `${s.keys.join(", ")} on ${s.site}` : s.site)).join("; ");
+  return where ? `The open Jira issues assigned to me in the spaces ${where}.` : "The open Jira issues assigned to me.";
 }
 
 /** The name of a new MCP source for a server, unique among `taken`, as the sources editor makes it. */
@@ -95,5 +90,18 @@ export function mcpName(server: string, taken: string[]): string {
   return name;
 }
 
-/** The sources a browse reads: Jira, GitHub Issues, and the MCP ones. */
-export const browsable = (sources: string[]) => sources.filter((s) => s === "jira" || s === "github" || s.startsWith("mcp:"));
+/** The sources a browse reads: each Jira site, GitHub Issues, and the MCP ones. */
+export const browsable = (sources: string[]) => sources.filter((s) => s === "jira" || s.startsWith("jira:") || s === "github" || s.startsWith("mcp:"));
+
+/** A ticket's space: `APP` for `APP-142`, the repository for `acme/api#12`. */
+export const spaceOf = (key: string) => key.match(/^([A-Z][A-Z0-9_]*)-\d+$/)?.[1] ?? key.split("#")[0];
+
+/** Tickets by space, in the order the spaces first come. */
+export function bySpace<T extends { key: string }>(tickets: T[]): { space: string; tickets: T[] }[] {
+  const groups = new Map<string, T[]>();
+  for (const ticket of tickets) {
+    const space = spaceOf(ticket.key);
+    groups.set(space, [...(groups.get(space) ?? []), ticket]);
+  }
+  return [...groups].map(([space, list]) => ({ space, tickets: list }));
+}

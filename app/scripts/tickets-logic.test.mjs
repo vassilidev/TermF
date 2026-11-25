@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { browsable, cleanupNotice, guessSite, inboxJql, liveSession, mcpName, mcpPrompt, preChecked, readyToClean, refusal, resumable } from "../src/lib/tickets-logic.ts";
+import { browsable, bySpace, cleanupNotice, guessSite, liveSession, mcpName, mcpPrompt, preChecked, readyToClean, refusal, resumable, spaceOf } from "../src/lib/tickets-logic.ts";
 
 const run = (o = {}) => ({
   status: "delivered",
@@ -87,12 +87,23 @@ test("the projects the commits cite are checked from the start", () => {
   assert.deepEqual(preChecked([{ key: "APP" }], []), ["APP"]);
 });
 
-test("a Jira source reads the chosen projects, through its API or an MCP server", () => {
-  assert.equal(inboxJql(["APP", "API"]), "project in (APP, API) AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC");
-  assert.equal(inboxJql([]), null);
-  assert.equal(mcpPrompt(["APP"], "acme.atlassian.net"), "The open Jira issues assigned to me in the projects APP on acme.atlassian.net.");
-  assert.equal(mcpPrompt([], ""), "The open Jira issues assigned to me.");
+test("a Jira source reads the chosen spaces of each site, through its API or an MCP server", () => {
+  assert.equal(
+    mcpPrompt([{ site: "acme.atlassian.net", keys: ["APP", "API"] }, { site: "acme-labs.atlassian.net", keys: [] }]),
+    "The open Jira issues assigned to me in the spaces APP, API on acme.atlassian.net; acme-labs.atlassian.net.",
+  );
+  assert.equal(mcpPrompt([]), "The open Jira issues assigned to me.");
   assert.equal(mcpName("claude.ai Atlassian", ["atlassian"]), "atlassian-2");
   assert.equal(mcpName("Atlassian", []), "atlassian");
-  assert.deepEqual(browsable(["github", "githubProject", "jira", "linear", "mcp:atlassian"]), ["github", "jira", "mcp:atlassian"]);
+  assert.deepEqual(browsable(["github", "githubProject", "jira:acme.atlassian.net", "linear", "mcp:atlassian"]), ["github", "jira:acme.atlassian.net", "mcp:atlassian"]);
+});
+
+test("the tickets of several spaces come grouped by space", () => {
+  assert.equal(spaceOf("APP-142"), "APP");
+  assert.equal(spaceOf("acme/api#12"), "acme/api");
+  const groups = bySpace([{ key: "APP-2" }, { key: "API-9" }, { key: "APP-1" }]);
+  assert.deepEqual(
+    groups.map((g) => [g.space, g.tickets.map((t) => t.key)]),
+    [["APP", ["APP-2", "APP-1"]], ["API", ["API-9"]]],
+  );
 });

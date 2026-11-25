@@ -1,8 +1,8 @@
 <script lang="ts" module>
-  export type JiraTracker = { site: string; email: string; jql: string | null; project: string | null; comment: boolean; transition: string | null };
+  export type JiraTracker = { site: string; email: string; jql: string | null; spaces: string[]; comment: boolean; transition: string | null };
   export type McpTracker = { server: string; tools: string[]; prompt: string | null };
-  /** What the wizard connects: Jira through its API, or an MCP source on the user's Atlassian server. */
-  export type Connected = { jira: JiraTracker } | { mcp: { name: string; tracker: McpTracker } };
+  /** What the wizard connects: Jira sites through the API, or an MCP source on the user's Atlassian server. */
+  export type Connected = { jira: JiraTracker[] } | { mcp: { name: string; tracker: McpTracker } };
 </script>
 
 <script lang="ts">
@@ -12,26 +12,31 @@
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import Info from "@lucide/svelte/icons/info";
   import KeyRound from "@lucide/svelte/icons/key-round";
+  import Plus from "@lucide/svelte/icons/plus";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import Wizard, { type WizardStep } from "$lib/ui/Wizard.svelte";
   import { t } from "$lib/i18n";
-  import { guessSite, inboxJql, mcpName, mcpPrompt, preChecked } from "$lib/tickets-logic";
+  import { guessSite, mcpName, mcpPrompt, preChecked } from "$lib/tickets-logic";
   import { openUrl, type TrackerProject } from "$lib/tickets.svelte";
 
   /**
-   * Jira connected in a few steps: the user's Atlassian server in Claude Code when there is one (nothing to create),
-   * else the site and e-mail TermF guesses from the repositories, an API token kept in the keychain, then the
-   * projects the API lists, those the commits cite checked.
+   * Jira connected in a few steps, as many sites and spaces as the project reads: the user's Atlassian server in
+   * Claude Code when there is one (nothing to create, its sites and spaces read through it), else the sites TermF
+   * finds in the repositories or the user types, one e-mail and API token (kept in the keychain for each site),
+   * then each site's spaces, those the commits cite checked.
    */
   let {
     open = $bindable(false),
     project,
+    configured,
     taken,
     onconnected,
   }: {
     open?: boolean;
     project: string;
+    /** The project's Jira sites now: they show checked, with their spaces. */
+    configured: JiraTracker[];
     /** The project's MCP sources' names. */
     taken: string[];
     onconnected: (added: Connected) => Promise<void>;
@@ -41,6 +46,8 @@
 
   type Hints = { keys: string[]; sites: string[]; email: string | null };
   type Server = { name: string; status: string; tools: string[] };
+  type Site = { site: string; on: boolean; from: "configured" | "commits" | "email" | "typed" | "mcp" };
+  type Spaces = TrackerProject[] | { error: string } | null;
 
   let dialog = $state<HTMLDialogElement>();
   let step = $state(0);
@@ -48,24 +55,27 @@
   let how = $state<"mcp" | "token" | null>(null);
   let servers = $state<Server[] | null>(null);
   let hints = $state<Hints>({ keys: [], sites: [], email: null });
-  let site = $state("");
-  let siteFrom = $state<"commits" | "email" | null>(null);
+  let sites = $state<Site[]>([]);
+  let typed = $state("");
   let email = $state("");
   let token = $state("");
   let hasToken = $state(false);
-  let projects = $state<TrackerProject[] | null>(null);
-  let checked = $state<string[]>([]);
-  let mcpSite = $state("");
+  let spaces = $state<Record<string, Spaces>>({});
+  let checked = $state<Record<string, string[]>>({});
   let filter = $state("");
   let busy = $state(false);
   let error = $state("");
 
   const atlassian = $derived(servers?.find((s) => /atlassian/i.test(s.name)) ?? null);
-  const found = $derived((projects ?? []).filter((p) => !filter.trim() || `${p.key} ${p.name}`.toLowerCase().includes(filter.trim().toLowerCase())));
-  const kinds = $derived(how === "mcp" ? (["how", "projects"] as const) : (["how", "site", "email", "token", "projects"] as const));
+  const chosen = $derived(sites.filter((s) => s.on).map((s) => s.site));
+  const kinds = $derived(how === "mcp" ? (["how", "spaces"] as const) : (["how", "sites", "account", "spaces"] as const));
   const at = $derived(kinds[step] ?? "how");
+  const count = $derived(Object.entries(checked).reduce((n, [site, keys]) => n + (chosen.includes(site) || how === "mcp" ? keys.length : 0), 0));
+  const host = (site: string) => site.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase();
+  const validSite = (site: string) => /^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?$/i.test(host(site));
 
-  const labels = { how: "tjdStepHow", site: "tjdStepSite", email: "tjdStepEmail", token: "tjdStepToken", projects: "tjdStepProjects" } as const;
+  const from = { configured: "tjdFromConfigured", commits: "tjdFromCommits", email: "tjdFromEmail", mcp: "tjdFromMcp" } as const;
+  const labels = { how: "tjdStepHow", sites: "tjdStepSites", account: "tjdStepAccount", spaces: "tjdStepSpaces" } as const;
   const steps: WizardStep[] = $derived(
     kinds.map((id) => ({
       id,
@@ -73,27 +83,23 @@
       answer:
         id === "how"
           ? t(how === "mcp" ? "tjdViaMcp" : "tjdViaToken")
-          : id === "site"
-            ? site
-            : id === "email"
+          : id === "sites"
+            ? chosen.join(", ")
+            : id === "account"
               ? email
-              : id === "token"
-                ? t("tjdTokenKept")
-                : t("tjdChosen", { count: checked.length }),
-      live: id === at && busy ? t(at === "projects" && how === "mcp" ? "tjdReading" : "tjdChecking", { server: atlassian?.name ?? "" }) : undefined,
+              : t("tjdChosen", { count }),
+      live: id === at && busy ? t(at === "spaces" && how === "mcp" ? "tjdReading" : "tjdChecking", { server: atlassian?.name ?? "" }) : undefined,
     })),
   );
 
   const can = $derived(
     at === "how"
       ? how === "token" || (how === "mcp" && !!atlassian)
-      : at === "site"
-        ? /^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?$/i.test(site.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, ""))
-        : at === "email"
-          ? /^\S+@\S+\.\S+$/.test(email.trim())
-          : at === "token"
-            ? hasToken || !!token.trim()
-            : !!projects,
+      : at === "sites"
+        ? chosen.length > 0 && chosen.every(validSite)
+        : at === "account"
+          ? /^\S+@\S+\.\S+$/.test(email.trim()) && (hasToken || !!token.trim())
+          : Object.values(spaces).some((s) => Array.isArray(s)),
   );
 
   $effect(() => {
@@ -105,14 +111,27 @@
     if (!open && dialog.open) dialog.close();
   });
 
+  function addSite(site: string, from: Site["from"], on = true) {
+    const h = host(site);
+    if (!h || sites.some((s) => s.site === h)) return;
+    sites = [...sites, { site: h, on, from }];
+  }
+
   function start() {
-    [step, reached, how, servers, projects, checked, token, error, filter] = [0, 0, null, null, null, [], "", "", ""];
+    [step, reached, how, servers, spaces, checked, token, error, filter, typed] = [0, 0, null, null, {}, {}, "", "", "", ""];
+    sites = [];
+    for (const c of configured) {
+      addSite(c.site, "configured");
+      checked[host(c.site)] = [...c.spaces];
+    }
+    email = configured[0]?.email ?? "";
     invoke<Hints>("tickets_jira_hints", { project }).then(
       (h) => {
         hints = h;
+        for (const s of h.sites) addSite(s, "commits");
         const guess = guessSite(h);
-        [site, siteFrom] = [guess.site, guess.from];
-        email = h.email ?? "";
+        if (!sites.length && guess.site) addSite(guess.site, "email");
+        email ||= h.email ?? "";
       },
       () => {},
     );
@@ -132,13 +151,20 @@
     error = "";
     step = Math.max(0, Math.min(to, kinds.length - 1));
     reached = Math.max(reached, step);
-    if (kinds[step] === "token") checkToken();
-    if (kinds[step] === "projects" && how === "mcp" && !projects) void readMcp();
+    if (kinds[step] === "account") void checkToken();
+    if (kinds[step] === "spaces" && how === "mcp" && !Object.keys(spaces).length) void readMcp();
   }
 
+  /** Another way in reads the spaces again: the server's and the API's may differ. */
+  function choose(to: "mcp" | "token") {
+    if (how !== to) [how, spaces, reached] = [to, {}, step];
+  }
+
+  /** Whether the keychain holds a token for every chosen site with this e-mail: then none is typed. */
   async function checkToken() {
     try {
-      hasToken = await invoke<boolean>("tickets_jira_token", { site: site.trim(), email: email.trim() });
+      const has = await Promise.all(chosen.map((site) => invoke<boolean>("tickets_jira_token", { site, email: email.trim() })));
+      hasToken = has.length > 0 && has.every(Boolean);
     } catch {
       hasToken = false;
     }
@@ -148,8 +174,10 @@
     if (!atlassian) return;
     busy = true;
     try {
-      const got = await invoke<{ site: string; projects: TrackerProject[] }>("tickets_mcp_projects", { project, server: atlassian.name });
-      [projects, mcpSite, checked] = [got.projects, got.site, preChecked(got.projects, hints.keys)];
+      const got = await invoke<{ sites: { site: string; spaces: TrackerProject[] }[] }>("tickets_mcp_projects", { project, server: atlassian.name });
+      sites = got.sites.map((s) => ({ site: s.site, on: true, from: "mcp" as const }));
+      spaces = Object.fromEntries(got.sites.map((s) => [s.site, s.spaces]));
+      checked = Object.fromEntries(got.sites.map((s) => [s.site, checked[s.site] ?? preChecked(s.spaces, hints.keys)]));
     } catch (e) {
       error = String(e);
     } finally {
@@ -157,38 +185,49 @@
     }
   }
 
-  /** The token is checked by reading the projects with it; then only is it kept. */
-  async function readJira() {
+  /** The token is checked by reading each site's spaces with it; then only is it kept, for each site. */
+  async function readSites() {
     busy = true;
-    try {
-      const typed = token.trim() || null;
-      const list = await invoke<TrackerProject[]>("tickets_jira_projects", { site: site.trim(), email: email.trim(), token: typed });
-      if (typed) await invoke("tickets_jira_token_save", { site: site.trim(), email: email.trim(), token: typed });
-      [projects, checked, token, hasToken] = [list, preChecked(list, hints.keys), "", true];
+    const typedToken = token.trim() || null;
+    const read = await Promise.all(
+      chosen.map(async (site) => {
+        try {
+          const list = await invoke<TrackerProject[]>("tickets_jira_projects", { site, email: email.trim(), token: typedToken });
+          if (typedToken) await invoke("tickets_jira_token_save", { site, email: email.trim(), token: typedToken });
+          return [site, list] as const;
+        } catch (e) {
+          return [site, { error: String(e) }] as const;
+        }
+      }),
+    );
+    spaces = Object.fromEntries(read);
+    for (const [site, list] of read) if (Array.isArray(list)) checked[site] ??= preChecked(list, hints.keys);
+    busy = false;
+    if (read.every(([, list]) => !Array.isArray(list))) error = (read[0]?.[1] as { error: string })?.error ?? "";
+    else {
+      [token, hasToken] = ["", true];
       go(step + 1);
-    } catch (e) {
-      error = String(e);
-    } finally {
-      busy = false;
     }
   }
 
   async function connect() {
     busy = true;
     try {
-      const keys = (projects ?? []).filter((p) => checked.includes(p.key)).map((p) => p.key);
+      const read = Object.keys(spaces).filter((site) => Array.isArray(spaces[site]));
+      const keys = (site: string) => (checked[site] ?? []).filter((k) => (spaces[site] as TrackerProject[]).some((p) => p.key === k));
       await onconnected(
         how === "mcp" && atlassian
-          ? { mcp: { name: mcpName(atlassian.name, taken), tracker: { server: atlassian.name, tools: [], prompt: mcpPrompt(keys, mcpSite) } } }
-          : {
-              jira: {
-                site: site.trim(),
-                email: email.trim(),
-                jql: inboxJql(keys),
-                project: keys.join(", ") || null,
-                comment: false,
-                transition: null,
+          ? {
+              mcp: {
+                name: mcpName(atlassian.name, taken),
+                tracker: { server: atlassian.name, tools: [], prompt: mcpPrompt(read.filter((s) => chosen.includes(s)).map((site) => ({ site, keys: keys(site) }))) },
               },
+            }
+          : {
+              jira: read.map((site) => {
+                const was = configured.find((c) => host(c.site) === site);
+                return { site, email: email.trim(), jql: was?.jql ?? null, spaces: keys(site), comment: was?.comment ?? false, transition: was?.transition ?? null };
+              }),
             },
       );
       open = false;
@@ -200,19 +239,18 @@
   }
 
   function next() {
-    if (at === "token") return void readJira();
-    if (at === "projects") return void connect();
+    if (at === "account") return void readSites();
+    if (at === "spaces") return void connect();
     go(step + 1);
   }
 
-  /** Another way in reads the projects again: the server's and the API's may differ. */
-  function choose(to: "mcp" | "token") {
-    if (how !== to) [how, projects, checked, reached] = [to, null, [], step];
+  function toggle(site: string, key: string, on: boolean) {
+    const now = checked[site] ?? [];
+    checked[site] = on ? [...now, key] : now.filter((k) => k !== key);
   }
 
-  function toggle(key: string, on: boolean) {
-    checked = on ? [...checked, key] : checked.filter((k) => k !== key);
-  }
+  const shown = (list: TrackerProject[]) =>
+    list.filter((p) => !filter.trim() || `${p.key} ${p.name}`.toLowerCase().includes(filter.trim().toLowerCase()));
 </script>
 
 <dialog bind:this={dialog} class="jira" aria-label={t("tjdTitle")} onclose={() => (open = false)}>
@@ -227,7 +265,7 @@
       oncontinue={next}
       canContinue={can && !busy}
       {busy}
-      continueLabel={at === "projects" ? t("tjdConnectGo") : undefined}
+      continueLabel={at === "spaces" ? t("tjdConnectGo") : undefined}
     >
       {#snippet head()}
         <p class="title">{t("tjdTitle")}</p>
@@ -258,49 +296,84 @@
         {#if servers && !atlassian}
           <p class="notice"><Info size={14} aria-hidden="true" />{t("tjdNoMcp")}</p>
         {/if}
-      {:else if at === "site"}
-        <h2>{t("tjdSiteLabel")}</h2>
-        <input class="field big mono" bind:value={site} placeholder="acme.atlassian.net" spellcheck="false" aria-label={t("tjdSiteLabel")} />
-        <p class="muted small">
-          {siteFrom === "commits" ? t("tjdSiteFromCommits") : siteFrom === "email" && site ? t("tjdSiteFromEmail") : t("tjdSiteHelp")}
-        </p>
-      {:else if at === "email"}
-        <h2>{t("tjdEmailLabel")}</h2>
-        <input class="field big" type="email" bind:value={email} spellcheck="false" aria-label={t("tjdEmailLabel")} />
+      {:else if at === "sites"}
+        <h2>{t("tjdSitesTitle")}</h2>
+        <p class="muted">{t("tjdSitesHelp")}</p>
+        <ul class="list">
+          {#each sites as s (s.site)}
+            <li>
+              <label>
+                <input type="checkbox" bind:checked={s.on} />
+                <span class="mono name">{s.site}</span>
+                {#if s.from !== "typed"}<span class="badge">{t(from[s.from])}</span>{/if}
+              </label>
+            </li>
+          {/each}
+        </ul>
+        <form
+          class="add"
+          onsubmit={(e) => {
+            e.preventDefault();
+            if (!validSite(typed)) return;
+            addSite(typed, "typed");
+            typed = "";
+          }}
+        >
+          <input class="field mono" bind:value={typed} placeholder="acme.atlassian.net" spellcheck="false" aria-label={t("tjdSiteAdd")} />
+          <button class="btn sm" type="submit" disabled={!validSite(typed)}><Plus size={14} aria-hidden="true" />{t("tjdSiteAdd")}</button>
+        </form>
+      {:else if at === "account"}
+        <h2>{t("tjdAccountTitle")}</h2>
+        <label class="labelled">
+          <span>{t("tjdEmailLabel")}</span>
+          <input class="field big" type="email" bind:value={email} onchange={checkToken} spellcheck="false" />
+        </label>
         {#if hints.email && email === hints.email}<p class="muted small">{t("tjdEmailFromGit")}</p>{/if}
-      {:else if at === "token"}
-        <h2>{t("tjdTokenLabel")}</h2>
         {#if hasToken}
-          <p class="saved"><CircleCheck size={14} aria-hidden="true" />{t("tjdTokenSaved", { email: email.trim(), site: site.trim() })}</p>
+          <p class="saved"><CircleCheck size={14} aria-hidden="true" />{t("tjdTokenSaved", { email: email.trim(), site: chosen.join(", ") })}</p>
         {:else}
           <p class="muted">{t("tjdTokenHelp")}</p>
           <button class="btn" onclick={() => openUrl(TOKENS)}><ExternalLink size={14} aria-hidden="true" />{t("tjdTokenCreate")}</button>
-          <input class="field big mono" type="password" autocomplete="off" bind:value={token} aria-label={t("tjdTokenLabel")} />
+          <label class="labelled">
+            <span>{t("tjdTokenLabel")}</span>
+            <input class="field big mono" type="password" autocomplete="off" bind:value={token} />
+          </label>
         {/if}
       {:else}
-        <h2>{t("tjdStepProjects")}</h2>
-        {#if projects === null}
+        <h2>{t("tjdStepSpaces")}</h2>
+        {#if !Object.keys(spaces).length}
           <Skeleton shape="list" rows={5} delay={0} label={t(how === "mcp" ? "tjdReading" : "tjdChecking", { server: atlassian?.name ?? "" })} />
-        {:else if !projects.length}
-          <p class="notice"><Info size={14} aria-hidden="true" />{t("tjdNoProjects")}</p>
         {:else}
           <p class="muted">{t("tjdProjectsHelp")}</p>
-          {#if projects.length > 8}
+          {#if Object.values(spaces).reduce((n, s) => n + (Array.isArray(s) ? s.length : 0), 0) > 8}
             <input class="field" type="search" bind:value={filter} placeholder={t("tjdFilter")} aria-label={t("tjdFilter")} />
           {/if}
-          <ul class="projects">
-            {#each found as p (p.key)}
-              <li>
-                <label>
-                  <input type="checkbox" checked={checked.includes(p.key)} onchange={(e) => toggle(p.key, e.currentTarget.checked)} />
-                  <span class="mono key">{p.key}</span>
-                  <span class="pname">{p.name}</span>
-                  {#if hints.keys.includes(p.key)}<span class="badge">{t("tjdCited")}</span>{/if}
-                </label>
-              </li>
-            {/each}
-          </ul>
-          {#if !checked.length}<p class="muted small">{t("tjdProjectsNone")}</p>{/if}
+          {#each Object.entries(spaces) as [site, list] (site)}
+            <section class="site" aria-label={site}>
+              <h3 class="mono">{site}</h3>
+              {#if !list}
+                <Skeleton shape="list" rows={2} delay={0} />
+              {:else if !Array.isArray(list)}
+                <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{list.error}</p>
+              {:else if !list.length}
+                <p class="muted small">{t("tjdNoProjects")}</p>
+              {:else}
+                <ul class="list">
+                  {#each shown(list) as p (p.key)}
+                    <li>
+                      <label>
+                        <input type="checkbox" checked={checked[site]?.includes(p.key)} onchange={(e) => toggle(site, p.key, e.currentTarget.checked)} />
+                        <span class="mono key">{p.key}</span>
+                        <span class="name">{p.name}</span>
+                        {#if hints.keys.includes(p.key)}<span class="badge">{t("tjdCited")}</span>{/if}
+                      </label>
+                    </li>
+                  {/each}
+                </ul>
+                {#if !checked[site]?.length}<p class="muted small">{t("tjdProjectsNone")}</p>{/if}
+              {/if}
+            </section>
+          {/each}
         {/if}
       {/if}
       {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
@@ -311,7 +384,7 @@
 <style>
   .jira {
     width: min(920px, 96vw);
-    height: min(620px, 92vh);
+    height: min(640px, 92vh);
     padding: 0;
     overflow: hidden;
     border: 1px solid var(--border);
@@ -332,6 +405,11 @@
   h2 {
     margin: 0 0 12px;
     font-size: var(--text-lg);
+  }
+
+  h3 {
+    margin: 14px 0 4px;
+    font-size: var(--text-sm);
   }
 
   .choices {
@@ -378,11 +456,18 @@
     color: var(--muted);
     font-size: var(--text-xs);
     font-weight: 500;
+    white-space: nowrap;
   }
 
   .big {
     width: 100%;
     max-width: 420px;
+  }
+
+  .labelled {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     margin: 8px 0;
   }
 
@@ -396,16 +481,16 @@
     gap: 6px;
   }
 
-  .projects {
+  .list {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    margin: 8px 0;
+    margin: 6px 0;
     padding: 0;
     list-style: none;
   }
 
-  .projects label {
+  .list label {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -414,8 +499,19 @@
     cursor: pointer;
   }
 
-  .projects label:hover {
+  .list label:hover {
     background: var(--hover);
+  }
+
+  .add {
+    display: flex;
+    gap: 8px;
+    max-width: 480px;
+    margin-top: 8px;
+  }
+
+  .add input {
+    flex: 1;
   }
 
   .key {
@@ -423,7 +519,7 @@
     font-weight: 600;
   }
 
-  .pname {
+  .name {
     flex: 1;
   }
 

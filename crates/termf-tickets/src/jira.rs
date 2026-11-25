@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail, ensure};
 
 use serde_json::{Value, json};
 
-use crate::browse::{Assignee, Browse, Status, TrackerProject};
+use crate::browse::{Assignee, Attachment, Browse, Details, Related, Status, TrackerProject};
 use crate::store::{iso_utc, utc};
 use crate::{Comment, Ticket, TicketProvider, TicketRef, TicketSummary};
 
@@ -165,6 +165,47 @@ impl Jira {
     /// One call to the API. The token goes to curl on its standard input; `--disable` keeps the user's
     /// `.curlrc` (which could trace the request to a file) out of it.
     fn call(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
+        let (bytes, status) = self.send(method, path, body, false)?;
+        let body = String::from_utf8_lossy(&bytes);
+        match status {
+            200..=299 if body.trim().is_empty() => Ok(Value::Null),
+            200..=299 => serde_json::from_str(&body)
+                .with_context(|| format!("{} gave no JSON for {path}", self.base)),
+            _ => Err(refused(&self.base, status, &body)),
+        }
+    }
+
+    /// An attachment's bytes, or Jira's small image of it (`thumbnail`), read with the site's token.
+    pub(crate) fn attachment(&self, id: &str, thumbnail: bool) -> Result<Vec<u8>> {
+        ensure!(
+            !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()),
+            "not an attachment id: {id}"
+        );
+        let kind = if thumbnail { "thumbnail" } else { "content" };
+        let (bytes, status) = self.send(
+            "GET",
+            &format!("/rest/api/3/attachment/{kind}/{id}"),
+            None,
+            true,
+        )?;
+        match status {
+            200..=299 => Ok(bytes),
+            _ => Err(refused(
+                &self.base,
+                status,
+                &String::from_utf8_lossy(&bytes),
+            )),
+        }
+    }
+
+    /// The answer's bytes and its HTTP status; `file`: follow Jira's redirect to where the file is.
+    fn send(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+        file: bool,
+    ) -> Result<(Vec<u8>, u16)> {
         let mut config = String::new();
         let mut set = |key: &str, value: &str| {
             config.push_str(&format!("{key} = {}\n", quoted(value)));
@@ -172,14 +213,27 @@ impl Jira {
         set("url", &format!("{}{path}", self.base));
         set("request", method);
         set("user", &format!("{}:{}", self.email, self.token));
-        set("header", "Accept: application/json");
+        set(
+            "header",
+            if file {
+                "Accept: */*"
+            } else {
+                "Accept: application/json"
+            },
+        );
         set("write-out", "\n%{http_code}");
         set("max-time", "60");
+        if file {
+            set("max-filesize", "52428800");
+        }
         if let Some(body) = body {
             set("header", "Content-Type: application/json");
             set("data-raw", &body.to_string());
         }
         config.push_str("silent\nshow-error\n");
+        if file {
+            config.push_str("location\n");
+        }
         let mut child = crate::command(&self.curl)
             .args(["--disable", "--config", "-"])
             .stdin(Stdio::piped())
@@ -195,7 +249,6 @@ impl Jira {
             return Err(e.into());
         }
         let out = child.wait_with_output()?;
-        let text = String::from_utf8_lossy(&out.stdout);
         if !out.status.success() {
             bail!(
                 "cannot reach {}: {}",
@@ -203,21 +256,31 @@ impl Jira {
                 String::from_utf8_lossy(&out.stderr).trim()
             );
         }
-        let (body, status) = text.rsplit_once('\n').unwrap_or(("", &text));
-        let status: u16 = status.trim().parse().unwrap_or(0);
-        match status {
-            200..=299 if body.trim().is_empty() => Ok(Value::Null),
-            200..=299 => serde_json::from_str(body)
-                .with_context(|| format!("{} gave no JSON for {path}", self.base)),
-            401 | 403 => bail!(
-                "Jira refused the e-mail and API token ({status}): check them, or save a new token. {}",
-                reason(body)
-            ),
-            404 => bail!("not found on {} (404): {}", self.base, reason(body)),
-            _ => bail!("Jira answered {status}: {}", reason(body)),
-        }
+        // The status code is what follows the answer's last newline, which `write-out` added.
+        let mut bytes = out.stdout;
+        let at = bytes.iter().rposition(|b| *b == b'\n').unwrap_or(0);
+        let status: u16 = String::from_utf8_lossy(&bytes[at..])
+            .trim()
+            .parse()
+            .unwrap_or(0);
+        bytes.truncate(at);
+        Ok((bytes, status))
     }
+}
 
+/// Why Jira refused, in words the user acts on.
+fn refused(base: &str, status: u16, body: &str) -> anyhow::Error {
+    match status {
+        401 | 403 => anyhow::anyhow!(
+            "Jira refused the e-mail and API token ({status}): check them, or save a new token. {}",
+            reason(body)
+        ),
+        404 => anyhow::anyhow!("not found on {base} (404): {}", reason(body)),
+        _ => anyhow::anyhow!("Jira answered {status}: {}", reason(body)),
+    }
+}
+
+impl Jira {
     /// The tickets `jql` finds, every page (Jira's `nextPageToken`), at most `limit`.
     pub(crate) fn issues(&self, jql: &str, limit: Option<usize>) -> Result<Vec<TicketSummary>> {
         let mut found = Vec::new();
@@ -385,6 +448,42 @@ fn document(text: &str) -> Value {
     json!({ "type": "doc", "version": 1, "content": paragraphs })
 }
 
+/// Every Jira site of a project: a ticket goes to the site its address is on.
+pub(crate) struct JiraSites(pub(crate) Vec<Jira>);
+
+impl JiraSites {
+    pub(crate) fn of(&self, ticket: &TicketRef) -> Result<&Jira> {
+        let on = self.0.iter().find(|j| ticket.url.starts_with(&j.base));
+        on.or(self.0.first()).context("no Jira site")
+    }
+}
+
+impl TicketProvider for JiraSites {
+    fn resolve(&self, input: &str) -> Option<TicketRef> {
+        self.0.iter().find_map(|j| j.resolve(input))
+    }
+
+    fn fetch(&self, ticket: &TicketRef) -> Result<Ticket> {
+        self.of(ticket)?.fetch(ticket)
+    }
+
+    fn search(&self, query: &str) -> Result<Vec<TicketSummary>> {
+        self.0.first().context("no Jira site")?.search(query)
+    }
+
+    fn comment(&self, ticket: &TicketRef, body: &str) -> Result<()> {
+        self.of(ticket)?.comment(ticket, body)
+    }
+
+    fn transition(&self, ticket: &TicketRef, to: &str) -> Result<()> {
+        self.of(ticket)?.transition(ticket, to)
+    }
+
+    fn link_pr(&self, ticket: &TicketRef, url: &str) -> Result<()> {
+        self.of(ticket)?.link_pr(ticket, url)
+    }
+}
+
 impl TicketProvider for Jira {
     fn resolve(&self, input: &str) -> Option<TicketRef> {
         let (key, host) = parse(input)?;
@@ -396,11 +495,170 @@ impl TicketProvider for Jira {
     }
 
     fn fetch(&self, ticket: &TicketRef) -> Result<Ticket> {
+        Ok(self.detail(ticket)?.0)
+    }
+
+    /// `query` is JQL.
+    fn search(&self, query: &str) -> Result<Vec<TicketSummary>> {
+        self.issues(query, None)
+    }
+
+    fn comment(&self, ticket: &TicketRef, body: &str) -> Result<()> {
+        self.comment_on(ticket, body)
+    }
+
+    fn transition(&self, ticket: &TicketRef, to: &str) -> Result<()> {
+        let key = key(&ticket.key).with_context(|| format!("not a Jira key: {}", ticket.key))?;
+        let path = format!("/rest/api/3/issue/{key}/transitions");
+        let listed = self.call("GET", &path, None)?;
+        let id = pick_transition(&key, &listed, to)?;
+        let body = json!({ "transition": { "id": id } });
+        self.call("POST", &path, Some(&body))?;
+        Ok(())
+    }
+
+    fn link_pr(&self, ticket: &TicketRef, url: &str) -> Result<()> {
+        self.link_pr_on(ticket, url)
+    }
+}
+
+/// The transition of `listed` (Jira's `/transitions`) that leads to `to`, by its name or its status's.
+pub(crate) fn pick_transition(key: &str, listed: &Value, to: &str) -> Result<String> {
+    let transitions = listed["transitions"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let matches = |v: &Value| {
+        v.as_str()
+            .is_some_and(|n| n.eq_ignore_ascii_case(to.trim()))
+    };
+    // The status reached wins over a transition merely named like it.
+    let found = transitions
+        .iter()
+        .find(|t| matches(&t["to"]["name"]))
+        .or_else(|| transitions.iter().find(|t| matches(&t["name"])));
+    match found.and_then(|t| t["id"].as_str()) {
+        Some(id) => Ok(id.to_owned()),
+        None => {
+            let names: Vec<&str> = transitions
+                .iter()
+                .filter_map(|t| t["to"]["name"].as_str())
+                .collect();
+            bail!(
+                "{key} cannot move to {to:?} from where it is: it can go to {}",
+                if names.is_empty() {
+                    "nowhere".to_owned()
+                } else {
+                    names.join(", ")
+                }
+            )
+        }
+    }
+}
+
+/// The statuses `listed` (Jira's `/transitions`) leads to, without repeats.
+pub(crate) fn targets(listed: &Value) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for t in listed["transitions"].as_array().into_iter().flatten() {
+        if let Some(name) = t["to"]["name"].as_str()
+            && !found.iter().any(|f| f.eq_ignore_ascii_case(name))
+        {
+            found.push(name.to_owned());
+        }
+    }
+    found
+}
+
+/// What Jira says of a ticket beyond its text: from the issue's `fields`.
+pub(crate) fn details_of(base: &str, fields: &Value) -> Details {
+    let related = |issue: &Value, relation: String| -> Option<Related> {
+        let key = issue["key"].as_str().and_then(key)?;
+        Some(Related {
+            reference: reference(base, &key).ok()?,
+            title: issue["fields"]["summary"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            state: issue["fields"]["status"]["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            relation,
+        })
+    };
+    let text = |v: &Value| v.as_str().map(str::to_owned).filter(|s| !s.is_empty());
+    let mut linked: Vec<Related> = Vec::new();
+    if let Some(parent) = fields["parent"].as_object() {
+        linked.extend(related(&Value::Object(parent.clone()), "parent".into()));
+    }
+    for link in fields["issuelinks"].as_array().into_iter().flatten() {
+        let (issue, words) = if link["outwardIssue"].is_object() {
+            (&link["outwardIssue"], &link["type"]["outward"])
+        } else {
+            (&link["inwardIssue"], &link["type"]["inward"])
+        };
+        linked.extend(related(
+            issue,
+            words.as_str().unwrap_or("relates to").to_owned(),
+        ));
+    }
+    let sprints = fields["customfield_10020"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let sprint = sprints
+        .iter()
+        .find(|s| s["state"] == "active")
+        .or(sprints.last())
+        .and_then(|s| text(&s["name"]));
+    Details {
+        kind: text(&fields["issuetype"]["name"]),
+        priority: text(&fields["priority"]["name"]),
+        sprint,
+        space: text(&fields["project"]["key"]),
+        created: text(&fields["created"]).map(|d| iso_utc(&d)),
+        updated: text(&fields["updated"]).map(|d| iso_utc(&d)),
+        due: text(&fields["duedate"]),
+        subtasks: fields["subtasks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|s| related(s, "subtask".into()))
+            .collect(),
+        related: linked,
+        attachments: fields["attachment"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|a| {
+                let id = a["id"]
+                    .as_str()
+                    .filter(|i| i.bytes().all(|b| b.is_ascii_digit()))?;
+                let mime = a["mimeType"]
+                    .as_str()
+                    .unwrap_or("application/octet-stream")
+                    .to_owned();
+                Some(Attachment {
+                    id: id.to_owned(),
+                    name: a["filename"].as_str().unwrap_or(id).to_owned(),
+                    image: mime.starts_with("image/"),
+                    mime,
+                    size: a["size"].as_u64().unwrap_or_default(),
+                })
+            })
+            .collect(),
+    }
+}
+
+impl Jira {
+    /// The ticket and what Jira says of it beyond its text.
+    pub(crate) fn detail(&self, ticket: &TicketRef) -> Result<(Ticket, Details)> {
         let key = key(&ticket.key).with_context(|| format!("not a Jira key: {}", ticket.key))?;
         let issue = self.call(
             "GET",
             &format!(
-                "/rest/api/3/issue/{key}?fields=summary,description,status,labels,assignee,reporter"
+                "/rest/api/3/issue/{key}?fields=summary,description,status,labels,assignee,reporter,priority,created,\
+                 updated,duedate,issuetype,project,subtasks,issuelinks,attachment,parent,customfield_10020"
             ),
             None,
         )?;
@@ -428,7 +686,7 @@ impl TicketProvider for Jira {
         let fields = &issue["fields"];
         let body = markdown(&fields["description"]);
         let texts = std::iter::once(body.as_str()).chain(comments.iter().map(|c| c.body.as_str()));
-        Ok(Ticket {
+        let found = Ticket {
             links: crate::links(texts, &ticket.url),
             title: fields["summary"].as_str().unwrap_or_default().into(),
             state: fields["status"]["name"].as_str().unwrap_or_default().into(),
@@ -438,15 +696,21 @@ impl TicketProvider for Jira {
             body,
             comments,
             reference: ticket.clone(),
-        })
+        };
+        Ok((found, details_of(&self.base, fields)))
     }
 
-    /// `query` is JQL.
-    fn search(&self, query: &str) -> Result<Vec<TicketSummary>> {
-        self.issues(query, None)
+    /// The statuses the ticket can move to from where it is.
+    pub(crate) fn states(&self, ticket: &TicketRef) -> Result<Vec<String>> {
+        let key = key(&ticket.key).with_context(|| format!("not a Jira key: {}", ticket.key))?;
+        Ok(targets(&self.call(
+            "GET",
+            &format!("/rest/api/3/issue/{key}/transitions"),
+            None,
+        )?))
     }
 
-    fn comment(&self, ticket: &TicketRef, body: &str) -> Result<()> {
+    fn comment_on(&self, ticket: &TicketRef, body: &str) -> Result<()> {
         let key = key(&ticket.key).with_context(|| format!("not a Jira key: {}", ticket.key))?;
         let body = json!({ "body": document(body) });
         self.call(
@@ -457,40 +721,8 @@ impl TicketProvider for Jira {
         Ok(())
     }
 
-    /// `to` names a transition or the status it leads to, in any case.
-    fn transition(&self, ticket: &TicketRef, to: &str) -> Result<()> {
-        let key = key(&ticket.key).with_context(|| format!("not a Jira key: {}", ticket.key))?;
-        let path = format!("/rest/api/3/issue/{key}/transitions");
-        let listed = self.call("GET", &path, None)?;
-        let transitions = listed["transitions"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        let matches = |v: &Value| {
-            v.as_str()
-                .is_some_and(|n| n.eq_ignore_ascii_case(to.trim()))
-        };
-        let Some(id) = transitions
-            .iter()
-            .find(|t| matches(&t["name"]) || matches(&t["to"]["name"]))
-            .and_then(|t| t["id"].as_str())
-        else {
-            let names: Vec<&str> = transitions
-                .iter()
-                .filter_map(|t| t["to"]["name"].as_str())
-                .collect();
-            bail!(
-                "{key} cannot move to {to:?} from where it is: it can go to {}",
-                names.join(", ")
-            );
-        };
-        let body = json!({ "transition": { "id": id } });
-        self.call("POST", &path, Some(&body))?;
-        Ok(())
-    }
-
     /// A remote link on the ticket; the same pull request linked twice stays one link.
-    fn link_pr(&self, ticket: &TicketRef, url: &str) -> Result<()> {
+    fn link_pr_on(&self, ticket: &TicketRef, url: &str) -> Result<()> {
         let key = key(&ticket.key).with_context(|| format!("not a Jira key: {}", ticket.key))?;
         let title = url
             .strip_prefix("https://github.com/")
@@ -565,7 +797,19 @@ fn block(node: &Value) -> String {
             }
         }
         "table" => table(node),
-        "mediaSingle" | "mediaGroup" | "media" => "(attachment)".into(),
+        "mediaSingle" | "mediaGroup" => blocks(
+            node, "
+",
+        ),
+        // An attachment by its file's name: the ticket's page shows the file itself.
+        "media" => match attrs["alt"]
+            .as_str()
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+        {
+            Some(name) => format!("(attachment: {name})"),
+            None => "(attachment)".into(),
+        },
         _ if node["content"].is_array() => blocks(node, "\n\n"),
         _ => inline_node(node),
     }

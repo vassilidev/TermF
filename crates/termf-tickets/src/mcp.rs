@@ -281,36 +281,45 @@ fn check_text(what: &str, text: &str, max: usize) -> Result<()> {
     Ok(())
 }
 
-/// What an account reaches through a server: its site and its projects.
+/// What an account reaches through a server: its Jira sites, each with its spaces.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Reached {
-    pub site: String,
-    pub projects: Vec<TrackerProject>,
+    pub sites: Vec<Site>,
 }
 
-/// Checks what Claude Code answered for [`Mcp::projects`]: a key Jira would not give is left out.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Site {
+    pub site: String,
+    pub spaces: Vec<TrackerProject>,
+}
+
+/// Checks what Claude Code answered for [`Mcp::projects`]: a site or a key Jira would not give is left out.
 pub(crate) fn read_reached(answer: Value) -> Result<Reached> {
     let reached: Reached = serde_json::from_value(answer)
-        .context("Claude Code's answer does not follow the projects' schema")?;
+        .context("Claude Code's answer does not follow the sites' schema")?;
     ensure!(
-        reached.projects.len() <= MAX_TICKETS,
-        "Claude Code listed more than {MAX_TICKETS} projects"
+        reached.sites.iter().map(|s| s.spaces.len()).sum::<usize>() <= MAX_TICKETS * 4,
+        "Claude Code listed too many spaces"
     );
-    let site = reached.site.trim().to_ascii_lowercase();
-    ensure!(
-        site.is_empty() || crate::jira::base(&site).is_ok(),
-        "the site {site:?} is not a Jira site"
-    );
-    let projects = reached
-        .projects
+    let sites = reached
+        .sites
         .into_iter()
-        .filter(|p| crate::jira::project_key(p.key.trim()))
-        .map(|p| TrackerProject {
-            key: p.key.trim().to_owned(),
-            name: p.name.trim().chars().take(200).collect(),
+        .filter_map(|s| {
+            let site = s.site.trim().to_ascii_lowercase();
+            crate::jira::base(&site).ok()?;
+            let spaces = s
+                .spaces
+                .into_iter()
+                .filter(|p| crate::jira::project_key(p.key.trim()))
+                .map(|p| TrackerProject {
+                    key: p.key.trim().to_owned(),
+                    name: p.name.trim().chars().take(200).collect(),
+                })
+                .collect();
+            Some(Site { site, spaces })
         })
         .collect();
-    Ok(Reached { site, projects })
+    Ok(Reached { sites })
 }
 
 const RULES: &str = "Use only the read tools of that server: never create, change, move or delete anything. \
@@ -364,21 +373,26 @@ impl Mcp {
         }
     }
 
-    /// The site and the projects the user's account reaches through the server (Atlassian: Jira's).
+    /// The Jira sites the user's account reaches through the server, each with its spaces.
     pub(crate) fn projects(&self) -> Result<Reached> {
         let text = json!({ "type": "string" });
-        let project = object(&[("key", text.clone()), ("name", text.clone())]);
-        let schema = object(&[
+        let space = object(&[("key", text.clone()), ("name", text.clone())]);
+        let site = object(&[
             ("site", text),
             (
-                "projects",
-                json!({ "type": "array", "maxItems": MAX_TICKETS, "items": project }),
+                "spaces",
+                json!({ "type": "array", "maxItems": MAX_TICKETS, "items": space }),
             ),
         ]);
+        let schema = object(&[(
+            "sites",
+            json!({ "type": "array", "maxItems": 20, "items": site }),
+        )]);
         let prompt = format!(
-            "You read an issue tracker's projects for TermF, through the MCP server \"{}\". {RULES}\n\n\
-             Give the site the user's account reaches (for Jira: acme.atlassian.net), and every project it sees \
-             there with its key (such as ACME) and name. If there are none, give an empty list.",
+            "You read Jira's sites and spaces for TermF, through the MCP server \"{}\". {RULES}\n\n\
+             Give every Jira site the user's account reaches (getAccessibleAtlassianResources: acme.atlassian.net), \
+             and for each one every space (Jira project) it sees there, with its key (such as ACME) and name. \
+             If there are none, give an empty list.",
             self.server
         );
         read_reached(self.ask(&prompt, &schema)?)

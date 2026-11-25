@@ -78,7 +78,11 @@
     azure: "tickets2Azure",
   };
   const sourceName = (id: string) =>
-    id in sourceNames ? t(sourceNames[id]) : t("ticketsMcpSource", { name: id.replace(/^mcp:/, "") });
+    id in sourceNames
+      ? t(sourceNames[id])
+      : id.startsWith("jira:")
+        ? `${t("ticketsJira")} · ${id.slice(5)}`
+        : t("ticketsMcpSource", { name: id.replace(/^mcp:/, "") });
   /** The current project's sources a browse reads; none for every project at once. */
   const browseSources = $derived(tickets.scope ? browsable(tickets.sources) : []);
   // The run of another repository of a change shows on its change's page.
