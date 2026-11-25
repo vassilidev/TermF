@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanupNotice, liveSession, readyToClean, refusal, resumable } from "../src/lib/tickets-logic.ts";
+import { boardColumns, browsable, bySpace, laneOf, cleanupNotice, guessSite, liveSession, mcpName, mcpPrompt, preChecked, readyToClean, refusal, resumable, spaceOf } from "../src/lib/tickets-logic.ts";
 
 const run = (o = {}) => ({
   status: "delivered",
@@ -71,4 +71,46 @@ test("the notification says whether the pull request was merged and what TermF d
   assert.equal(failed.body, "ticketsUiNotifyFailed");
   assert.equal(failed.vars.error, "uncommitted changes");
   assert.equal(cleanupNotice({ run: run({ prState: "closed" }), cleaned: false, error: null }).title, "ticketsUiNotifyClosed");
+});
+
+test("the Jira site is the one the commits link, else the company in the e-mail", () => {
+  assert.deepEqual(guessSite({ sites: ["acme.atlassian.net"], email: "alex@other.io" }), { site: "acme.atlassian.net", from: "commits" });
+  assert.deepEqual(guessSite({ sites: [], email: "alex@mail.acme.io" }), { site: "acme.atlassian.net", from: "email" });
+  assert.deepEqual(guessSite({ sites: [], email: "alex@gmail.com" }), { site: "", from: null });
+  assert.deepEqual(guessSite({ sites: [], email: null }), { site: "", from: null });
+});
+
+test("the projects the commits cite are checked from the start", () => {
+  const projects = [{ key: "APP" }, { key: "API" }, { key: "OPS" }];
+  assert.deepEqual(preChecked(projects, ["API", "APP", "WEB"]), ["APP", "API"]);
+  assert.deepEqual(preChecked(projects, []), []);
+  assert.deepEqual(preChecked([{ key: "APP" }], []), ["APP"]);
+});
+
+test("a Jira source reads the chosen spaces of each site, through its API or an MCP server", () => {
+  assert.equal(
+    mcpPrompt([{ site: "acme.atlassian.net", keys: ["APP", "API"] }, { site: "acme-labs.atlassian.net", keys: [] }]),
+    "The open Jira issues assigned to me in the spaces APP, API on acme.atlassian.net; acme-labs.atlassian.net.",
+  );
+  assert.equal(mcpPrompt([]), "The open Jira issues assigned to me.");
+  assert.equal(mcpName("claude.ai Atlassian", ["atlassian"]), "atlassian-2");
+  assert.equal(mcpName("Atlassian", []), "atlassian");
+  assert.deepEqual(browsable(["github", "githubProject", "jira:acme.atlassian.net", "linear", ""]), ["github", "githubProject", "jira:acme.atlassian.net", "linear"]);
+});
+
+test("the tickets of several spaces come grouped by space", () => {
+  assert.equal(spaceOf("APP-142"), "APP");
+  assert.equal(spaceOf("acme/api#12"), "acme/api");
+  const groups = bySpace([{ key: "APP-2" }, { key: "API-9" }, { key: "APP-1" }]);
+  assert.deepEqual(
+    groups.map((g) => [g.space, g.tickets.map((t) => t.key)]),
+    [["APP", ["APP-2", "APP-1"]], ["API", ["API-9"]]],
+  );
+});
+
+test("a board's columns are the source's states, then the states its tickets have that it did not list", () => {
+  assert.deepEqual(boardColumns(["To Do", "In Progress", "Done"], ["in progress", "Blocked", "Done", ""]), ["To Do", "In Progress", "Done", "Blocked"]);
+  assert.deepEqual(boardColumns([], ["Todo", "Backlog", "Todo"]), ["Todo", "Backlog"]);
+  assert.equal(laneOf("in progress", ["To Do", "In Progress"]), "In Progress");
+  assert.equal(laneOf("Blocked", ["To Do"]), "Blocked");
 });

@@ -3,7 +3,11 @@
   import CircleCheck from "@lucide/svelte/icons/circle-check";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Plus from "@lucide/svelte/icons/plus";
+  import Plug from "@lucide/svelte/icons/plug";
   import X from "@lucide/svelte/icons/x";
+  import JiraConnect, { type Connected } from "$lib/JiraConnect.svelte";
+  import { loadInbox, tickets } from "$lib/tickets.svelte";
+  import { toast } from "$lib/ui/toast.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
 
@@ -20,7 +24,7 @@
     site: string;
     email: string;
     jql: string | null;
-    project: string | null;
+    spaces: string[];
     comment: boolean;
     transition: string | null;
   };
@@ -43,7 +47,7 @@
   type McpTracker = { server: string; tools: string[]; prompt: string | null };
   type Trackers = {
     github: GithubTracker | null;
-    jira: JiraTracker | null;
+    jira: JiraTracker[];
     linear?: LinearTracker | null;
     gitlab?: GitlabTracker | null;
     azure?: AzureTracker | null;
@@ -56,7 +60,7 @@
   type Key = Parameters<typeof t>[0];
   type Sources = {
     trackers: Trackers;
-    jiraToken: boolean;
+    jiraTokens: boolean[];
     githubRepos: string[];
     mcpTools: Record<string, string[]>;
     tokens: Record<Kind, boolean>;
@@ -76,14 +80,13 @@
   let trackers = $state<Trackers | null>(null);
   /** The sources as saved, so an unchanged form writes nothing (an MCP source keeps its last answer). */
   let saved = "";
-  /** The Jira account `jiraToken` tells about, and the one the Forget button removes. */
-  let tokenAccount = $state<Account | null>(null);
-  let jiraToken = $state(false);
+  /** For each Jira site, the account its token was checked for and whether the keychain has it. */
+  let jiraTokens = $state<{ account: Account; saved: boolean }[]>([]);
   let githubRepos = $state<string[]>([]);
   let mcpTools = $state<Record<string, string[]>>({});
   let error = $state("");
   let tests = $state<Record<string, Test>>({});
-  let token = $state("");
+  let jiraToken = $state<Record<number, string>>({});
   let tokenBusy = $state(false);
   let servers = $state<McpServer[] | null>(null);
   let serversBusy = $state(false);
@@ -109,9 +112,7 @@
   function load(sources: Sources) {
     trackers = sources.trackers;
     saved = JSON.stringify(sources.trackers);
-    const jira = sources.trackers.jira;
-    tokenAccount = jira && { site: jira.site, email: jira.email };
-    jiraToken = sources.jiraToken;
+    jiraTokens = sources.trackers.jira.map((j, i) => ({ account: { site: j.site, email: j.email }, saved: !!sources.jiraTokens?.[i] }));
     githubRepos = sources.githubRepos;
     mcpTools = sources.mcpTools;
     gitlabRepos = sources.gitlabRepos ?? [];
@@ -191,17 +192,26 @@
     }
   }
 
-  const tokenFor = (jira: JiraTracker) =>
-    jiraToken && tokenAccount?.site === jira.site && tokenAccount.email === jira.email;
+  const tokenFor = (jira: JiraTracker, i: number) =>
+    !!jiraTokens[i]?.saved && jiraTokens[i].account.site === jira.site && jiraTokens[i].account.email === jira.email;
 
-  /** Once the site or the e-mail changed: is there a token for them? */
-  async function checkToken() {
-    const jira = trackers?.jira;
+  const hostOf = (site: string) =>
+    site
+      .trim()
+      .replace(/^https?:[/][/]/, "")
+      .replace(/[/].*$/, "")
+      .toLowerCase();
+
+  /** A Jira site's source id: `jira` while it is the only one, else by its host. */
+  const jiraId = (jira: JiraTracker) => (trackers!.jira.length === 1 ? "jira" : `jira:${hostOf(jira.site)}`);
+
+  /** Once a site or its e-mail changed: is there a token for them? */
+  async function checkToken(i: number) {
+    const jira = trackers?.jira[i];
     if (!jira?.site.trim() || !jira.email.trim()) return;
     const account = { site: jira.site, email: jira.email };
     try {
-      jiraToken = await invoke<boolean>("tickets_jira_token", account);
-      tokenAccount = account;
+      jiraTokens[i] = { account, saved: await invoke<boolean>("tickets_jira_token", account) };
     } catch (e) {
       error = String(e);
     }
@@ -229,10 +239,16 @@
     if (!on && !trackers!.github!.issues) trackers!.github = null;
   }
 
+  const blankSite = (): JiraTracker => ({ site: "", email: trackers?.jira[0]?.email ?? "", jql: null, spaces: [], comment: false, transition: null });
+
   function setJira(on: boolean) {
-    trackers!.jira = on
-      ? { site: "", email: "", jql: null, project: null, comment: false, transition: null }
-      : null;
+    trackers!.jira = on ? [blankSite()] : [];
+    jiraTokens = [];
+  }
+
+  function removeSite(i: number) {
+    trackers!.jira = trackers!.jira.filter((_, n) => n !== i);
+    jiraTokens = jiraTokens.filter((_, n) => n !== i);
   }
 
   const list = (text: string) =>
@@ -255,15 +271,14 @@
     }
   }
 
-  async function saveToken() {
-    const jira = trackers!.jira!;
+  async function saveToken(i: number) {
+    const jira = trackers!.jira[i];
     const account = { site: jira.site, email: jira.email };
     tokenBusy = true;
     try {
-      await invoke("tickets_jira_token_save", { ...account, token });
-      token = "";
-      tokenAccount = account;
-      jiraToken = true;
+      await invoke("tickets_jira_token_save", { ...account, token: jiraToken[i] });
+      jiraToken[i] = "";
+      jiraTokens[i] = { account, saved: true };
       error = "";
     } catch (e) {
       error = String(e);
@@ -271,11 +286,12 @@
     tokenBusy = false;
   }
 
-  async function forgetToken() {
-    if (!tokenAccount) return;
+  async function forgetToken(i: number) {
+    const account = jiraTokens[i]?.account;
+    if (!account) return;
     try {
-      await invoke("tickets_jira_token_forget", { ...tokenAccount });
-      jiraToken = false;
+      await invoke("tickets_jira_token_forget", { ...account });
+      jiraTokens[i] = { account, saved: false };
     } catch (e) {
       error = String(e);
     }
@@ -311,6 +327,26 @@
   function removeMcp(name: string) {
     delete trackers!.mcp[name];
     delete tests[`mcp:${name}`];
+  }
+
+  let connecting = $state(false);
+  // An agent asked for the Jira assistant (`tickets.connect_jira`): it opens once the sources are read.
+  $effect(() => {
+    if (tickets.connectJira !== project || !trackers) return;
+    tickets.connectJira = "";
+    connecting = true;
+  });
+
+  /** What the Jira wizard connected, saved at once with the rest of the form. */
+  async function connected(added: Connected) {
+    const next = $state.snapshot(trackers)!;
+    // The sites the assistant read replace their older selves; the others stay.
+    if ("jira" in added) next.jira = [...next.jira.filter((j) => !added.jira.some((a) => hostOf(a.site) === hostOf(j.site))), ...added.jira];
+    else next.mcp = { ...next.mcp, [added.mcp.name]: added.mcp.tracker };
+    load(await invoke<Sources>("tickets_sources_save", { project, trackers: next }));
+    error = "";
+    toast(t("tjdConnected"));
+    void loadInbox();
   }
 </script>
 
@@ -530,34 +566,44 @@
           type="checkbox"
           role="switch"
           class="switch"
-          checked={!!trackers.jira}
+          checked={trackers.jira.length > 0}
           onchange={(e) => setJira(e.currentTarget.checked)}
         />
         <span class="name">{t("ticketsJira")}</span>
       </label>
-      {#if trackers.jira}
-        {@const jira = trackers.jira}
+      {#if !trackers.jira.length}
+        <button type="button" class="btn sm primary connect" onclick={() => (connecting = true)}>
+          <Plug size={14} aria-hidden="true" />{t("tjdConnect")}
+        </button>
+      {/if}
+      {#each trackers.jira as jira, i (i)}
         <div class="fields">
+          {#if trackers.jira.length > 1}
+            <div class="site-head">
+              <span class="mono">{jira.site || t("ticketsJiraSitePlaceholder")}</span>
+              <button type="button" class="btn sm quiet" onclick={() => removeSite(i)}>{t("tjdSiteRemove")}</button>
+            </div>
+          {/if}
           <label>
             <span>{t("ticketsJiraSite")}</span>
             <input
               class="field"
               bind:value={jira.site}
-              onchange={checkToken}
+              onchange={() => checkToken(i)}
               placeholder={t("ticketsJiraSitePlaceholder")}
               spellcheck="false"
             />
           </label>
           <label>
             <span>{t("ticketsJiraEmail")}</span>
-            <input class="field" type="email" bind:value={jira.email} onchange={checkToken} spellcheck="false" />
+            <input class="field" type="email" bind:value={jira.email} onchange={() => checkToken(i)} spellcheck="false" />
           </label>
           <div class="token">
             <span class="label">{t("ticketsToken")}</span>
-            {#if tokenFor(jira)}
+            {#if tokenFor(jira, i)}
               <p class="saved">
                 <CircleCheck size={13} aria-hidden="true" />{t("ticketsTokenSaved")}
-                <button type="button" class="btn sm quiet forget" onclick={forgetToken}>
+                <button type="button" class="btn sm quiet forget" onclick={() => forgetToken(i)}>
                   {t("ticketsTokenForget")}
                 </button>
               </p>
@@ -567,7 +613,7 @@
                 <input
                   class="field"
                   type="password"
-                  bind:value={token}
+                  bind:value={jiraToken[i]}
                   placeholder={t("ticketsTokenPlaceholder")}
                   aria-label={t("ticketsToken")}
                   autocomplete="off"
@@ -575,8 +621,8 @@
                 <button
                   type="button"
                   class="btn sm"
-                  onclick={saveToken}
-                  disabled={!token.trim() || !jira.site.trim() || !jira.email.trim() || tokenBusy}
+                  onclick={() => saveToken(i)}
+                  disabled={!jiraToken[i]?.trim() || !jira.site.trim() || !jira.email.trim() || tokenBusy}
                 >
                   {t("ticketsTokenSave")}
                 </button>
@@ -584,19 +630,23 @@
             {/if}
           </div>
           <label>
-            <span>{t("ticketsJql")}</span>
-            <textarea class="field area" bind:value={jira.jql} placeholder={DEFAULT_JQL} rows="3" spellcheck="false"
-            ></textarea>
-          </label>
-          <label>
-            <span>{t("ticketsJiraKey")}</span>
+            <span>{t("tjdSpacesLabel")}</span>
             <input
               class="field"
-              bind:value={jira.project}
+              value={jira.spaces.join(", ")}
+              onchange={(e) => (jira.spaces = list(e.currentTarget.value).map((k) => k.toUpperCase()))}
               placeholder={t("ticketsJiraKeyPlaceholder")}
               spellcheck="false"
             />
           </label>
+          <details class="advanced" open={!!jira.jql}>
+            <summary>{t("tjdAdvanced")}</summary>
+            <label>
+              <span>{t("ticketsJql")}</span>
+              <textarea class="field area" bind:value={jira.jql} placeholder={DEFAULT_JQL} rows="3" spellcheck="false"
+              ></textarea>
+            </label>
+          </details>
           <label class="check">
             <input type="checkbox" bind:checked={jira.comment} />
             {t("ticketsJiraLink")}
@@ -605,7 +655,17 @@
             <span>{t("ticketsJiraMoveTo")}</span>
             <input class="field" bind:value={jira.transition} placeholder={t("ticketsLeaveAsIs")} />
           </label>
-          {@render result("jira")}
+          {@render result(jiraId(jira))}
+        </div>
+      {/each}
+      {#if trackers.jira.length}
+        <div class="more-sites">
+          <button type="button" class="btn sm" onclick={() => (trackers!.jira = [...trackers!.jira, blankSite()])}>
+            <Plus size={14} aria-hidden="true" />{t("tjdSiteAdd")}
+          </button>
+          <button type="button" class="btn sm" onclick={() => (connecting = true)}>
+            <Plug size={14} aria-hidden="true" />{t("tjdConnect")}
+          </button>
         </div>
       {/if}
     </div>
@@ -783,7 +843,33 @@
   {/if}
 </section>
 
+<JiraConnect bind:open={connecting} {project} configured={trackers?.jira ?? []} taken={Object.keys(trackers?.mcp ?? {})} onconnected={connected} />
+
 <style>
+  .connect {
+    align-self: flex-start;
+    margin-left: 14px;
+  }
+
+  .site-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+  }
+
+  .more-sites {
+    display: flex;
+    gap: 8px;
+    margin-left: 14px;
+  }
+
+  .advanced summary {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+
   .sources {
     display: flex;
     flex-direction: column;

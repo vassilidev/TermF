@@ -1,7 +1,7 @@
 <script lang="ts">
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { refused, secretsOf, type Args } from "$lib/actions-logic";
-  import { actionOf } from "$lib/actions.svelte";
+  import { actionOf, prerequisite } from "$lib/actions.svelte";
   import { t } from "$lib/i18n";
 
   /**
@@ -20,7 +20,15 @@
   const call = $derived((input ?? {}) as { action?: unknown; args?: Args; hints?: Record<string, string> });
   const action = $derived(actionOf(session, call.action));
   const args = $derived(call.args ?? {});
-  const problem = $derived(action ? refused(action, args, call.hints) : null);
+  /** What the action waits for (no vault yet…): TermF refuses it, so nothing is asked for nothing. */
+  let missing = $state<string | null>(null);
+  let read = 0;
+  $effect(() => {
+    const [a, given, at, n] = [action, args, project, ++read];
+    missing = null;
+    if (a?.needs) void prerequisite(a, given, at).then((m) => n === read && (missing = m));
+  });
+  const problem = $derived((action ? refused(action, args, call.hints) : null) ?? missing);
   const said = $derived.by(() => {
     try {
       return action?.describe(args, project) ?? "";
