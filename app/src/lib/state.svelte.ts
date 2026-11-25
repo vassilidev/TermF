@@ -96,6 +96,7 @@ export type ViewId =
   | "ci"
   | "design"
   | "scheduler"
+  | "env"
   | "claude"
   | "project"
   | "run"

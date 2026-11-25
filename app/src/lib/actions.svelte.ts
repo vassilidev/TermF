@@ -6,6 +6,7 @@ import { ask } from "$lib/ask.svelte";
 import { ciActions, ciHere } from "$lib/ci-actions";
 import { conversationActions } from "$lib/conversation-actions";
 import { designActions } from "$lib/design-actions";
+import { envActions, envHere } from "$lib/env-actions";
 import { gitActions } from "$lib/git-actions";
 import { t } from "$lib/i18n";
 import { libraryActions, pluginActions } from "$lib/library-actions";
@@ -56,6 +57,7 @@ const SCREENS: Record<string, Action[]> = {
   vaultAll: vaultActions,
   project: [...projectActions, ...ticketActions],
   claude: pluginActions,
+  env: envActions,
 };
 const GLOBAL: Action[] = [...vaultAnywhere, ...conversationActions];
 
@@ -68,6 +70,7 @@ const HERE: Record<string, (project: string) => Promise<unknown>> = {
   scheduler: schedulerHere,
   vault: vaultHere,
   vaultAll: vaultHere,
+  env: envHere,
 };
 
 /** A call of `termf mcp`, as the app gives it; `action` null: the list. */

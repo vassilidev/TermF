@@ -1940,6 +1940,7 @@ h1, h2 { font-family: var(--font-display); }
     await t.s.wait(async () => (await t.s.text(t.shown("claude")))?.includes("2.1.330"), { what: "the version of Claude Code" });
   }),
   viewOnly("ssh", "SSH keys: the keys of the (empty) home"),
+  viewOnly("env", "my environment: an empty env.toml offers to detect what is installed"),
   viewOnly("scheduler", "scheduler: the scheduled tasks"),
   viewOnly("vaultAll", "vault of the machine: offers to create it"),
 ];
