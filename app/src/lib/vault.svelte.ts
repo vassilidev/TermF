@@ -165,7 +165,9 @@ export async function copy(text: string, secret = true) {
   }
   if (!secret) return say(t("vaultCopied"));
   say(t("vaultCopiedSecret", { seconds: CLEAR_AFTER }));
-  const kept = (e: unknown) => (vault.error = t("vaultClipboardKept", { error: String(e) }));
+  const kept = (e: unknown) => {
+    vault.error = t("vaultClipboardKept", { error: String(e) });
+  };
   let sum = "";
   try {
     sum = await digest(text);

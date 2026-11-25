@@ -154,10 +154,14 @@ const HOUR = 60 * 60 * 1000;
 export function watchUpdates(): () => void {
   const auto = () =>
     invoke<UpdateState>("update_check", { auto: true }).then(
-      (s) => (updates.state = s),
+      (s) => {
+        updates.state = s;
+      },
       () => {},
     );
-  invoke<UpdateState>("update_state").then((s) => (updates.state = s), () => {});
+  invoke<UpdateState>("update_state").then((s) => {
+    updates.state = s;
+  }, () => {});
   const first = setTimeout(auto, 5000);
   const hourly = setInterval(auto, HOUR);
   const progress = listen<{ done: number; total: number | null }>("update-progress", ({ payload }) => {

@@ -169,7 +169,7 @@
   const fitting = $derived(recipe ? ops.connections.filter((c) => runsOn(recipe, c)) : []);
   $effect(() => {
     if (fitting.length && !fitting.some((c) => c.name === ops.form.connection)) {
-      untrack(() => (ops.form.connection = fitting[0].name));
+      untrack(() => { ops.form.connection = fitting[0].name; });
     }
   });
   const given = $derived(Object.fromEntries(Object.entries(ops.form.params).filter(([, v]) => String(v).trim() !== "")));
@@ -432,7 +432,7 @@
                   <button class="btn sm primary" disabled={testing} onclick={() => test(current)}>
                     {#if testing}<LoaderCircle size={14} aria-hidden="true" class="spin" />{t("opsTesting")}{:else}{t("opsTest")}{/if}
                   </button>
-                  <button class="btn sm" onclick={() => ((ops.editing = current.name), (checks = null))}>
+                  <button class="btn sm" onclick={() => { ops.editing = current.name; checks = null; }}>
                     <Pencil size={14} aria-hidden="true" />{t("opsEdit")}
                   </button>
                   <button class="btn sm" onclick={() => (deleting = true)}><Trash2 size={14} aria-hidden="true" />{t("opsDelete")}</button>

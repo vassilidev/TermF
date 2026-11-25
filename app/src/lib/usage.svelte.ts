@@ -24,7 +24,9 @@ export function watchUsage(): () => void {
     },
     () => {},
   );
-  const stop = listen<Usage>("claude-usage", ({ payload }) => (usage.data = payload));
+  const stop = listen<Usage>("claude-usage", ({ payload }) => {
+    usage.data = payload;
+  });
   return () => void stop.then((f) => f());
 }
 

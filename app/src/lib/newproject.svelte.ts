@@ -104,7 +104,9 @@ export function detect(paths: string[]) {
     if (detecting.has(path)) continue;
     detecting.add(path);
     invoke<Detected>("setup_detect", { path }).then(
-      (d) => (found[path] = d),
+      (d) => {
+        found[path] = d;
+      },
       (e) => ((found[path] = String(e)), detecting.delete(path)),
     );
   }

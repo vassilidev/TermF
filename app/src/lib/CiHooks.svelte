@@ -146,7 +146,7 @@
       <Field label={t("cvHookUrl")} help={t("cvHookUrlHelp")} example="https://forge.laravel.com/servers/…/deploy/http?token=…" bind:value={a.url} spellcheck="false" />
       <div class="events">
         <span class="label">{t("cvHookEvents")}</span>
-        <Segments label={t("cvHookEvents")} options={eventOptions} selected={a.events} onselect={(id) => (a.events = id)} />
+        <Segments label={t("cvHookEvents")} options={eventOptions} selected={a.events} onselect={(id) => { a.events = id; }} />
       </div>
       <div class="buttons">
         <Button variant="quiet" size="sm" type="button" onclick={() => (adding = null)}>{t("cancel")}</Button>

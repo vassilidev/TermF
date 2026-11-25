@@ -574,7 +574,7 @@
     {/if}
   {:else}
     <div class="body">
-      <SectionNav items={navItems} current={design.section} label={t("designSections")} onselect={(id) => (design.section = id)} />
+      <SectionNav items={navItems} current={design.section} label={t("designSections")} onselect={(id) => { design.section = id; }} />
       <div class="page">
         <header class="head">
           <h2>{t(titles[design.section])}</h2>

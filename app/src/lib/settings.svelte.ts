@@ -60,7 +60,7 @@ export async function exportConfig() {
     } catch (e) {
       throw /the vault is locked/.test(String(e)) ? t("vault3ConfigLocked") : failed(e);
     } finally {
-      part.password = part.again = part.master = "";
+      Object.assign(part, { password: "", again: "", master: "" });
     }
   });
 }

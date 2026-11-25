@@ -16,7 +16,9 @@
     void vault.status?.unlocked;
     invoke<{ grants: Grant[] }>("agentenv_grants", { project }).then(
       (g) => (grants = g.grants),
-      (e) => (vault.error = failed(e)),
+      (e) => {
+        vault.error = failed(e);
+      },
     );
   });
 

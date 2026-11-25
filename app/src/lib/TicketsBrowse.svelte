@@ -188,7 +188,7 @@
         { id: "all", label: t("tjdAll") },
       ]}
       selected={filter.status}
-      onselect={(s) => (filter.status = s as BrowseFilter["status"])}
+      onselect={(s) => { filter.status = s as BrowseFilter["status"]; }}
     />
     <label class="pick">
       <span class="sr-only">{t("tjdAssignee")}</span>

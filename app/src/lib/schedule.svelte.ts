@@ -100,7 +100,10 @@ export async function refresh() {
 
 export async function loadHistory() {
   const task = schedule.selected ?? schedule.tasks?.[0]?.id;
-  if (!task) return void (schedule.history = []);
+  if (!task) {
+    schedule.history = [];
+    return;
+  }
   try {
     const runs = await invoke<Execution[]>("schedule_history", { task, limit: 50 });
     if (task === (schedule.selected ?? schedule.tasks?.[0]?.id)) schedule.history = runs;
@@ -115,7 +118,9 @@ function upsert(run: Execution) {
   if (entry && (!entry.last || entry.last.id <= run.id)) entry.last = run;
   if (entry?.enabled && runsHere(entry)) {
     invoke<number[]>("schedule_preview", { cron: entry.cron, count: 1 })
-      .then(([next]) => (entry.next = next ?? null))
+      .then(([next]) => {
+        entry.next = next ?? null;
+      })
       .catch(() => {});
   }
   if (run.task !== (schedule.selected ?? schedule.tasks?.[0]?.id)) return;

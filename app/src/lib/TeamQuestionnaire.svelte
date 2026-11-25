@@ -93,7 +93,7 @@
           options={q.options}
           label={q.question}
           value={answers[q.id] ?? []}
-          onchange={(v) => (answers[q.id] = v)}
+          onchange={(v) => { answers[q.id] = v; }}
           {optionLabel}
           proposed={q.proposed}
         />

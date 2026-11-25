@@ -149,7 +149,9 @@
   function setNotify(e: Event) {
     const select = e.currentTarget as HTMLSelectElement;
     invoke<CiNotify>("ci_notify_set", { notify: select.value as CiNotify }).then(
-      (n) => (ci.notify = n),
+      (n) => {
+        ci.notify = n;
+      },
       (e) => {
         select.value = ci.notify ?? "mine";
         error = String(e);
@@ -160,7 +162,9 @@
   function setArtifacts(e: Event, command: "artifacts_auto" | "artifacts_confirm", arg: "on" | "skip") {
     const input = e.currentTarget as HTMLInputElement;
     invoke<Artifacts>(command, { [arg]: input.checked }).then(
-      (a) => (claudeView.artifacts = a),
+      (a) => {
+        claudeView.artifacts = a;
+      },
       (e) => {
         input.checked = !input.checked;
         error = String(e);
@@ -197,7 +201,10 @@
       ]}
       current={settings.section}
       label={t("settings")}
-      onselect={(id) => (id === "memory" ? editProject(app.project!, "memory") : (settings.section = id))}
+      onselect={(id) => {
+        if (id === "memory") editProject(app.project!, "memory");
+        else settings.section = id;
+      }}
       top={search}
       empty={t("filesNoResults")}
     />

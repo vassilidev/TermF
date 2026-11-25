@@ -91,7 +91,10 @@
 
   async function pickDir(e: Event) {
     const select = e.currentTarget as HTMLSelectElement;
-    if (select.value !== "\0other") return void (task.dir = select.value);
+    if (select.value !== "\0other") {
+      task.dir = select.value;
+      return;
+    }
     // Back to the current folder while the dialog is open, and for good if it is cancelled.
     select.value = task.dir;
     const dir = await open({ directory: true, multiple: false });

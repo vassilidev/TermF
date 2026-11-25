@@ -193,7 +193,8 @@ let loopTimer: ReturnType<typeof setTimeout> | undefined;
 
 function nextLoopEnd() {
   clearTimeout(loopTimer);
-  const now = (loopClock.now = Date.now());
+  const now = Date.now();
+  loopClock.now = now;
   const ends = app.sessions.flatMap((s) => s.loops ?? []).flatMap((l) => (l.ends !== null && l.ends > now ? [l.ends] : []));
   // setTimeout fires at once beyond 2^31 - 1 ms (about 24 days).
   if (ends.length) loopTimer = setTimeout(nextLoopEnd, Math.min(Math.min(...ends) - now, 2 ** 31 - 1));

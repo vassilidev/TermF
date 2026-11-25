@@ -182,7 +182,9 @@ export const deployMark: Record<Tool, string> = { forge: "F", vercel: "▲", net
 
 /** Runs the whole app: notifies the CI runs that finish, and asks every minute about those followed. */
 export function watchCi(): () => void {
-  invoke<CiNotify>("ci_notify").then((n) => (ci.notify = n), () => {});
+  invoke<CiNotify>("ci_notify").then((n) => {
+    ci.notify = n;
+  }, () => {});
   const unlisten = listen<WorkflowRun>("ci-finished", async ({ payload: run }) => {
     const granted = (await isPermissionGranted()) || (await requestPermission()) === "granted";
     if (!granted) return;

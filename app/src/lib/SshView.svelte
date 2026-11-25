@@ -223,7 +223,7 @@
     label={t("viewSsh")}
     tabs={tabs.map(([id, label]) => ({ id, label: t(label), count: inventory ? count(id) : null }))}
     selected={ssh.panel ? null : ssh.tab}
-    onselect={(tab) => ((ssh.tab = tab as typeof ssh.tab), (ssh.panel = null), (ssh.error = ""), (ssh.done = ""))}
+    onselect={(tab) => { ssh.tab = tab as typeof ssh.tab; ssh.panel = null; ssh.error = ""; ssh.done = ""; }}
   >
     {#if ssh.error || ssh.done || (!ssh.panel && (tooOpen.length || inventory?.problems.length))}
       <div class="banners">
@@ -273,7 +273,7 @@
           icon={KeyRound}
           title={t("sshNoKeys")}
           text={t("sshNoKeysHelp")}
-          action={{ label: t("sshGenerate"), icon: Plus, run: () => (ssh.panel = { kind: "generate", usage: "ssh" }) }}
+          action={{ label: t("sshGenerate"), icon: Plus, run: () => { ssh.panel = { kind: "generate", usage: "ssh" }; } }}
           onask={() => askDevops(t("restSshAskKeys"))}
           askLabel={t("aigAskRole", { role: "devops" })}
         />
@@ -487,7 +487,7 @@
             text={t("restSshAgentEmptyText")}
             action={keys.length
               ? { label: t("restSshAgentPick"), icon: KeyRound, run: () => (ssh.tab = "keys") }
-              : { label: t("sshGenerate"), icon: Plus, run: () => (ssh.panel = { kind: "generate", usage: "ssh" }) }}
+              : { label: t("sshGenerate"), icon: Plus, run: () => { ssh.panel = { kind: "generate", usage: "ssh" }; } }}
           />
         {:else}
           <table>
@@ -534,7 +534,7 @@
             icon={Server}
             title={t("restSshHostsEmpty")}
             text={t("restSshHostsEmptyText")}
-            action={{ label: t("sshHostNew"), icon: Plus, run: () => (ssh.panel = { kind: "host", host: null }) }}
+            action={{ label: t("sshHostNew"), icon: Plus, run: () => { ssh.panel = { kind: "host", host: null }; } }}
             onask={() => askDevops(t("restSshAskHosts"))}
             askLabel={t("aigAskRole", { role: "devops" })}
           />

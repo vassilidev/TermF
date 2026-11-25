@@ -81,8 +81,12 @@ export function watchSync(): () => void {
     callLayouts("layouts");
     library.version++;
     if (schedule.loaded) refreshSchedule();
-    invoke<ContextSettings>("context_settings").then((s) => (app.contextSettings = s), () => {});
-    invoke<KeepAwakeState>("keep_awake_state").then((s) => (app.keepAwake = s), () => {});
+    invoke<ContextSettings>("context_settings").then((s) => {
+    app.contextSettings = s;
+  }, () => {});
+    invoke<KeepAwakeState>("keep_awake_state").then((s) => {
+    app.keepAwake = s;
+  }, () => {});
     if (payload.restart.length || payload.sessions) sync.pulled = payload;
   });
   const stopClone = listen<{ project: string; path: string; line: string }>("sync-clone", ({ payload }) => {

@@ -167,7 +167,9 @@
     schedule.tab = "others";
     if (!schedule.desktop) {
       invoke<DesktopTask[]>("schedule_desktop")
-        .then((list) => (schedule.desktop = list))
+        .then((list) => {
+          schedule.desktop = list;
+        })
         .catch((e) => (schedule.error = String(e)));
     }
   }
