@@ -576,6 +576,33 @@ pub fn copy_here(config_dir: &Path, scope: &Scope, kind: Kind, name: &str) -> Re
     Ok(dest)
 }
 
+/// Removes the copy `copy_here` made in the project's library (the global one without a project), changes
+/// included: the item it hid takes its place again. Only a copy that hides a shipped item goes; its path.
+pub fn remove_copy(config_dir: &Path, scope: &Scope, kind: Kind, name: &str) -> Result<PathBuf> {
+    let item = explain(config_dir, scope, kind, name)?;
+    let here = if scope.project.is_some() {
+        Layer::Project
+    } else {
+        Layer::Global
+    };
+    ensure!(
+        item.layer == here && item.shadows.contains(&Layer::Shipped),
+        "{kind} {name} is no copy of TermF's own here"
+    );
+    let path = item.path.context("a copy has its file")?;
+    ensure!(
+        path.starts_with(library_dir(config_dir, scope.project.as_deref())?),
+        "{} is outside the library",
+        path.display()
+    );
+    if path.is_dir() {
+        fs::remove_dir_all(&path)?;
+    } else {
+        fs::remove_file(&path)?;
+    }
+    Ok(path)
+}
+
 fn read_toggles(file: &Path) -> Result<Toggles> {
     #[derive(Deserialize)]
     struct File {
@@ -1434,6 +1461,25 @@ mod tests {
             explain(&dir, &scope, Kind::Command, "handoff")
                 .unwrap()
                 .active
+        );
+
+        // Removing a copy gives the shipped item its place back, in that layer only.
+        assert!(
+            remove_copy(&dir, &global, Kind::Preference, "canary").is_err(),
+            "the copy is the project's"
+        );
+        let gone = remove_copy(&dir, &scope, Kind::Preference, "canary").unwrap();
+        assert!(!gone.exists());
+        assert_eq!(
+            explain(&dir, &scope, Kind::Preference, "canary").unwrap().layer,
+            Layer::Shipped
+        );
+        assert!(remove_copy(&dir, &scope, Kind::Preference, "canary").is_err(), "nothing left to remove");
+        let gone = remove_copy(&dir, &global, Kind::Skill, "nextjs").unwrap();
+        assert!(!gone.exists(), "a skill's whole folder goes");
+        assert_eq!(
+            explain(&dir, &global, Kind::Skill, "nextjs").unwrap().layer,
+            Layer::Shipped
         );
     }
 

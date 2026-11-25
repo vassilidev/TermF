@@ -906,6 +906,31 @@ fn lists_webhooks_their_deliveries_and_redelivers() {
         .unwrap();
     assert_eq!(made.id, 12);
     assert!(sb.log().contains(r#""events":["push"]"#));
+    sb.answer(
+        "api --method PATCH repos/acme/api/hooks/12 --input -",
+        0,
+        "",
+        "{}",
+    );
+    sb.answer(
+        "api --method PATCH repos/acme/api/hooks/12/config --input -",
+        0,
+        "",
+        "{}",
+    );
+    ci.update_hook(
+        &repo,
+        12,
+        "https://ci.acme.test/v2",
+        &["push".into(), "pull_request".into()],
+    )
+    .unwrap();
+    let log = sb.log();
+    assert!(
+        log.contains(r#"{"events":["push","pull_request"]}"#) && log.contains(r#"{"url":"https://ci.acme.test/v2"}"#),
+        "the events, then only the config's url: its secret stays\n{log}"
+    );
+    assert!(ci.update_hook(&repo, 12, "https://a b", &["push".into()]).is_err());
     for (url, events) in [
         ("ftp://x", vec!["push".to_owned()]),
         ("https://a b", vec!["push".into()]),

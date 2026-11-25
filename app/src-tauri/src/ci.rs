@@ -249,6 +249,18 @@ pub async fn ci_hook_create(
 
 /// Asked to the user first, in the UI.
 #[tauri::command]
+pub async fn ci_hook_update(
+    app: AppHandle,
+    repo: String,
+    hook: u64,
+    url: String,
+    events: Vec<String>,
+) -> CmdResult<()> {
+    blocking(app, move |app| ci(app).update_hook(&repo, hook, &url, &events)).await
+}
+
+/// Asked to the user first, in the UI.
+#[tauri::command]
 pub async fn ci_hook_delete(app: AppHandle, repo: String, hook: u64) -> CmdResult<()> {
     blocking(app, move |app| ci(app).delete_hook(&repo, hook)).await
 }

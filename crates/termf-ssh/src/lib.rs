@@ -431,6 +431,27 @@ impl Ssh {
         Ok(())
     }
 
+    /// `~/.ssh/config` now, and without the block of `alias`.
+    fn host_removal(&self, alias: &str) -> Result<(String, String)> {
+        let before = fs::read_to_string(self.config()).context("cannot read ~/.ssh/config")?;
+        let after = config::remove(&before, alias)?;
+        Ok((before, after))
+    }
+
+    /// What `host_delete` would take out of `~/.ssh/config`.
+    pub fn host_delete_preview(&self, alias: &str) -> Result<HostPreview> {
+        let (before, after) = self.host_removal(alias)?;
+        Ok(HostPreview {
+            diff: config::diff(&before, &after),
+            warnings: Vec::new(),
+        })
+    }
+
+    pub fn host_delete(&self, alias: &str) -> Result<()> {
+        let (_, after) = self.host_removal(alias)?;
+        config::write(&self.config(), &after)
+    }
+
     /// `repo` must already be checked (see `known_repo`); `key: None` removes the assignment.
     pub fn assign(&self, repo: &Path, key: Option<&str>) -> Result<()> {
         let key = key.map(|k| self.pair(k)).transpose()?;

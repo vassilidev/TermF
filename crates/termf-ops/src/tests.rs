@@ -403,6 +403,26 @@ fn a_project_names_its_forge_account_and_an_older_file_reads_without_one() {
 }
 
 #[test]
+fn a_forge_token_shared_with_another_project_is_named() {
+    use crate::forge::{Account, save_account, sharing};
+    let env = Fixture::new("forge-sharing");
+    fs::write(env.config().join("projects/shop.toml"), "name = \"Shop\"\n").unwrap();
+    let acme = Account {
+        label: "Acme agency".into(),
+        token: "FORGE_TOKEN_ACME_AGENCY".into(),
+    };
+    save_account(&env.config(), "acme", Some(&acme)).unwrap();
+    assert!(sharing(&env.config(), &acme.token, "acme").unwrap().is_empty());
+    save_account(&env.config(), "shop", Some(&acme)).unwrap();
+    assert_eq!(
+        sharing(&env.config(), &acme.token, "acme").unwrap(),
+        ["Shop"],
+        "the token stays for Shop"
+    );
+    assert!(sharing(&env.config(), "FORGE_TOKEN_OTHER", "acme").unwrap().is_empty());
+}
+
+#[test]
 fn connections_are_written_in_the_project_file_and_its_comments_stay() {
     let env = Fixture::new("connections");
     let db: Connection = toml::from_str(

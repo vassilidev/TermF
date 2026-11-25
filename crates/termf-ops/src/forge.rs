@@ -100,6 +100,16 @@ pub fn save_account(config_dir: &Path, project: &str, account: Option<&Account>)
     termf_core::write_atomic(&file, &doc.to_string())
 }
 
+/// The other projects whose Forge account keeps its token under `token`: removing it would cut them off too.
+pub fn sharing(config_dir: &Path, token: &str, except: &str) -> Result<Vec<String>> {
+    Ok(termf_core::load_projects(config_dir)?
+        .into_iter()
+        .filter(|p| p.id != except)
+        .filter(|p| account(config_dir, &p.id).ok().flatten().is_some_and(|a| a.token == token))
+        .map(|p| p.name)
+        .collect())
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Server {
     pub id: u64,

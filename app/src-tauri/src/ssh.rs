@@ -94,6 +94,17 @@ pub async fn ssh_host_save(host: HostEntry) -> CmdResult<()> {
     blocking(move |ssh| ssh.host_save(&host)).await
 }
 
+#[tauri::command]
+pub async fn ssh_host_delete_preview(alias: String) -> CmdResult<HostPreview> {
+    blocking(move |ssh| ssh.host_delete_preview(&alias)).await
+}
+
+/// Asked to the user first, in the UI, with the lines it takes out.
+#[tauri::command]
+pub async fn ssh_host_delete(alias: String) -> CmdResult<()> {
+    blocking(move |ssh| ssh.host_delete(&alias)).await
+}
+
 /// `path: None` removes the repository's key.
 #[tauri::command]
 pub async fn ssh_assign(

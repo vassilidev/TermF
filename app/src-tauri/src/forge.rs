@@ -77,6 +77,34 @@ pub async fn forge_account_save(
     .await
 }
 
+/// Forgets the project's account; its connections and deploy targets stay. `forget_token` also deletes the token
+/// from the vault, unless other projects' accounts use it: their names come back, and the token stays.
+#[tauri::command]
+pub async fn forge_account_delete(
+    app: AppHandle,
+    project: String,
+    forget_token: bool,
+) -> CmdResult<Vec<String>> {
+    blocking(app, move |_, state, vault| {
+        let account = forge::account(&state.config_dir, &project)?
+            .context("the project has no Forge account")?;
+        let sharing = forge::sharing(&state.config_dir, &account.token, &project)?;
+        if forget_token && sharing.is_empty() && vault.initialized() {
+            let id = SecretId::new(&account.token, Scope::Prod, None)?;
+            if vault
+                .list(Some(Scope::Prod), None)?
+                .iter()
+                .any(|s| s.name == account.token && s.project.is_none())
+            {
+                vault.delete(&Actor::human(), &id)?;
+            }
+        }
+        forge::save_account(&state.config_dir, &project, None)?;
+        Ok(if forget_token { sharing } else { Vec::new() })
+    })
+    .await
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Found {

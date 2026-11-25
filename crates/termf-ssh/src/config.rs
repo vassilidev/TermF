@@ -488,11 +488,37 @@ pub fn hand_written(text: &str, alias: &str) -> bool {
 /// `text` without the marked block of `alias`: its mark, its lines and the blank line that followed it.
 pub fn remove_marked(text: &str, alias: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
-    let Some(start) = (0..lines.len())
+    match (0..lines.len())
         .find(|&i| marked_alias(&lines, i).is_some_and(|a| a.eq_ignore_ascii_case(alias)))
-    else {
-        return text.to_owned();
+    {
+        Some(start) => cut(text, &lines, start - 1, start),
+        None => text.to_owned(),
+    }
+}
+
+/// `text` without the block that declares `alias` alone, its TermF mark with it, as the Hosts tab deletes it.
+pub fn remove(text: &str, alias: &str) -> Result<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines
+        .iter()
+        .position(|l| declares(l, alias).is_some())
+        .with_context(|| format!("~/.ssh/config has no Host {alias}"))?;
+    ensure!(
+        declares(lines[start], alias).is_some_and(|p| p.len() == 1),
+        "{alias} shares its block with other hosts (line {}: `{}`): edit ~/.ssh/config by hand",
+        start + 1,
+        lines[start].trim()
+    );
+    let first = if start > 0 && lines[start - 1].trim() == MARK {
+        start - 1
+    } else {
+        start
     };
+    Ok(cut(text, &lines, first, start))
+}
+
+/// `text` without lines `first..` to the end of the block that starts at `start`, and the blank lines after it.
+fn cut(text: &str, lines: &[&str], first: usize, start: usize) -> String {
     let mut end = lines[start + 1..]
         .iter()
         .position(|l| matches!(directive(l), Some((k, _)) if k == "host" || k == "match"))
@@ -504,7 +530,7 @@ pub fn remove_marked(text: &str, alias: &str) -> String {
     while end < lines.len() && lines[end].trim().is_empty() {
         end += 1;
     }
-    let mut kept: Vec<String> = lines[..start - 1]
+    let mut kept: Vec<String> = lines[..first]
         .iter()
         .chain(&lines[end..])
         .map(|l| l.to_string())

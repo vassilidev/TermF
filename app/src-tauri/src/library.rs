@@ -98,6 +98,19 @@ pub async fn library_copy(
     termf_library::copy_here(&state.config_dir, &scope, kind, &name).map_err(err)
 }
 
+/// Removes the project's copy (the global one without `project`) of a shipped item; its path. Asked to the user
+/// first, in the UI.
+#[tauri::command]
+pub async fn library_remove_copy(
+    state: State<'_, AppState>,
+    kind: Kind,
+    name: String,
+    project: Option<String>,
+) -> CmdResult<PathBuf> {
+    let scope = scope(&state, None, project)?;
+    termf_library::remove_copy(&state.config_dir, &scope, kind, &name).map_err(err)
+}
+
 #[tauri::command]
 pub async fn library_explain(
     state: State<'_, AppState>,

@@ -285,6 +285,26 @@ fn valid_slug(slug: &str) -> bool {
     matches!(slug.split('/').collect::<Vec<_>>().as_slice(), [owner, name] if part(owner) && part(name))
 }
 
+/// A webhook's address and events, as they go to GitHub's API.
+fn check_hook(url: &str, events: &[String]) -> Result<()> {
+    ensure!(
+        (url.starts_with("https://") || url.starts_with("http://"))
+            && url.len() <= 2048
+            && !url.chars().any(|c| c.is_whitespace() || c.is_control()),
+        "{url} is not a web address"
+    );
+    ensure!(!events.is_empty(), "pick at least one event");
+    for event in events {
+        ensure!(
+            event == "*"
+                || (!event.is_empty()
+                    && event.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')),
+            "{event} is not a GitHub event"
+        );
+    }
+    Ok(())
+}
+
 /// GitHub answers 404 to whoever may not see a repository's webhooks.
 fn admin(slug: &str, error: anyhow::Error) -> anyhow::Error {
     let said = format!("{error:#}");
@@ -709,21 +729,7 @@ impl Ci {
     /// Adds a webhook that GitHub calls with JSON on `events`. The UI asks the user first.
     pub fn create_hook(&self, repo: &str, url: &str, events: &[String]) -> Result<Hook> {
         let slug = self.slug(repo)?;
-        ensure!(
-            (url.starts_with("https://") || url.starts_with("http://"))
-                && url.len() <= 2048
-                && !url.chars().any(|c| c.is_whitespace() || c.is_control()),
-            "{url} is not a web address"
-        );
-        ensure!(!events.is_empty(), "pick at least one event");
-        for event in events {
-            ensure!(
-                event == "*"
-                    || (!event.is_empty()
-                        && event.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')),
-                "{event} is not a GitHub event"
-            );
-        }
+        check_hook(url, events)?;
         let body = serde_json::json!({
             "name": "web",
             "active": true,
@@ -750,6 +756,25 @@ impl Ci {
             last_status: None,
             updated: text(&h["updated_at"]).unwrap_or_default(),
         })
+    }
+
+    /// Changes a webhook's address and events. Its secret and content type stay: only the config's `url` is
+    /// sent, to the config's own endpoint. The UI asks the user first.
+    pub fn update_hook(&self, repo: &str, hook: u64, url: &str, events: &[String]) -> Result<()> {
+        let slug = self.slug(repo)?;
+        check_hook(url, events)?;
+        let path = format!("repos/{slug}/hooks/{hook}");
+        let body = serde_json::json!({ "events": events });
+        self.call(
+            &["api", "--method", "PATCH", &path, "--input", "-"],
+            Some(&body.to_string()),
+        )?;
+        let body = serde_json::json!({ "url": url });
+        self.call(
+            &["api", "--method", "PATCH", &format!("{path}/config"), "--input", "-"],
+            Some(&body.to_string()),
+        )
+        .map(drop)
     }
 
     /// Deletes a webhook, which cannot be undone. The UI asks the user first.
