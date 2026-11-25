@@ -90,8 +90,8 @@ export function mcpName(server: string, taken: string[]): string {
   return name;
 }
 
-/** The sources a browse reads: each Jira site, GitHub Issues, and the MCP ones. */
-export const browsable = (sources: string[]) => sources.filter((s) => s === "jira" || s.startsWith("jira:") || s === "github" || s.startsWith("mcp:"));
+/** The sources a browse reads: all of them; those without a search of their own list what their inbox lists. */
+export const browsable = (sources: string[]) => sources.filter(Boolean);
 
 /** A ticket's space: `APP` for `APP-142`, the repository for `acme/api#12`. */
 export const spaceOf = (key: string) => key.match(/^([A-Z][A-Z0-9_]*)-\d+$/)?.[1] ?? key.split("#")[0];
@@ -105,3 +105,13 @@ export function bySpace<T extends { key: string }>(tickets: T[]): { space: strin
   }
   return [...groups].map(([space, list]) => ({ space, tickets: list }));
 }
+
+/** A board's columns: the source's states in its order, then any state a ticket has that the source did not list. */
+export function boardColumns(states: string[], seen: string[]): string[] {
+  const lanes: string[] = [];
+  for (const s of [...states, ...seen]) if (s && !lanes.some((l) => l.toLowerCase() === s.toLowerCase())) lanes.push(s);
+  return lanes;
+}
+
+/** The column a ticket's state goes in, whatever its case. */
+export const laneOf = (state: string, lanes: string[]) => lanes.find((l) => l.toLowerCase() === state.toLowerCase()) ?? state;

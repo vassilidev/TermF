@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Ticket;
 use crate::sources::Source;
-use crate::{TicketProvider, TicketRef, TicketSummary, Tickets, jira, mcp};
+use crate::{TicketProvider, TicketRef, TicketSummary, Tickets, github, jira, mcp};
 
 /// A project of a tracker: a Jira project, or a GitHub repository (`owner/name` for both its key and name).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -54,6 +54,14 @@ impl Browse {
             .as_deref()
             .map(str::trim)
             .filter(|t| !t.is_empty())
+    }
+
+    /// Whether a ticket listed without a search of its own fits the words and the assignee asked for.
+    pub(crate) fn matches(&self, ticket: &TicketSummary) -> bool {
+        let words = self.words().map(str::to_lowercase);
+        let text = format!("{} {}", ticket.reference.key, ticket.title).to_lowercase();
+        words.is_none_or(|w| text.contains(&w))
+            && (self.assignee != Assignee::Nobody || ticket.assignees.is_empty())
     }
 
     fn check(&self) -> Result<()> {
@@ -181,10 +189,15 @@ impl Tickets {
                     next: None,
                 }
             }
-            other => bail!(
-                "browsing {} is not in TermF yet: its inbox lists your tickets",
-                other.label()
-            ),
+            // shortcut: a board, Linear, GitLab and Azure DevOps read what their inbox reads, filtered here; give
+            // them their own search when one is asked for beyond the user's tickets.
+            other => {
+                let listed = self.source_inbox(&info, &other, crate::Fetch::Refresh)?;
+                Page {
+                    tickets: listed.into_iter().filter(|t| browse.matches(t)).collect(),
+                    next: None,
+                }
+            }
         };
         for ticket in &mut page.tickets {
             ticket.project = Some(info.id.clone());
@@ -193,6 +206,83 @@ impl Tickets {
         Ok(page)
     }
 
+    /// A source's board: the states it has, as columns, and whether a ticket moves between them.
+    pub fn board(&self, project: &str, source: &str) -> Result<Board> {
+        let info = self.projects(Some(project))?.remove(0);
+        let missing = || format!("the project has no {source} source");
+        Ok(match Source::parse(source)? {
+            Source::Jira(host) => {
+                let tracker = info.trackers.jira_site(&host).with_context(missing)?;
+                Board::moving(self.jira(tracker)?.board(&tracker.spaces)?)
+            }
+            Source::GithubProject => {
+                let github = info.trackers.github.as_ref().with_context(missing)?;
+                let board = github::Board::parse(github.project.as_deref().with_context(missing)?)?;
+                Board::moving(self.github().board_columns(&board)?)
+            }
+            // Their states come with the tickets.
+            Source::Linear | Source::Azure => Board::moving(Vec::new()),
+            Source::Mcp(_) => Board {
+                columns: Vec::new(),
+                movable: false,
+                none: false,
+            },
+            Source::GithubIssues | Source::Gitlab => Board {
+                columns: Vec::new(),
+                movable: false,
+                none: true,
+            },
+        })
+    }
+
+    /// Assigns a ticket in its tracker: `me`, `none`, or someone (a Jira e-mail, a GitHub login).
+    pub fn assign(&self, project: &str, reference: &TicketRef, to: &str) -> Result<()> {
+        let to = to.trim();
+        ensure!(
+            !to.is_empty(),
+            "say who to assign it to: me, none, or someone"
+        );
+        match reference.provider.as_str() {
+            "jira" => self
+                .jira_sites(project)?
+                .of(reference)?
+                .assign(reference, to),
+            "github" => {
+                let login = match to {
+                    "none" => None,
+                    "me" => Some("@me"),
+                    login => Some(login.trim_start_matches('@')),
+                };
+                self.github().assign(reference, login)
+            }
+            other => {
+                bail!("assigning a ticket of {other} is not in TermF yet: assign it in its tracker")
+            }
+        }
+    }
+}
+
+/// A board's columns: the source's states in its order.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Board {
+    pub columns: Vec<String>,
+    /// A ticket dragged to a column moves there in the tracker.
+    pub movable: bool,
+    /// The source has no states at all (GitHub Issues without a Project, GitLab): the CTO helps instead.
+    pub none: bool,
+}
+
+impl Board {
+    fn moving(columns: Vec<String>) -> Self {
+        Self {
+            columns,
+            movable: true,
+            none: false,
+        }
+    }
+}
+
+impl Tickets {
     /// The projects of one of `project`'s sources: Jira's, or the GitHub repositories.
     pub fn source_projects(&self, project: &str, source: &str) -> Result<Vec<TrackerProject>> {
         let info = self.projects(Some(project))?.remove(0);
@@ -730,5 +820,51 @@ mod tests {
             jira::markdown(&doc),
             "(attachment: login.png)\n\n(attachment)"
         );
+    }
+
+    #[test]
+    fn a_board_takes_the_columns_each_source_really_has() {
+        let status = |name: &str, category: &str| json!({ "name": name, "statusCategory": { "key": category } });
+        let app = json!([
+            { "name": "Bug", "statuses": [status("Done", "done"), status("To Do", "new"), status("In Progress", "indeterminate")] },
+            { "name": "Story", "statuses": [status("In Review", "indeterminate"), status("to do", "new")] }
+        ]);
+        let api = json!([{ "name": "Task", "statuses": [status("Blocked", "indeterminate"), status("Won't do", "done")] }]);
+        assert_eq!(
+            jira::statuses_of(&[app, api]),
+            ["To Do", "In Progress", "In Review", "Blocked", "Done", "Won't do"]
+        );
+        assert!(jira::statuses_of(&[json!({ "errorMessages": ["no"] })]).is_empty());
+
+        let board = json!({ "data": { "repositoryOwner": { "projectV2": { "field": { "options": [
+            { "name": "Todo" }, { "name": "In Progress" }, { "name": "Done" }
+        ]}}}}});
+        assert_eq!(crate::github::status_options(&board), ["Todo", "In Progress", "Done"]);
+        assert!(crate::github::status_options(&json!({ "data": { "repositoryOwner": null } })).is_empty());
+    }
+
+    #[test]
+    fn a_list_without_a_search_of_its_own_is_filtered_here() {
+        let ticket = |key: &str, title: &str, assignees: &[&str]| TicketSummary {
+            reference: TicketRef {
+                provider: "linear".into(),
+                key: key.into(),
+                url: format!("https://linear.app/acme/issue/{key}"),
+            },
+            title: title.into(),
+            state: "Todo".into(),
+            labels: vec![],
+            assignees: assignees.iter().map(|a| a.to_string()).collect(),
+            updated: String::new(),
+            project: None,
+            source: "linear".into(),
+        };
+        let login = ticket("ENG-12", "Login fails after SSO", &["Alex"]);
+        let docs = ticket("ENG-13", "Docs", &[]);
+        assert!(browse(json!({ "text": "sso" })).matches(&login));
+        assert!(browse(json!({ "text": "eng-12" })).matches(&login));
+        assert!(!browse(json!({ "text": "sso" })).matches(&docs));
+        assert!(browse(json!({ "assignee": "none" })).matches(&docs));
+        assert!(!browse(json!({ "assignee": "none" })).matches(&login));
     }
 }
