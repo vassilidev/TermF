@@ -485,7 +485,9 @@ pub fn args(kind: Kind, sql: &str, timeout_s: u64) -> Vec<String> {
 }
 
 /// The query that reads a database's tables, columns, keys and indexes, in rows of
-/// `kind (c|i), schema, table, name, type (an index: its columns or its definition), nullable (an index: UNIQUE), key, position`.
+/// `kind (c|i|f), schema, table, name, type (an index: its columns or its definition), nullable (an index: UNIQUE), key, position`;
+/// a foreign key (`f`) names its column, then the schema, table and column it references in place of type, nullable
+/// and key.
 pub fn schema_query(kind: Kind) -> &'static str {
     match kind {
         Kind::Postgres => {
@@ -498,7 +500,13 @@ pub fn schema_query(kind: Kind) -> &'static str {
              WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema') \
              UNION ALL SELECT 'i', schemaname::text, tablename::text, indexname::text, indexdef, \
              CASE WHEN indexdef LIKE 'CREATE UNIQUE%' THEN 'UNIQUE' ELSE '' END, '', 0 FROM pg_indexes \
-             WHERE schemaname NOT IN ('pg_catalog', 'information_schema')"
+             WHERE schemaname NOT IN ('pg_catalog', 'information_schema') \
+             UNION ALL SELECT 'f', k.table_schema::text, k.table_name::text, k.column_name::text, r.table_schema::text, \
+             r.table_name::text, r.column_name::text, 0 FROM information_schema.referential_constraints rc \
+             JOIN information_schema.key_column_usage k ON k.constraint_schema = rc.constraint_schema \
+             AND k.constraint_name = rc.constraint_name JOIN information_schema.key_column_usage r \
+             ON r.constraint_schema = rc.unique_constraint_schema AND r.constraint_name = rc.unique_constraint_name \
+             AND r.ordinal_position = k.position_in_unique_constraint"
         }
         Kind::Mysql | Kind::Mariadb => {
             "SELECT 'c', c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME, c.COLUMN_TYPE, c.IS_NULLABLE, c.COLUMN_KEY, \
@@ -506,7 +514,10 @@ pub fn schema_query(kind: Kind) -> &'static str {
              UNION ALL SELECT 'i', s.TABLE_SCHEMA, s.TABLE_NAME, s.INDEX_NAME, \
              GROUP_CONCAT(s.COLUMN_NAME ORDER BY s.SEQ_IN_INDEX SEPARATOR ', '), \
              IF(MIN(s.NON_UNIQUE) = 0, 'UNIQUE', ''), '', 0 FROM information_schema.STATISTICS s \
-             WHERE s.TABLE_SCHEMA = DATABASE() GROUP BY s.TABLE_SCHEMA, s.TABLE_NAME, s.INDEX_NAME"
+             WHERE s.TABLE_SCHEMA = DATABASE() GROUP BY s.TABLE_SCHEMA, s.TABLE_NAME, s.INDEX_NAME \
+             UNION ALL SELECT 'f', k.TABLE_SCHEMA, k.TABLE_NAME, k.COLUMN_NAME, k.REFERENCED_TABLE_SCHEMA, \
+             k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME, 0 FROM information_schema.KEY_COLUMN_USAGE k \
+             WHERE k.TABLE_SCHEMA = DATABASE() AND k.REFERENCED_TABLE_NAME IS NOT NULL"
         }
         Kind::Sqlite => {
             "SELECT 'c', 'main', m.name, p.name, p.type, CASE WHEN p.\"notnull\" = 0 THEN 'YES' ELSE 'NO' END, \
@@ -516,6 +527,9 @@ pub fn schema_query(kind: Kind) -> &'static str {
              (SELECT group_concat(ii.name, ', ') FROM pragma_index_info(il.name) ii), \
              CASE WHEN il.\"unique\" THEN 'UNIQUE' ELSE '' END, '', 0 \
              FROM sqlite_master m JOIN pragma_index_list(m.name) il \
+             WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' \
+             UNION ALL SELECT 'f', 'main', m.name, f.\"from\", 'main', f.\"table\", COALESCE(f.\"to\", ''), 0 \
+             FROM sqlite_master m JOIN pragma_foreign_key_list(m.name) f \
              WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'"
         }
         _ => {
@@ -536,6 +550,17 @@ pub struct Column {
     pub nullable: bool,
     /// `pk` (in the primary key), `fk`, `unique`, `index`, or empty.
     pub key: String,
+    /// The column a foreign key points to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub references: Option<Reference>,
+}
+
+/// A foreign key's target; `column` is empty when SQLite's key names only the table (its primary key).
+#[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
+pub struct Reference {
+    pub schema: String,
+    pub table: String,
+    pub column: String,
 }
 
 #[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
@@ -559,16 +584,27 @@ pub struct SchemaTable {
 pub fn schema(kind: Kind, table: &Table) -> Vec<SchemaTable> {
     let mut tables: Vec<SchemaTable> = Vec::new();
     let mut positions: Vec<Vec<i64>> = Vec::new();
+    let mut keys: Vec<(String, String, String, Reference)> = Vec::new();
+    // Postgres' `public` is where an unqualified name looks; MySQL and ClickHouse name the database itself.
+    let own = |schema: &str| match kind {
+        Kind::Postgres if schema == "public" => String::new(),
+        Kind::Postgres => schema.to_owned(),
+        _ => String::new(),
+    };
     for row in &table.rows {
         let [what, schema, name, item, typed, nullable, key, position] = row.as_slice() else {
             continue;
         };
-        // Postgres' `public` is where an unqualified name looks; MySQL and ClickHouse name the database itself.
-        let schema = match kind {
-            Kind::Postgres if schema == "public" => String::new(),
-            Kind::Postgres => schema.clone(),
-            _ => String::new(),
-        };
+        let schema = own(schema);
+        if what == "f" {
+            let to = Reference {
+                schema: own(typed),
+                table: nullable.clone(),
+                column: key.clone(),
+            };
+            keys.push((schema, name.clone(), item.clone(), to));
+            continue;
+        }
         let at = match tables
             .iter()
             .position(|t| t.schema == schema && &t.name == name)
@@ -609,8 +645,23 @@ pub fn schema(kind: Kind, table: &Table) -> Vec<SchemaTable> {
                 kind: typed.clone(),
                 nullable: nullable == "YES",
                 key: key.into(),
+                references: None,
             },
         );
+    }
+    // After the columns: the rows come in no set order.
+    for (schema, name, column, to) in keys {
+        let found = tables
+            .iter_mut()
+            .filter(|t| t.schema == schema && t.name == name)
+            .flat_map(|t| t.columns.iter_mut())
+            .find(|c| c.name == column);
+        if let Some(c) = found {
+            if c.key.is_empty() || c.key == "index" {
+                c.key = "fk".into();
+            }
+            c.references = Some(to);
+        }
     }
     tables.sort_by(|a, b| (&a.schema, &a.name).cmp(&(&b.schema, &b.name)));
     tables
@@ -1228,5 +1279,89 @@ mod tests {
             (my[0].schema.as_str(), my[0].columns[0].key.as_str()),
             ("", "unique")
         );
+    }
+
+    #[test]
+    fn foreign_keys_point_to_their_table_and_column() {
+        let rows = |r: &[[&str; 8]]| Table {
+            columns: (0..8).map(|i| i.to_string()).collect(),
+            rows: r
+                .iter()
+                .map(|x| x.iter().map(|s| s.to_string()).collect())
+                .collect(),
+        };
+        // The key comes before its column, as UNION ALL may give it.
+        let pg = schema(
+            Kind::Postgres,
+            &rows(&[
+                [
+                    "f", "public", "orders", "user_id", "billing", "users", "id", "0",
+                ],
+                [
+                    "c",
+                    "public",
+                    "orders",
+                    "user_id",
+                    "bigint",
+                    "NO",
+                    "FOREIGN KEY",
+                    "2",
+                ],
+                [
+                    "c",
+                    "public",
+                    "orders",
+                    "id",
+                    "bigint",
+                    "NO",
+                    "PRIMARY KEY",
+                    "1",
+                ],
+                ["f", "public", "orders", "id", "public", "carts", "id", "0"],
+                ["f", "public", "gone", "x", "public", "y", "z", "0"],
+            ]),
+        );
+        let to = |c: &Column| {
+            c.references
+                .as_ref()
+                .map(|r| (r.schema.clone(), r.table.clone(), r.column.clone()))
+        };
+        assert_eq!(pg.len(), 1, "a key of a table not read adds none");
+        let cols = &pg[0].columns;
+        assert_eq!(
+            (cols[1].key.as_str(), to(&cols[1])),
+            ("fk", Some(("billing".into(), "users".into(), "id".into())))
+        );
+        assert_eq!(
+            (cols[0].key.as_str(), to(&cols[0])),
+            ("pk", Some((String::new(), "carts".into(), "id".into()))),
+            "a primary key that is also a foreign key stays pk"
+        );
+        // SQLite and MySQL say nothing of a foreign key among the columns: the key row marks it.
+        let lite = schema(
+            Kind::Sqlite,
+            &rows(&[
+                ["c", "main", "items", "order_id", "INTEGER", "NO", "", "1"],
+                ["f", "main", "items", "order_id", "main", "orders", "", "0"],
+            ]),
+        );
+        assert_eq!(
+            (lite[0].columns[0].key.as_str(), to(&lite[0].columns[0])),
+            ("fk", Some((String::new(), "orders".into(), String::new())))
+        );
+        let my = schema(
+            Kind::Mysql,
+            &rows(&[
+                ["c", "shop", "items", "order_id", "int", "NO", "MUL", "1"],
+                [
+                    "f", "shop", "items", "order_id", "shop", "orders", "id", "0",
+                ],
+            ]),
+        );
+        assert_eq!(my[0].columns[0].key, "fk");
+        let json = serde_json::to_value(&my[0].columns[0]).unwrap();
+        assert_eq!(json["references"]["table"], "orders");
+        let plain = serde_json::to_value(Column::default()).unwrap();
+        assert!(plain.get("references").is_none());
     }
 }

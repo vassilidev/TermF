@@ -148,12 +148,14 @@ mod tests {
                     kind: "bigint".into(),
                     nullable: false,
                     key: "pk".into(),
+                    references: None,
                 },
                 Column {
                     name: "note".into(),
                     kind: "text".into(),
                     nullable: true,
                     key: String::new(),
+                    references: None,
                 },
             ],
             indexes: vec![Index {

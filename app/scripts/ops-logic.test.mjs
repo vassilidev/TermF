@@ -3,6 +3,14 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import {
   asked,
+  autoChart,
+  chartPoints,
+  columnKind,
+  layout,
+  pieReadable,
+  relations,
+  ticks,
+  timeOf,
   bounded,
   clean,
   completions,
@@ -305,4 +313,66 @@ test("a full export runs the query as it was launched, not the console's limited
   const plan = { params: { query: "SELECT * FROM orders LIMIT 500" } };
   assert.equal(exportedQuery({ id: 1, plan, output: {}, query: "SELECT * FROM orders" }, "query"), "SELECT * FROM orders");
   assert.equal(exportedQuery({ id: 1, plan, output: {} }, "query"), "SELECT * FROM orders LIMIT 500");
+});
+
+test("a result's chart: a curve along a date, bars by a text, the ids left out", () => {
+  const byDay = { columns: ["day", "orders", "total_eur"], rows: [["2026-11-02", "40", "120.5"], ["2026-11-01", "30", "NULL"]] };
+  assert.deepEqual(autoChart(byDay), { type: "line", x: 0, series: [1, 2] });
+  const points = chartPoints(byDay, { type: "line", x: 0, series: [1, 2] }, "date");
+  assert.deepEqual(points.map((p) => [p.label, p.values]), [["2026-11-01", [30, null]], ["2026-11-02", [40, 120.5]]], "in date order");
+  const top = { columns: ["id", "name", "total"], rows: [["7", "Northwind", "18420.00"], ["9", "Lumen", "-3"]] };
+  assert.deepEqual(autoChart(top), { type: "bar", x: 1, series: [2] });
+  assert.equal(columnKind({ columns: ["h"], rows: [["13:00"], ["NULL"], ["14:30:00"]] }, 0), "date", "a time of day");
+  assert.equal(columnKind({ columns: ["at"], rows: [["2026-11-25 13:00:00+00"], ["2026-11-25T14:00:00.5+0100"]] }, 0), "date");
+  assert.equal(columnKind({ columns: ["v"], rows: [["2026-13-45"]] }, 0), "text", "not a real date");
+  assert.equal(timeOf("2026-11-25 13:00:00+01"), Date.parse("2026-11-25T12:00:00Z"));
+  assert.equal(timeOf("2026-11-25"), Date.parse("2026-11-25T00:00:00Z"));
+  assert.equal(autoChart({ columns: ["name", "email"], rows: [["a", "b"]] }), null, "no number");
+  assert.equal(autoChart({ columns: ["count"], rows: [["4"]] }), null, "nothing for an axis");
+  assert.equal(autoChart({ columns: ["name", "n"], rows: [] }), null);
+  assert.deepEqual(autoChart({ columns: ["year", "sales"], rows: [["2025", "3"], ["2026", "5"]] }), { type: "line", x: 0, series: [1] });
+  const scales = { columns: ["name", "orders", "total_eur"], rows: [["Northwind", "14", "18420.00"], ["Lumen", "9", "-12290"]] };
+  assert.deepEqual(autoChart(scales).series, [2], "a series far smaller than the largest is left for the user to add");
+});
+
+test("a pie only when it reads, round ticks around the values", () => {
+  const p = (...values) => values.map((v, i) => ({ label: String(i), at: i, values: [v] }));
+  assert.ok(pieReadable(p(3, 1, 0), 1));
+  assert.ok(!pieReadable(p(3, -1), 1), "below zero");
+  assert.ok(!pieReadable(p(3, 1), 2), "two series");
+  assert.ok(!pieReadable(p(...Array(9).fill(1)), 1), "too many slices");
+  assert.ok(!pieReadable(p(0, 0), 1));
+  assert.deepEqual(ticks(0, 18420), [0, 5000, 10000, 15000, 20000]);
+  assert.deepEqual(ticks(-3, 7, 5), [-4, -2, 0, 2, 4, 6, 8]);
+  assert.deepEqual(ticks(0, 0), [0, 0.2, 0.4, 0.6, 0.8, 1]);
+  assert.deepEqual(ticks(0, 1.2, 4), [0, 0.5, 1, 1.5]);
+});
+
+test("the schema's diagram: keys between the tables read, referenced tables on the left, the rest last", () => {
+  const col = (name, key = "", references) => ({ name, type: "bigint", nullable: false, key, ...(references ? { references } : {}) });
+  const ref = (table, column = "id", schema = "") => ({ schema, table, column });
+  const tables = [
+    { schema: "", name: "customers", columns: [col("id", "pk")], indexes: [] },
+    { schema: "", name: "orders", columns: [col("id", "pk"), col("customer_id", "fk", ref("customers"))], indexes: [] },
+    { schema: "", name: "items", columns: [col("order_id", "fk", ref("orders", "")), col("parent", "fk", ref("items"))], indexes: [] },
+    { schema: "billing", name: "notes", columns: [col("order_id", "fk", ref("orders")), col("x", "fk", ref("gone"))], indexes: [] },
+    { schema: "", name: "settings", columns: [col("key")], indexes: [] },
+  ];
+  const links = relations(tables);
+  assert.deepEqual(links, [
+    { from: "orders", fromRow: 1, to: "customers", toRow: 0 },
+    { from: "items", fromRow: 0, to: "orders", toRow: 0 },
+    { from: "items", fromRow: 1, to: "items", toRow: 0 },
+    { from: "billing.notes", fromRow: 0, to: "orders", toRow: 0 },
+  ]);
+  const at = layout(tables, links);
+  const x = (n) => at.get(n).x;
+  assert.ok(x("customers") < x("orders") && x("orders") < x("items"), "each table right of what it points to");
+  assert.equal(x("items"), x("billing.notes"));
+  assert.ok(x("settings") > x("items"), "a table without keys after the others");
+  assert.equal(at.size, tables.length);
+  // A cycle still places every table.
+  const a = { schema: "", name: "a", columns: [col("b_id", "fk", ref("b"))], indexes: [] };
+  const b = { schema: "", name: "b", columns: [col("a_id", "fk", ref("a"))], indexes: [] };
+  assert.equal(layout([a, b], relations([a, b])).size, 2);
 });

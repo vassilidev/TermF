@@ -434,7 +434,14 @@ export const SSLMODES = ["disable", "prefer", "require", "verify-ca", "verify-fu
 export type SchemaTable = {
   schema: string;
   name: string;
-  columns: { name: string; type: string; nullable: boolean; key: "pk" | "fk" | "unique" | "index" | "" }[];
+  columns: {
+    name: string;
+    type: string;
+    nullable: boolean;
+    key: "pk" | "fk" | "unique" | "index" | "";
+    /** A foreign key's target; `column` empty: the table's primary key. */
+    references?: { schema: string; table: string; column: string };
+  }[];
   indexes: { name: string; columns: string; unique: boolean }[];
 };
 
@@ -566,4 +573,163 @@ export function secretClash(e: unknown): { name: string; owner: string | null } 
 /** What a full export runs again: the query as the user launched it, without the console's `LIMIT`. */
 export function exportedQuery(result: Ran & { query?: string }, param: string): string {
   return result.query ?? result.plan.params[param] ?? "";
+}
+
+/** What a result's column holds, read from its cells (`NULL` and empty ones aside): dates or times of day, numbers,
+ * else text. */
+export type ColumnKind = "date" | "number" | "text";
+export type ChartType = "bar" | "line" | "area" | "pie";
+export type ChartSpec = { type: ChartType; x: number; series: number[] };
+export type ChartPoint = { label: string; at: number; values: (number | null)[] };
+
+const NUMBER = /^-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+const MOMENT = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?))?\s*(Z|[+-]\d{2}(?::?\d{2})?)?$/;
+const CLOCK = /^\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+/** The series a chart draws at most: as many as the palette has colours. */
+export const SERIES = 8;
+/** The slices a pie may have and stay readable. */
+export const SLICES = 8;
+
+/** A date, a timestamp or a time of day as milliseconds (UTC when it names no zone), NaN for anything else. */
+export function timeOf(cell: string): number {
+  const c = cell.trim();
+  if (CLOCK.test(c)) return Date.parse(`1970-01-01T${c.length === 5 ? `${c}:00` : c}Z`);
+  const m = MOMENT.exec(c);
+  if (!m) return NaN;
+  const [, day, time = "00:00", zone = "Z"] = m;
+  const z = zone === "Z" ? zone : zone.length === 3 ? `${zone}:00` : zone.includes(":") ? zone : `${zone.slice(0, 3)}:${zone.slice(3)}`;
+  return Date.parse(`${day}T${time.length === 5 ? `${time}:00` : time}${z}`);
+}
+
+const cellsOf = (table: Table, i: number) => table.rows.map((r) => (r[i] ?? "").trim()).filter((c) => c && c !== "NULL");
+
+export function columnKind(table: Table, i: number): ColumnKind {
+  const set = cellsOf(table, i);
+  if (!set.length) return "text";
+  if (set.every((c) => NUMBER.test(c))) return "number";
+  if (set.every((c) => !Number.isNaN(timeOf(c)))) return "date";
+  return "text";
+}
+
+/**
+ * The chart a result asks for, or null when it has none: a curve along a date or a time, bars of numbers by a text,
+ * a curve along a number; its numbers as series, an `id` or `…_id` only when nothing else is a number.
+ */
+export function autoChart(table: Table): ChartSpec | null {
+  if (!table.rows.length) return null;
+  const kinds = table.columns.map((_, i) => columnKind(table, i));
+  const x = [kinds.indexOf("date"), kinds.indexOf("text"), kinds.indexOf("number")].find((i) => i >= 0) ?? -1;
+  if (x < 0) return null;
+  const numbers = kinds.flatMap((k, i) => (k === "number" && i !== x ? [i] : []));
+  const named = numbers.filter((i) => !/^id$|_id$/i.test(table.columns[i]));
+  const top = (i: number) => Math.max(0, ...cellsOf(table, i).map((c) => Math.abs(Number(c))));
+  const biggest = Math.max(0, ...named.map(top));
+  // A series twenty times smaller than the largest would be a flat line beside it.
+  const series = (named.length ? named.filter((i) => top(i) * 20 >= biggest) : numbers).slice(0, SERIES);
+  if (!series.length) return null;
+  return { type: kinds[x] === "text" || table.rows.length < 2 ? "bar" : "line", x, series };
+}
+
+/** The points to draw: along a date or a number in its order, along a text as the rows came. */
+export function chartPoints(table: Table, spec: ChartSpec, kind: ColumnKind): ChartPoint[] {
+  const points = table.rows.map((r, i) => {
+    const label = r[spec.x] ?? "";
+    const at = kind === "date" ? timeOf(label) : kind === "number" ? Number(label) : i;
+    const values = spec.series.map((s) => (NUMBER.test((r[s] ?? "").trim()) ? Number(r[s]) : null));
+    return { label, at, values };
+  });
+  return kind === "text" ? points : points.filter((p) => !Number.isNaN(p.at)).sort((a, b) => a.at - b.at);
+}
+
+/** A pie reads with one series, a few slices, none below zero. */
+export function pieReadable(points: ChartPoint[], series: number): boolean {
+  const values = points.map((p) => p.values[0] ?? 0);
+  return series === 1 && points.length >= 2 && points.length <= SLICES && values.every((v) => v >= 0) && values.some((v) => v > 0);
+}
+
+/** About `count` round steps from below `min` to above `max`. */
+export function ticks(min: number, max: number, count = 5): number[] {
+  if (max <= min) max = min + 1;
+  const raw = (max - min) / count;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw * 0.999) ?? 10 * mag;
+  const from = Math.floor(min / step);
+  const to = Math.ceil(max / step);
+  return Array.from({ length: to - from + 1 }, (_, i) => Number(((from + i) * step).toPrecision(12)));
+}
+
+/** A table's name as the diagram and the console say it: with its schema outside the default one. */
+export const tableName = (t: { schema: string; name: string }) => (t.schema ? `${t.schema}.${t.name}` : t.name);
+
+/** A foreign key between two tables of the diagram: from a column (its row) to the column it references. */
+export type Relation = { from: string; fromRow: number; to: string; toRow: number };
+
+/** The foreign keys whose two tables were read; a key to the primary key alone lands on its first column. */
+export function relations(tables: SchemaTable[]): Relation[] {
+  const byName = new Map(tables.map((t) => [tableName(t), t]));
+  return tables.flatMap((t) =>
+    t.columns.flatMap((c, fromRow) => {
+      const r = c.references;
+      const target = r && byName.get(tableName({ schema: r.schema, name: r.table }));
+      if (!r || !target) return [];
+      const named = target.columns.findIndex((tc) => tc.name === r.column);
+      const toRow = named >= 0 ? named : Math.max(0, target.columns.findIndex((tc) => tc.key === "pk"));
+      return [{ from: tableName(t), fromRow, to: tableName(target), toRow }];
+    }),
+  );
+}
+
+/** The diagram's measures, in pixels: the cards are drawn with them too. */
+export const CARD = { width: 240, head: 34, row: 24, pad: 6, gapX: 110, gapY: 28, column: 1400 };
+export const cardHeight = (t: SchemaTable) => CARD.head + t.columns.length * CARD.row + CARD.pad;
+
+/**
+ * Where each card goes: the tables a key points to left of those that hold it, each layer ordered by where its
+ * tables point; the tables without any key last. A layer taller than `CARD.column` goes on in a column beside.
+ */
+export function layout(tables: SchemaTable[], links: Relation[]): Map<string, { x: number; y: number }> {
+  const names = tables.map(tableName);
+  const parents = new Map(names.map((n) => [n, new Set<string>()]));
+  for (const l of links) if (l.from !== l.to) parents.get(l.from)?.add(l.to);
+  const linked = new Set(links.flatMap((l) => [l.from, l.to]));
+  const rank = new Map<string, number>();
+  const visit = (n: string, path: Set<string>): number => {
+    if (rank.has(n)) return rank.get(n)!;
+    path.add(n);
+    // In a cycle, the key back to a table on the path counts for nothing.
+    const r = Math.max(-1, ...[...parents.get(n)!].filter((p) => !path.has(p)).map((p) => visit(p, path))) + 1;
+    path.delete(n);
+    rank.set(n, r);
+    return r;
+  };
+  const layers: string[][] = [];
+  for (const n of names.filter((n) => linked.has(n))) (layers[visit(n, new Set())] ??= []).push(n);
+  const order = new Map<string, number>();
+  const placed = layers.filter(Boolean).map((layer) => {
+    const score = (n: string) => {
+      const known = [...parents.get(n)!].filter((p) => order.has(p)).map((p) => order.get(p)!);
+      return known.length ? known.reduce((a, b) => a + b, 0) / known.length : Infinity;
+    };
+    const sorted = [...layer].sort((a, b) => score(a) - score(b) || a.localeCompare(b));
+    sorted.forEach((n, i) => order.set(n, i / Math.max(1, sorted.length - 1)));
+    return sorted;
+  });
+  const alone = names.filter((n) => !linked.has(n));
+  if (alone.length) placed.push(alone);
+  const height = new Map(tables.map((t) => [tableName(t), cardHeight(t)]));
+  const at = new Map<string, { x: number; y: number }>();
+  let column = 0;
+  for (const layer of placed) {
+    let y = 0;
+    for (const n of layer) {
+      if (y > 0 && y + height.get(n)! > CARD.column) {
+        column++;
+        y = 0;
+      }
+      at.set(n, { x: column * (CARD.width + CARD.gapX), y });
+      y += height.get(n)! + CARD.gapY;
+    }
+    column++;
+  }
+  return at;
 }

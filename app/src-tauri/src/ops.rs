@@ -618,6 +618,22 @@ pub async fn ops_sql_copy(app: AppHandle, result: u64, format: Format) -> CmdRes
     .await
 }
 
+/// A chart of a result, drawn by the interface, written where the user chose: PNG or SVG only.
+#[tauri::command]
+pub async fn ops_chart_save(app: AppHandle, path: String, bytes: Vec<u8>) -> CmdResult<()> {
+    blocking(app, move |_, _, _| {
+        let ext = std::path::Path::new(&path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+        if !matches!(ext.as_deref(), Some("png" | "svg")) {
+            bail!("a chart is saved as .png or .svg");
+        }
+        std::fs::write(&path, bytes).with_context(|| format!("cannot write {path}"))
+    })
+    .await
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Exported {
