@@ -2,13 +2,13 @@
   import Columns2 from "@lucide/svelte/icons/columns-2";
   import Copy from "@lucide/svelte/icons/copy";
   import Equal from "@lucide/svelte/icons/equal";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
   import SquarePlus from "@lucide/svelte/icons/square-plus";
   import Maximize2 from "@lucide/svelte/icons/maximize-2";
   import Minimize2 from "@lucide/svelte/icons/minimize-2";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Rows2 from "@lucide/svelte/icons/rows-2";
   import Smartphone from "@lucide/svelte/icons/smartphone";
-  import UserRound from "@lucide/svelte/icons/user-round";
   import X from "@lucide/svelte/icons/x";
   import Action from "$lib/Action.svelte";
   import ContextGauge from "$lib/ContextGauge.svelte";
@@ -18,7 +18,9 @@
   import ContextMenu, { menuKey, menuPoint, type ContextItem } from "$lib/ui/ContextMenu.svelte";
   import { phase } from "$lib/remote-logic";
   import { setRemote, turnOn } from "$lib/remote.svelte";
-  import StatusPill from "$lib/ui/StatusPill.svelte";
+  import Avatar from "$lib/ui/Avatar.svelte";
+  import StatusPill, { toneOf } from "$lib/ui/StatusPill.svelte";
+  import { askAI, selectionChip } from "$lib/ask.svelte";
   import { closeSplit, focusSession, keys, openLauncher, splitActive, toggleMaximize } from "$lib/commands";
   import { isMac } from "$lib/files.svelte";
   import { t } from "$lib/i18n";
@@ -26,7 +28,7 @@
   import type { Rect, Side } from "$lib/split-logic";
   import { activate, equalize, tabOf, terminals } from "$lib/tabs.svelte";
   import { dropping } from "$lib/workspace.svelte";
-  import { liveLoops, tileName } from "$lib/tile-logic";
+  import { liveLoops, sessionChip, tileName } from "$lib/tile-logic";
   import { grid, loopClock, onScreen, resetContext, ticked, type Session } from "$lib/state.svelte";
 
   /**
@@ -41,6 +43,12 @@
   const remote = $derived(session.running ? (session.remote ?? null) : null);
   const loops = $derived(session.running ? liveLoops(session.loops, loopClock.now) : []);
   const pct = (n: number) => `${n * 100}%`;
+
+  // Calm by default: a dot says how the session is; only what asks for the user (amber) or ended keeps its pill.
+  const pill = $derived(!session.running ? (failed ? "failed" : "exited") : session.status === "waiting" ? "waiting" : null);
+  const dot = $derived(session.running ? session.status : null);
+  const said = { starting: "statusStarting", working: "statusWorking", waiting: "statusWaiting", idle: "statusIdle", done: "statusDone" } as const;
+  const stateLabel = $derived(dot ? t(said[dot]) : "");
 
   const remoteOn = () => turnOn(session.id);
   let confirm = $state<HTMLButtonElement>();
@@ -66,6 +74,7 @@
     menuAt = top ? { x: top.left + 8, y: top.bottom } : menuPoint(e);
     menuItems = [
       ...(selection ? [{ label: t("wsCopy"), icon: Copy, kbd: isMac ? "⌘C" : "", run: () => void navigator.clipboard.writeText(selection) }] : []),
+      { label: t("uiF1AskAi"), icon: Sparkles, kbd: display("ask_ai"), run: () => askAbout(selection) },
       { label: t("t6aSplitRight"), icon: Columns2, kbd: display("split_right"), divider: true, run: () => splitActive("right", session.id) },
       { label: t("t6aSplitDown"), icon: Rows2, kbd: display("split_down"), run: () => splitActive("down", session.id) },
       { label: t("wsSplitWith"), icon: SquarePlus, run: () => split("right") },
@@ -78,6 +87,13 @@
       { label: t("close"), icon: X, kbd: display("close_split"), divider: true, run: () => closeSplit(session.id) },
     ];
     menuOpen = true;
+  }
+
+  /** The ⌘I panel on this session, with what is selected in it and a question to read before sending. */
+  function askAbout(selection: string) {
+    activate(session.id);
+    const chips = [sessionChip(session), ...(selection.trim() ? [selectionChip(selection.trim())] : [])];
+    void askAI({ chips, draft: selection.trim() ? t("restTermAskDraft") : undefined });
   }
 
   /** From the launcher: another tool or folder beside this split. */
@@ -127,16 +143,13 @@
         title={t("broadcastTo")}
       />
     {/if}
-    {#if !session.running}
-      <StatusPill
-        status={failed ? "failed" : "exited"}
-        label={failed ? `${t("exitedLabel")} (${session.exitCode})` : undefined}
-      />
-    {:else if session.status}
-      <StatusPill status={session.status} />
-    {/if}
     {#if session.role}
-      <span class="role"><UserRound size={12} aria-hidden="true" />{session.role}</span>
+      <Avatar role={session.role} status={dot ?? undefined} label={[session.role, stateLabel].filter(Boolean).join(" · ")} size="sm" />
+    {:else if dot && dot !== "waiting"}
+      <span class="state {toneOf(dot)}" data-status={dot} role="img" aria-label={stateLabel} title={stateLabel}></span>
+    {/if}
+    {#if pill}
+      <StatusPill status={pill} label={failed ? `${t("exitedLabel")} (${session.exitCode})` : undefined} />
     {/if}
     <span class="title" title={session.cwd}
       ><b>{name}</b><span class="tool">{session.agent ?? t("shell")}</span>{#if session.action && session.running}<span class="last"
@@ -237,8 +250,6 @@
     border-radius: var(--radius-lg);
     overflow: hidden;
     background: var(--term-bg);
-    box-shadow: var(--shadow-1);
-    transition: box-shadow var(--dur) var(--ease-out);
   }
 
   .tile[hidden] {
@@ -285,15 +296,11 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    height: 36px;
-    padding: 0 8px 0 10px;
+    height: 32px;
+    padding: 0 8px 0 12px;
     border-bottom: 1px solid var(--border);
     background: var(--header-bg);
     user-select: none;
-  }
-
-  .waiting header {
-    --header-bg: var(--waiting-soft);
   }
 
   .title {
@@ -339,21 +346,21 @@
     margin-right: 6px;
   }
 
-  .role {
-    display: inline-flex;
-    align-items: center;
+  /* The session's state as a dot: indigo at work, green when done, grey otherwise. */
+  .state {
     flex-shrink: 0;
-    gap: 4px;
-    height: 20px;
-    padding: 0 7px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-pill);
-    font-size: var(--text-xs);
-    font-weight: 600;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
   }
 
-  .role :global(svg) {
-    color: var(--accent-ink);
+  .state.working {
+    background: var(--working);
+  }
+
+  .state.done {
+    background: var(--done);
   }
 
   .rc {

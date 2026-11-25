@@ -13,6 +13,7 @@
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
   import { ago, t } from "$lib/i18n";
+  import { toast } from "$lib/ui/toast.svelte";
   import type { Session } from "$lib/state.svelte";
   import { claudeView, size } from "$lib/claude.svelte";
   import { attempt, openTile, repoArg, type Background, type BackgroundSession, type SavedSession, type SessionProject } from "$lib/claude-native.svelte";
@@ -74,7 +75,7 @@
     const done = await attempt(() => invoke<string>("claude_purge", { path }));
     busy = "";
     if (done !== undefined) {
-      claudeView.done = t("claudeDgPurged", { path });
+      toast(t("claudeDgPurged", { path }));
       await load();
     }
   }
@@ -90,7 +91,7 @@
     if (!id) return;
     const done = await attempt(() => invoke<string>("claude_background_stop", { id }));
     if (done !== undefined) {
-      claudeView.done = t("claudeDgStopped", { name: stopping?.name ?? id });
+      toast(t("claudeDgStopped", { name: stopping?.name ?? id }));
       await load();
     }
   }

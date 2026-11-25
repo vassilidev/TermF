@@ -8,7 +8,7 @@ import type { Merged } from "$lib/vault-logic";
 
 export type Section = "awake" | "tray" | "context" | "keys" | "ci" | "claude" | "agentenv" | "config" | "sync" | "updates" | "tools";
 export type Transfer =
-  | { kind: "exported"; files: number; skippedLinks: string[] }
+  | { kind: "exported"; path: string; files: number; skippedLinks: string[] }
   | { kind: "import"; path: string; preview: Preview; replace: string[]; done: boolean; vaultDone?: boolean };
 
 export const settings = $state({
@@ -56,7 +56,7 @@ export async function exportConfig() {
     const vault = part.on ? { password: part.password, project: part.project, master: part.master } : null;
     try {
       const result = await invoke<{ files: number; skippedLinks: string[] }>("config_export", { path, vault });
-      settings.transfer = { kind: "exported", ...result };
+      settings.transfer = { kind: "exported", path, ...result };
     } catch (e) {
       throw /the vault is locked/.test(String(e)) ? t("vault3ConfigLocked") : failed(e);
     } finally {

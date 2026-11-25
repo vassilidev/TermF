@@ -119,6 +119,19 @@ export function alerts(o: Overview): Alert[] {
   return out;
 }
 
+/** A hidden Claude Code session (listing or deleting artifacts) whose tile shows because it asks you something. */
+export type Waiting = { section: "artifacts"; tone: "wait"; session: number | null };
+
+/** What the Claude view puts first: the sessions waiting for your answer, then the errors, then the rest. */
+export function todo(o: Overview, waiting: (number | null)[]): (Alert | Waiting)[] {
+  const found = alerts(o);
+  return [
+    ...waiting.map((session): Waiting => ({ section: "artifacts", tone: "wait", session })),
+    ...found.filter((a) => a.tone === "error"),
+    ...found.filter((a) => a.tone !== "error"),
+  ];
+}
+
 /** Answers that may come back out of order: only the last request asked counts. */
 export function latest() {
   let last = 0;

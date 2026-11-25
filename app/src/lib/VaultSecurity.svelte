@@ -5,6 +5,7 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import LockKeyhole from "@lucide/svelte/icons/lock-keyhole";
   import Plus from "@lucide/svelte/icons/plus";
+  import ScrollText from "@lucide/svelte/icons/scroll-text";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
@@ -13,19 +14,23 @@
   import { invoke } from "@tauri-apps/api/core";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import { ago, lang, t } from "$lib/i18n";
+  import { osOf } from "$lib/release-logic";
   import { biometryName, failed, needsConfirm, say, setStatus, vault, type KeyInfo, type VaultStatus } from "$lib/vault.svelte";
 
-  let { onclose }: { onclose: () => void } = $props();
+  let { onclose, onaudit }: { onclose: () => void; onaudit: () => void } = $props();
 
   const DAYS = [1, 3, 7, 14, 30];
   let keys = $state<KeyInfo[]>([]);
   let typed = $state("");
   let busy = $state("");
   let error = $state("");
+  /** The form the error belongs to: the password's shows under its fields. */
+  let errorAt = $state("");
   let adding = $state(false);
   let name = $state("");
   let pin = $state("");
   let changing = $state(false);
+  let current = $state("");
   let password = $state("");
   let again = $state("");
   let removing = $state<KeyInfo | null>(null);
@@ -35,6 +40,7 @@
   // Read when the status changes; once 5 minutes are gone the backend says so and the status comes back.
   const confirmed = $derived((status?.confirmedUntil ?? 0) > Date.now() / 1000);
   const days = $derived(DAYS.includes(status?.quickDays ?? 7) ? DAYS : [...DAYS, status?.quickDays ?? 7].sort((a, b) => a - b));
+  const os = osOf(navigator.platform);
   const when = (unix: number) => new Date(unix * 1000).toLocaleString(lang, { dateStyle: "medium", timeStyle: "short" });
 
   async function load() {
@@ -42,12 +48,14 @@
       keys = await invoke<KeyInfo[]>("vault_keys");
     } catch (e) {
       error = failed(e);
+      errorAt = "";
     }
   }
 
   async function run(what: string, action: () => Promise<void>) {
     busy = what;
     error = "";
+    errorAt = what;
     try {
       await action();
     } catch (e) {
@@ -108,14 +116,17 @@
     else if (now !== null) control.value = String(now);
   }
 
+  // The current password first, whatever was confirmed before: a vault left open must not change hands.
   const change = submit("password", async () => {
     try {
       if (password !== again) throw t("vaultPasswordsDiffer");
+      setStatus(await invoke<VaultStatus>("vault_reauth", { password: current }));
       setStatus(await invoke<VaultStatus>("vault_password_change", { password }));
       changing = false;
+      password = again = "";
       say(t("vault2PasswordChanged"));
     } finally {
-      password = again = "";
+      current = "";
     }
   });
 
@@ -143,7 +154,14 @@
       <button class="icon-btn" aria-label={t("close")} title={t("close")} onclick={onclose}><X size={16} aria-hidden="true" /></button>
     </header>
 
-    {#if error}<p class="notice error" role="alert">{error}</p>{/if}
+    {#if error && errorAt !== "password"}<p class="notice error" role="alert">{error}</p>{/if}
+
+
+    <div class="card">
+      <h3><ScrollText size={15} aria-hidden="true" />{t("restVaultAudit")}</h3>
+      <p class="muted">{t("restVaultAuditIntro")}</p>
+      <div><button class="btn sm" data-testid="vault-audit" onclick={onaudit}>{t("restVaultAuditOpen")}</button></div>
+    </div>
 
     {#if !confirmed}
       <form class="confirm" onsubmit={confirm}>
@@ -214,7 +232,10 @@
     </div>
 
     <div class="card">
-      <h3><Fingerprint size={15} aria-hidden="true" />{biometryName() || t("vault2Biometry")}</h3>
+      <h3>
+        <Fingerprint size={15} aria-hidden="true" />{biometryName() ||
+          (os === "mac" ? t("vault2TouchId") : os === "windows" ? t("vault2WindowsHello") : t("vault2Biometry"))}
+      </h3>
       {#if vault.methods?.biometry}
         <label class="toggle">
           <input
@@ -239,7 +260,9 @@
         <p class="muted fine">{t("vault2BiometryHint", { name: biometryName() })}</p>
         <p class="notice warn"><TriangleAlert size={14} aria-hidden="true" />{vault.methods.biometry === "touchId" ? t("vault2HonestMac") : t("vault2HonestWindows")}</p>
       {:else}
-        <p class="muted">{t("vault2BiometryNone")}</p>
+        <p class="muted">
+          {os === "mac" ? t("restVaultBiometryNoneMac") : os === "windows" ? t("restVaultBiometryNoneWindows") : t("vault2BiometryNone")}
+        </p>
       {/if}
     </div>
 
@@ -247,24 +270,31 @@
       <h3><LockKeyhole size={15} aria-hidden="true" />{t("vault2Password")}</h3>
       {#if changing}
         <form class="inline" onsubmit={change}>
+          <label class="labelled current">
+            {t("restVaultCurrentPassword")}
+            <!-- svelte-ignore a11y_autofocus (opened by its button) -->
+            <input class="field" type="password" autocomplete="current-password" bind:value={current} required autofocus />
+          </label>
           <div class="row">
             <label class="labelled">
               {t("vault2NewPassword")}
-              <!-- svelte-ignore a11y_autofocus (opened by its button) -->
-              <input class="field" type="password" autocomplete="new-password" minlength="8" bind:value={password} required autofocus />
+              <input class="field" type="password" autocomplete="new-password" minlength="8" bind:value={password} required />
             </label>
             <label class="labelled">
               {t("vaultPasswordAgain")}
               <input class="field" type="password" autocomplete="new-password" bind:value={again} required />
             </label>
           </div>
+          {#if error && errorAt === "password"}<p class="notice error" role="alert">{error}</p>{/if}
           <div class="buttons">
-            <button type="button" class="btn" onclick={() => (changing = false)} disabled={!!busy}>{t("cancel")}</button>
-            <button type="submit" class="btn primary" disabled={!!busy || !password}>{@render spinner("password")}{t("vault2ChangePassword")}</button>
+            <button type="button" class="btn" onclick={() => ((changing = false), (current = password = again = ""), (error = ""), (errorAt = ""))} disabled={!!busy}>
+              {t("cancel")}
+            </button>
+            <button type="submit" class="btn primary" disabled={!!busy || !current || !password}>{@render spinner("password")}{t("vault2ChangePassword")}</button>
           </div>
         </form>
       {:else}
-        <div><button class="btn sm" disabled={!confirmed || !!busy} onclick={() => (changing = true)}>{t("vault2ChangePassword")}</button></div>
+        <div><button class="btn sm" data-testid="vault-password-change" disabled={!!busy} onclick={() => ((changing = true), (error = ""))}>{t("vault2ChangePassword")}</button></div>
       {/if}
     </div>
 
@@ -418,6 +448,10 @@
 
   .row .labelled {
     flex: 1 1 200px;
+  }
+
+  .current {
+    max-width: calc(50% - 5px);
   }
 
   .buttons {

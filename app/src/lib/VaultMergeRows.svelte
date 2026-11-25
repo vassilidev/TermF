@@ -42,7 +42,7 @@
     </tbody>
   </table>
 {:else}
-  <p class="notice">{t("importNothing")}</p>
+  <p class="notice">{t("restVaultNothingNew")}</p>
 {/if}
 {#if same && changing.length}
   <button class="btn sm quiet more" onclick={() => (all = !all)}>{all ? t("hideUnchanged") : t("showUnchanged", { count: same })}</button>

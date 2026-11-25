@@ -390,6 +390,95 @@ export const scenarios = [
     },
   },
   {
+    name: "vault: a secret added, referenced and deleted, the audit log shown and exported",
+    views: ["vault"],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("vault");
+      const form = `${pane} form.form`;
+      await t.ready();
+      await t.project();
+      await t.view("vault");
+      for (const i of [0, 1]) await s.type(`${pane} form.unlock input[type=password]`, "correct horse battery staple", i);
+      await s.click(`${pane} form.unlock button[type=submit]:not([disabled])`);
+      const secrets = () => s.exec(() => window.__TAURI_INTERNALS__.invoke("vault_list", {}));
+      const newSecret = async (name) => {
+        await s.click('[data-testid="vault-new"]');
+        await s.click('[data-testid="vault-new-secret"]');
+        await s.type(`${form} input.mono`, name);
+      };
+      await newSecret("E2E_TOKEN");
+      await s.type(`${form} input[type=password]`, "s3cret-e2e");
+      await s.click(`${form} button[type=submit]:not([disabled])`);
+      await s.wait(async () => (await secrets()).some((x) => x.name === "E2E_TOKEN" && x.scope === "dev" && x.project === "acme" && !x.reference), {
+        what: "E2E_TOKEN kept in the vault",
+      });
+      await newSecret("E2E_REF");
+      await s.click(`${form} [data-segment="ref"]`);
+      await s.type(`${form} input[placeholder^="op://"]`, "op://Acme/E2E/token");
+      await s.click(`${form} button[type=submit]:not([disabled])`);
+      await s.wait(async () => (await secrets()).some((x) => x.name === "E2E_REF" && x.reference === "op://Acme/E2E/token"), { what: "E2E_REF as a reference" });
+      const at = await s.exec((css) => [...document.querySelectorAll(css)].findIndex((e) => e.textContent.includes("E2E_TOKEN")), `${pane} .pick`);
+      await s.click(`${pane} .pick`, at);
+      await s.click(`${pane} .entry .head-actions .icon-btn`);
+      await s.waitFor("dialog.confirm[open]");
+      await s.click("dialog.confirm .btn.danger");
+      await s.wait(async () => !(await secrets()).some((x) => x.name === "E2E_TOKEN"), { what: "E2E_TOKEN deleted" });
+      await s.click('[data-testid="vault-security"]');
+      await s.click('[data-testid="vault-audit"]');
+      const actions = () => s.exec((css) => [...document.querySelectorAll(css)].map((e) => e.dataset.action), `${pane} .audit li[data-action]`);
+      await s.wait(async () => {
+        const seen = await actions();
+        return ["write", "reference", "delete"].every((a) => seen.includes(a));
+      }, { what: "the write, the reference and the deletion in the log" });
+      await s.waitFor(`${pane} .audit .chain.ok`);
+      const file = join(box.root, "vault-audit.jsonl");
+      await t.saveAs(file);
+      await s.click('[data-testid="vault-audit-export"]:not([disabled])');
+      await s.wait(() => existsSync(file) && read(file).includes('"delete"'), { what: "the exported audit log" });
+      const lines = read(file).trim().split("\n").map((l) => JSON.parse(l));
+      check(lines.some((l) => l.action === "delete" && l.target === "E2E_TOKEN"), "the export lacks the deletion of E2E_TOKEN");
+      check(!read(file).includes("s3cret-e2e"), "the exported log holds a secret's value");
+      await t.clean();
+    },
+  },
+  {
+    name: "vault: the master password changes only with the current one",
+    views: ["vault"],
+    async run(t) {
+      const { s } = t;
+      const pane = t.shown("vault");
+      const change = `${pane} .security form.inline`;
+      await t.ready();
+      await t.project();
+      await t.view("vault");
+      for (const i of [0, 1]) await s.type(`${pane} form.unlock input[type=password]`, "correct horse battery staple", i);
+      await s.click(`${pane} form.unlock button[type=submit]:not([disabled])`);
+      await s.waitFor('[data-testid="vault-new"]');
+      await s.click('[data-testid="vault-security"]');
+      await s.click('[data-testid="vault-password-change"]');
+      const fill = async (current) => {
+        await s.type(`${change} input[autocomplete="current-password"]`, current);
+        for (const i of [0, 1]) await s.type(`${change} input[autocomplete="new-password"]`, "a brand new passphrase", i);
+        await s.click(`${change} button[type=submit]:not([disabled])`);
+      };
+      await fill("not the password");
+      await s.waitFor(`${change} .notice.error`);
+      await s.exec((css) => {
+        for (const input of document.querySelectorAll(css)) {
+          input.value = "";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      }, `${change} input`);
+      await fill("correct horse battery staple");
+      await s.waitGone(change);
+      await s.click('[data-testid="vault-lock"]');
+      await s.type(`${pane} form.unlock input[type=password]`, "a brand new passphrase" + Key.enter);
+      await s.waitFor('[data-testid="vault-new"]');
+      await t.clean();
+    },
+  },
+  {
     name: "settings: a choice is saved in termf.toml and kept after a restart",
     views: ["settings"],
     async run(t) {
@@ -410,6 +499,43 @@ export const scenarios = [
       await t.view("settings");
       await awake();
       check(await t.s.exec((css) => document.querySelector(css)?.checked, auto), "the choice is lost after a restart");
+    },
+  },
+  {
+    name: "settings: the configuration exported, the archive's path shown where it was written",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("settings");
+      const file = join(box.root, "termf-config.tar.gz");
+      await t.ready();
+      await t.view("settings");
+      await s.click(`${pane} [data-testid="section-config"]`);
+      await t.saveAs(file);
+      await s.click(`${pane} [data-testid="config-export"]:not([disabled])`);
+      await s.wait(() => existsSync(file), { what: "the archive written" });
+      await s.waitFor(`${pane} .archive code`);
+      const shown = await s.exec((css) => document.querySelector(css)?.title, `${pane} .archive code`);
+      check(shown === file, `the page shows ${shown} as the archive`);
+      await t.clean();
+    },
+  },
+  {
+    name: "configuration: the project deleted from its danger zone after one confirmation, its repository untouched",
+    views: ["project"],
+    async run(t) {
+      const { s, box } = t;
+      const pane = t.shown("project");
+      await t.ready();
+      await t.project();
+      await t.view("project");
+      await s.click(`${pane} .danger-zone button`);
+      await s.waitFor("dialog.confirm[open]");
+      check((await s.text("dialog.confirm .btn.danger"))?.includes("acme"), "the button does not say what is deleted");
+      await s.click("dialog.confirm .btn.danger");
+      await s.wait(() => !existsSync(join(box.configDir, "projects", "acme.toml")), { what: "acme.toml removed" });
+      check(existsSync(join(box.acme, "README.md")), "the repository was touched");
+      await t.clean();
     },
   },
   {
@@ -1044,6 +1170,25 @@ export const scenarios = [
     },
   },
   {
+    name: "ask: the View menu's AI Panel opens and closes the panel, the palette asks a chosen role",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      const role = () => s.exec(() => document.querySelector("[data-ask] select.role")?.value ?? null);
+      await t.ready();
+      await t.project();
+      await t.view("ci");
+      await t.emit("menu", "ai_panel");
+      await s.wait(async () => (await role()) === "devops", { what: "the panel open on the screen's role" });
+      await s.wait(() => s.exec(() => !!document.activeElement?.closest("[data-ask]")), { what: "the cursor in the panel" });
+      await t.emit("menu", "ai_panel");
+      await s.wait(async () => (await role()) === null, { what: "the panel closed by the menu again" });
+      await t.command("ask-role-expert");
+      await s.wait(async () => (await role()) === "expert", { what: "the expert chosen from the palette" });
+      await t.clean();
+    },
+  },
+  {
     name: "expert: a question in its conversation finds what was committed just before",
     views: [],
     async run(t) {
@@ -1091,6 +1236,84 @@ export const scenarios = [
       await s.wait(async () => (await s.text(`${pane} .search .hit`))?.includes("The API of Acme"), { what: "the README line found" });
       check(await s.exec(() => window.__e2e.searchPending), "no loading state while the search ran");
       check(!(await s.exec((css) => !!document.querySelector(css), `${pane} .search [data-skeleton]`)), "the skeleton stays after the hits");
+      await t.clean();
+    },
+  },
+  {
+    name: "terminal: a selection asked about in the panel with ⌘I or the tile's menu, its session as context",
+    views: [],
+    async run(t) {
+      const { s, box } = t;
+      await t.ready();
+      await t.project();
+      await t.command(`repo-shell-${box.acme}`);
+      const id = await t.tile();
+      await t.prompt(id);
+      await t.typeIn(id, "echo e2e-picked-$((6*7))" + Key.enter);
+      await showsLine(t, id, "e2e-picked-42");
+      // A drag over the whole screen, as a mouse would: the selection is xterm's, out of the page's.
+      const select = () =>
+        s.exec((sid) => {
+          const screen = document.querySelector(`.tile[data-session="${sid}"] .xterm-screen`);
+          const r = screen.getBoundingClientRect();
+          const at = (x, y) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, detail: 1 });
+          screen.dispatchEvent(new MouseEvent("mousedown", at(r.left + 2, r.top + 2)));
+          document.dispatchEvent(new MouseEvent("mousemove", at(r.right - 2, r.bottom - 2)));
+          document.dispatchEvent(new MouseEvent("mouseup", at(r.right - 2, r.bottom - 2)));
+          document.querySelector(`.tile[data-session="${sid}"] .xterm-helper-textarea`).focus();
+        }, id);
+      await select();
+      await s.press(Key.mod, "i");
+      // A chip's tooltip is the text it sends.
+      const chip = (label) =>
+        s.exec((l) => [...document.querySelectorAll("[data-ask] .chip")].find((c) => c.querySelector(".label")?.textContent.startsWith(l))?.title ?? null, label);
+      const session = () => s.exec(() => [...document.querySelectorAll("[data-ask] .chip")].some((c) => c.title.startsWith("Terminal session")));
+      const picked = await s.wait(() => chip("Selection"), { what: "the terminal's selection as a chip" });
+      check(picked.includes("e2e-picked-42"), `the chip does not carry the selection: ${picked}`);
+      check(await session(), "the session is not in the context");
+      // Escape closes the panel; the tile's own menu asks again, with a question to read before sending. The panel
+      // resized the terminal, which drops xterm's selection: the user selects again.
+      await s.press(Key.escape);
+      await s.waitGone("[data-ask] aside");
+      await select();
+      await s.exec((sid) => {
+        const screen = document.querySelector(`.tile[data-session="${sid}"] .xterm-screen`);
+        const r = screen.getBoundingClientRect();
+        screen.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + 10, button: 2 }));
+      }, id);
+      await s.waitFor('.popover [role="menu"]');
+      const i = await s.exec(() => [...document.querySelectorAll('.popover [role="menuitem"]')].findIndex((b) => b.textContent.trim().startsWith("Ask the AI")));
+      check(i >= 0, 'no "Ask the AI" in the tile\'s menu');
+      const items = await s.exec(() => [...document.querySelectorAll('.popover [role="menuitem"]')].map((b) => b.textContent.trim()));
+      check(items.some((x) => x.startsWith("Copy")), `no selection to copy in the tile's menu: ${items.join(" / ")}`);
+      await s.click('.popover [role="menuitem"]', i);
+      await s.wait(async () => (await s.exec(() => document.querySelector("[data-ask] textarea")?.value)) === "Explain what this output shows, and what I should do next.", {
+        what: "the question to read before sending",
+      });
+      check(await session(), "the session is not in the context from the menu");
+      await t.clean();
+    },
+  },
+  {
+    name: "files: the lines selected in the editor go to the expert as context",
+    views: [],
+    async run(t) {
+      const { s } = t;
+      const pane = t.shown("files");
+      await t.ready();
+      await t.project();
+      await t.view("files");
+      await s.click(`${pane} button.row[title="README.md"]`);
+      await s.click(`${pane} .cm-content`);
+      // Every line: the selection ends at the start of the empty last line, which it does not count.
+      await s.press(Key.mod, "a");
+      await s.click(`${pane} [data-ask-lines]`);
+      const labels = () => s.exec(() => [...document.querySelectorAll("[data-ask] .chip .label")].map((c) => c.textContent.trim()));
+      await s.wait(async () => (await labels()).includes("README.md:1-3"), { what: "the selected lines as a chip" });
+      const role = await s.exec(() => document.querySelector("[data-ask] select.role")?.value);
+      check(role === "expert", `the lines go to ${role}, not the expert`);
+      const lines = await s.exec(() => [...document.querySelectorAll("[data-ask] .chip")].find((c) => c.textContent.includes("README.md:1-3"))?.title);
+      check(lines?.includes("The API of Acme."), `the chip does not carry the lines: ${lines}`);
       await t.clean();
     },
   },
@@ -1165,6 +1388,10 @@ export const scenarios = [
       await s.wait(async () => (await s.text(`${pane}`))?.includes("acme-staging"), { what: "the connection in the list" });
       const saved = read(join(box.configDir, "projects", "acme.toml"));
       check(saved.includes("acme-staging") && saved.includes("staging.acme.test"), `the connection is not in acme.toml:\n${saved}`);
+      // The recipes in cards: one that runs on an SSH server now starts from its card, into its form.
+      await s.click(`${pane} [role="tab"]`, 1);
+      await s.click(`${pane} [data-recipe="logs-tail"] .btn:not([disabled])`);
+      await s.waitFor(`${pane} form.run`);
       await t.clean();
     },
   },
@@ -1564,6 +1791,10 @@ h1, h2 { font-family: var(--font-display); }
 
       // Inconsistencies: the filters, a finding opened, its place in the editor, then the request to the team.
       await section("issues");
+      // Grouped by kind, the most serious group first and open; the fix button says why it waits.
+      const groups = await t.s.exec((css) => [...document.querySelectorAll(`${css} .group-line`)].map((g) => g.getAttribute("aria-expanded")), panel);
+      check(groups[0] === "true" && groups.slice(1).every((e) => e === "false"), `the findings are not grouped with the first open: ${groups}`);
+      check(!!(await t.s.text(`${panel} #design-fix-why`))?.trim(), "the disabled fix button does not say why");
       const filters = await t.s.exec((css) => document.querySelectorAll(`${css} .head .segmented button`).length, panel);
       for (let i = filters - 1; i >= 0; i--) await t.s.click(`${panel} .head .segmented button`, i);
       await t.s.click(`${panel} .finding .line`);

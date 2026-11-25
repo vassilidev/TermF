@@ -5,6 +5,7 @@
   import X from "@lucide/svelte/icons/x";
   import ClaudeChange from "$lib/ClaudeChange.svelte";
   import { t } from "$lib/i18n";
+  import { toast } from "$lib/ui/toast.svelte";
   import { claudeView, type Preview } from "$lib/claude.svelte";
   import { fileName, refreshFiles, repoArg, type FileText } from "$lib/claude-native.svelte";
 
@@ -78,7 +79,7 @@
     busy = true;
     try {
       await invoke<Preview>("claude_file_save", { path, text, hash, repo: repoArg() });
-      claudeView.done = t("claudeDgSaved", { path });
+      toast(t("claudeDgSaved", { path }));
       fresh = false;
       await refreshFiles();
       await load();

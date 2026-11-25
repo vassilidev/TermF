@@ -1,5 +1,6 @@
 <script lang="ts">
   import Coffee from "@lucide/svelte/icons/coffee";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
   import { app, setKeepAwake, type KeepAwakeMode } from "$lib/state.svelte";
 
@@ -46,6 +47,8 @@
       <p class="notice error" role="alert">{error || app.keepAwake.error}</p>
     {/if}
   </fieldset>
+{:else}
+  <Skeleton shape="form" rows={3} label={t("keepAwake")} />
 {/if}
 
 <style>

@@ -70,7 +70,7 @@
       <p class="help">{t(windows ? "releaseCliHowWindows" : "releaseCliHowUnix")}</p>
     {/if}
   {:else if !needs.error}
-    <Skeleton rows={2} />
+    <Skeleton shape="form" rows={1} />
   {/if}
 </section>
 

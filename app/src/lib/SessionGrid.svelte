@@ -14,12 +14,14 @@
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import { provide } from "$lib/ask.svelte";
   import { keys, openLauncher } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { allRepos, currentProject } from "$lib/files.svelte";
   import { aria, display } from "$lib/keymap.svelte";
   import { shown, tallies } from "$lib/project.svelte";
   import { dividers, rects, resizeAt, type Divider } from "$lib/split-logic";
+  import { sessionChip } from "$lib/tile-logic";
   import { currentTab, equalizeAt, openLayout, reconcile, tabOf } from "$lib/tabs.svelte";
   import { app, grid, load, ticked, ui } from "$lib/state.svelte";
 
@@ -33,6 +35,12 @@
   const placed = $derived(tab ? (tab.zoom ? new Map([[tab.active, { x: 0, y: 0, w: 1, h: 1 }]]) : rects(tab.root)) : new Map());
   const borders = $derived(tab && !tab.zoom ? dividers(tab.root) : []);
   const firstRun = $derived(app.workspace !== null && !allRepos().length);
+
+  // The ⌘I panel: the CTO, with the session that has the keyboard (its selection comes with ⌘I).
+  $effect(() => {
+    const active = app.sessions.find((s) => s.id === tab?.active && shown(s));
+    return provide("terminals", { chips: active ? [sessionChip(active)] : [] });
+  });
 
   // Every session in one tab, whoever opened it.
   $effect(() => {
