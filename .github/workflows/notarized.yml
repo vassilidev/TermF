@@ -1,0 +1,83 @@
+name: Notarized
+
+# Finishes the .dmg files Apple was still notarizing when release.yml ended: once Apple accepts one, staples it,
+# puts it back in its release and redoes SHA256SUMS. Publish the draft only once every .dmg is back in it.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency: notarized
+
+jobs:
+  pending:
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.find.outputs.run }}
+      artifacts: ${{ steps.find.outputs.artifacts }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # The newest release run only: an older .dmg would be outdated anyway.
+          run=$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          [ -n "$run" ] || exit 0
+          artifacts=$(gh api "repos/$GH_REPO/actions/runs/$run/artifacts" \
+            --jq '[.artifacts[] | select((.name | startswith("dmg-")) and (.expired | not)) | "\(.id):\(.name)"] | join(" ")')
+          [ -n "$artifacts" ] || exit 0
+          echo "Waiting for Apple in run $run: $artifacts"
+          { echo "run=$run"; echo "artifacts=$artifacts"; } >> "$GITHUB_OUTPUT"
+
+  finish:
+    needs: pending
+    if: needs.pending.outputs.artifacts != ''
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN: ${{ needs.pending.outputs.run }}
+      ARTIFACTS: ${{ needs.pending.outputs.artifacts }}
+      NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+      NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+      NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+    steps:
+      - name: Ask Apple
+        run: |
+          auth=(--apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD")
+          updated=
+          failed=
+          for a in $ARTIFACTS; do
+            artifact=${a%%:*} dir=${a#*:}
+            gh run download "$RUN" -n "$dir" -D "$dir"
+            dmg=$(ls "$dir"/*.dmg) tag=$(cat "$dir/tag") id=$(cat "$dir/notary-id")
+            status=$(xcrun notarytool info "$id" "${auth[@]}" --output-format json | jq -r .status)
+            case $status in
+              Accepted)
+                xcrun stapler staple "$dmg"
+                xcrun stapler validate "$dmg"
+                gh release upload "$tag" "$dmg" --clobber
+                gh api -X DELETE "repos/$GH_REPO/actions/artifacts/$artifact"
+                updated=$tag ;;
+              "In Progress")
+                echo "::notice::Apple is still notarizing $(basename "$dmg") (submission $id)" ;;
+              *)
+                xcrun notarytool log "$id" "${auth[@]}" || true
+                echo "::error::Apple did not notarize $(basename "$dmg") ($status): rebuild it with release.yml"
+                gh api -X DELETE "repos/$GH_REPO/actions/artifacts/$artifact"
+                failed=1 ;;
+            esac
+          done
+          if [ -n "$updated" ]; then
+            mkdir dist
+            gh release download "$updated" -D dist
+            rm -f dist/SHA256SUMS
+            (cd dist && shasum -a 256 -- * > SHA256SUMS)
+            gh release upload "$updated" dist/SHA256SUMS --clobber
+          fi
+          [ -z "$failed" ]
