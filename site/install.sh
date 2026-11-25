@@ -6,8 +6,7 @@
 #
 # Options: --beta (pre-releases too), --format appimage|deb|rpm (Linux; default: the system's package
 # format, else the AppImage), --dry-run (say what would be installed, change nothing).
-# macOS: TermF.app goes to /Applications (~/Applications when that is not writable). A file curl downloads
-# carries no quarantine attribute, so the app, not notarized yet, opens without Gatekeeper's warning.
+# macOS: TermF.app goes to /Applications (~/Applications when that is not writable), signed and notarized.
 # Linux: the package through apt, dnf or zypper (sudo asks for your password), or the AppImage in ~/.local/bin.
 set -eu
 

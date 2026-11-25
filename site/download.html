@@ -135,17 +135,15 @@
   <section class="row" id="first-launch" aria-labelledby="first-h">
     <div class="head">
       <h2 id="first-h">Open it the first time</h2>
-      <p>Early version: the builds are not signed by Apple or Microsoft yet, so your system asks once before it opens TermF. The one-line install avoids this step.</p>
+      <p>On macOS, TermF is signed and notarized by Apple: it opens like any other app. On Windows it is not signed yet, so the system asks once. The one-line install avoids this step.</p>
     </div>
     <div class="oses">
       <section class="os" aria-labelledby="first-mac">
         <h3 id="first-mac">macOS</h3>
         <ol>
           <li>Open the <code>.dmg</code> and drag TermF to Applications.</li>
-          <li>The app is not signed yet, so macOS blocks the first launch. Clear the quarantine once, in a terminal:</li>
+          <li>Open it: signed and notarized by Apple, it opens with no extra step.</li>
         </ol>
-        <div class="cmd"><code>xattr -dr com.apple.quarantine /Applications/TermF.app</code></div>
-        <p class="status">Or open it once, then in System Settings, Privacy &amp; Security, click Open Anyway.</p>
       </section>
       <section class="os" aria-labelledby="first-win">
         <h3 id="first-win">Windows</h3>

@@ -39,7 +39,7 @@ Early development. The builds are not signed by Apple or Microsoft yet; the app 
 
 ### macOS says the app cannot be opened {#macos-blocked}
 
-The builds are not signed by Apple yet. Clear the quarantine once:
+Since 0.4.0, TermF is signed and notarized by Apple: this only happens with an older version. Install the latest one, or clear the quarantine once:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/TermF.app

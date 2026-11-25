@@ -25,7 +25,7 @@ The script takes the latest release for your system and processor, checks it aga
 - **Linux**: the package through `apt`, `dnf` or `zypper` (`sudo` asks for your password), or the AppImage in `~/.local/bin`.
 - **Windows**: the per-user installer, silently, with no administrator rights.
 
-A file downloaded this way carries no quarantine attribute (macOS) or mark of the web (Windows), so the unsigned app opens without the system's warning.
+On Windows, a file downloaded this way carries no mark of the web, so the installer, not signed yet, opens without SmartScreen's warning.
 
 ### Options
 
@@ -64,17 +64,9 @@ Download the file for your system from the [download page](../download.html) or 
 
 ### Open it the first time
 
-Downloaded with a browser, the builds are **not signed by Apple or Microsoft yet**, so the first launch takes one extra step.
+**macOS.** Open the `.dmg` and drag TermF to Applications. TermF is signed and notarized by Apple: it opens like any other app.
 
-**macOS.** Open the `.dmg` and drag TermF to Applications, then clear the quarantine once:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/TermF.app
-```
-
-Or open it once, then in **System Settings › Privacy & Security**, click **Open Anyway**.
-
-**Windows.** Run the `-setup.exe` or the `.msi`. On the SmartScreen warning, click **More info**, then **Run anyway**.
+**Windows.** Run the `-setup.exe` or the `.msi`. The build is not signed by Microsoft yet: on the SmartScreen warning, click **More info**, then **Run anyway**.
 
 **Linux.** Run the AppImage, or install the package:
 
