@@ -65,6 +65,8 @@ pub enum Kind {
     Sqlite,
     Mariadb,
     Clickhouse,
+    /// Read through an allow list of commands (`redis-read`); its writes are recipes that write.
+    Redis,
 }
 
 impl Kind {
@@ -82,13 +84,16 @@ impl Kind {
             Kind::Sqlite => "sqlite3",
             Kind::Mariadb => "mariadb",
             Kind::Clickhouse => "clickhouse-client",
+            Kind::Redis => "redis-cli",
         }
     }
 
     /// The secrets its connection may name, by role.
     fn secrets(self) -> &'static [&'static str] {
         match self {
-            Kind::Postgres | Kind::Mysql | Kind::Mariadb | Kind::Clickhouse => &["password"],
+            Kind::Postgres | Kind::Mysql | Kind::Mariadb | Kind::Clickhouse | Kind::Redis => {
+                &["password"]
+            }
             Kind::Loki => &["token"],
             Kind::Datadog => &["api_key", "app_key"],
             _ => &[],
@@ -113,6 +118,7 @@ impl Kind {
         match self {
             Kind::Postgres => 5432,
             Kind::Clickhouse => 9000,
+            Kind::Redis => 6379,
             _ => 3306,
         }
     }
@@ -158,6 +164,7 @@ pub fn install_hint(program: &str) -> &'static str {
         "sqlite3" => "SQLite's shell: brew install sqlite, apt install sqlite3",
         "mariadb" => "MariaDB's client: brew install mariadb, apt install mariadb-client",
         "clickhouse-client" => "ClickHouse's client: https://clickhouse.com/docs/install",
+        "redis-cli" => "Redis's client: brew install redis, apt install redis-tools",
         _ => "it",
     }
 }
@@ -212,6 +219,9 @@ pub struct Connection {
     /// Loki.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// SSH: a site's folder on the server, such as `/home/forge/acme.com`: Laravel's recipes run its `artisan`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     /// Datadog: `datadoghq.com` by default, `datadoghq.eu`…
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub site: Option<String>,
@@ -271,6 +281,7 @@ impl Connection {
             ("gcp_project", &self.gcp_project),
             ("url", &self.url),
             ("site", &self.site),
+            ("path", &self.path),
         ];
         for (what, value) in fields {
             if let Some(value) = value {
@@ -281,8 +292,25 @@ impl Connection {
             ensure!(value.is_some(), "a {:?} connection needs {what}", self.kind);
             Ok(())
         };
+        if let Some(path) = &self.path {
+            ensure!(
+                self.kind == Kind::Ssh && path.starts_with('/'),
+                "a site's folder is an absolute path on an SSH server"
+            );
+        }
         match self.kind {
             Kind::Ssh => need("host", &self.host)?,
+            Kind::Redis => {
+                if self.via.is_none() {
+                    need("host (or via)", &self.host)?;
+                }
+                if let Some(db) = &self.database {
+                    ensure!(
+                        db.parse::<u16>().is_ok(),
+                        "a Redis database is its number, such as 0"
+                    );
+                }
+            }
             Kind::Postgres | Kind::Mysql | Kind::Mariadb | Kind::Clickhouse => {
                 need("database", &self.database)?;
                 need("user", &self.user)?;
@@ -366,7 +394,7 @@ impl Connection {
                 }
             }
             Kind::Sqlite => self.database.clone().unwrap_or_default(),
-            Kind::Postgres | Kind::Mysql | Kind::Mariadb | Kind::Clickhouse => {
+            Kind::Postgres | Kind::Mysql | Kind::Mariadb | Kind::Clickhouse | Kind::Redis => {
                 let db = format!(
                     "{}/{}",
                     at(&self.user, self.host.as_deref().unwrap_or("127.0.0.1")),

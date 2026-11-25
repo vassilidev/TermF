@@ -1,0 +1,39 @@
+# Writes: an agent can only propose it; you run it after typing the environment's name.
+name = "redis-write"
+description = "Deletes a key, sets or removes its expiry, or empties the database, on a Redis server"
+mode = "write"
+ai_access = "full"
+approval = "always"
+redact = ["vault_values"]
+
+[params.command]
+type = "command"
+description = "What to change"
+required = true
+values = [
+  "DEL {key}",
+  "UNLINK {key}",
+  "EXPIRE {key} {seconds}",
+  "PERSIST {key}",
+  "FLUSHDB",
+  "FLUSHALL",
+]
+
+[params.key]
+type = "text"
+description = "The key"
+max_len = 512
+
+[params.seconds]
+type = "int"
+description = "EXPIRE: the key's time to live, in seconds"
+min = 1
+
+[limits]
+lines = 50
+bytes = 8192
+timeout_s = 30
+
+[[run]]
+kind = "redis"
+args = ["{command}"]

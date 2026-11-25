@@ -1,0 +1,29 @@
+# A server's health at a glance, read-only: load and CPU, memory, disks, running services, listening ports, and when
+# the certificates nginx serves expire.
+name = "server-health"
+description = "A server's health, read-only: load and CPU, memory, disks, running services, listening ports, SSL certificates' expiry"
+mode = "read"
+ai_access = "redacted"
+approval = "always"
+redact = ["email", "phone", "iban", "jwt", "vault_values"]
+
+[limits]
+lines = 2000
+bytes = 262144
+timeout_s = 60
+
+[[run]]
+kind = "ssh"
+args = ["sh", "-c", """
+echo '## load'; cat /proc/loadavg; nproc; vmstat 1 2 | tail -n 1
+echo '## memory'; free -b
+echo '## disk'; df -P -B1 -x tmpfs -x devtmpfs -x squashfs -x overlay 2>/dev/null
+echo '## services'; systemctl list-units --type=service --state=running --no-pager --no-legend --plain 2>/dev/null
+echo '## ports'; ss -Hltn 2>/dev/null
+echo '## certs'
+for n in $(grep -ho 'server_name [^;]*' /etc/nginx/sites-enabled/* 2>/dev/null | cut -d' ' -f2- | tr ' ' '\\n' | grep '[.]' | sort -u | head -n 30); do
+  e=$(echo | timeout 5 openssl s_client -servername "$n" -connect 127.0.0.1:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+  [ -n "$e" ] && echo "$n|$e"
+done
+true
+"""]

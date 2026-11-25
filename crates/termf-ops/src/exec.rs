@@ -230,6 +230,41 @@ pub(crate) fn base(
                 }
             }
         }
+        Kind::Redis => {
+            let (host, port) = match &conn.via {
+                Some(via) => {
+                    let server = all
+                        .iter()
+                        .find(|c| &c.name == via && c.kind == Kind::Ssh)
+                        .with_context(|| format!("{} goes through {via}, which is not an SSH connection of the project", conn.name))?;
+                    base.tunnel = Some(Tunnel {
+                        ssh: ssh(server, timeout),
+                        host: conn.host.clone().unwrap_or_else(|| "127.0.0.1".into()),
+                        port: conn.port.unwrap_or(6379),
+                    });
+                    ("127.0.0.1".to_owned(), PORT.to_owned())
+                }
+                None => (
+                    conn.host.clone().unwrap_or_default(),
+                    conn.port.unwrap_or(6379).to_string(),
+                ),
+            };
+            base.args = ["-h", &host, "-p", &port, "--no-auth-warning"]
+                .map(String::from)
+                .to_vec();
+            opt(&mut base.args, "--user", &conn.user);
+            opt(&mut base.args, "-n", &conn.database);
+            if matches!(
+                conn.sslmode.as_deref(),
+                Some("require" | "verify-ca" | "verify-full")
+            ) {
+                base.args.push("--tls".into());
+            }
+            // Never on its command line, where `ps` would show it.
+            if let Some(s) = secret("password") {
+                base.env.push(("REDISCLI_AUTH".into(), s));
+            }
+        }
         Kind::Kubernetes => {
             opt(&mut base.args, "--context", &conn.context);
             opt(&mut base.args, "--namespace", &conn.namespace);
@@ -790,6 +825,7 @@ impl Runner {
                 .map(String::from)
                 .to_vec(),
             Kind::Loki => ["labels", "--quiet"].map(String::from).to_vec(),
+            Kind::Redis => vec!["PING".into()],
             Kind::Datadog => vec![format!(
                 "https://api.{}/api/v1/validate",
                 conn.site.as_deref().unwrap_or("datadoghq.com")
@@ -832,6 +868,7 @@ impl Runner {
                 Kind::Ssh => raw.stdout.contains("termf-ok"),
                 k if k.is_db() => raw.stdout.contains("termf-ok"),
                 Kind::Kubernetes => raw.stdout.trim() == "yes",
+                Kind::Redis => raw.stdout.trim() == "PONG",
                 Kind::Datadog => raw.stdout.contains("\"valid\":true"),
                 _ => true,
             };

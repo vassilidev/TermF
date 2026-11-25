@@ -1,0 +1,22 @@
+# A Laravel site on a server reached by SSH (its connection's folder), read-only.
+name = "laravel-read"
+description = "A Laravel site, read-only: php artisan about, the scheduler, the failed jobs, Horizon's status"
+mode = "read"
+ai_access = "redacted"
+approval = "always"
+redact = ["email", "phone", "iban", "jwt", "vault_values"]
+
+[params.command]
+type = "command"
+description = "What to read"
+required = true
+values = ["about --json", "schedule:list", "queue:failed", "horizon:status"]
+
+[limits]
+lines = 2000
+bytes = 262144
+timeout_s = 60
+
+[[run]]
+kind = "ssh"
+args = ["php", "{conn.path}/artisan", "{command}", "--no-ansi", "--no-interaction"]
