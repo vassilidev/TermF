@@ -193,7 +193,7 @@ export function threadOf(project: string | null, role: string): AgentSession | u
   if (role === "expert") return expertOf(project);
   const kept = thread(project, role);
   // A conversation the panel started before it acted on the screens gives way to a new one, which does.
-  return agents.sessions.find((a) => a.id === kept?.id && (kept.step || a.actions));
+  return agents.sessions.find((a) => a.id === kept?.id && !a.archived && (kept.step || a.actions));
 }
 
 function started(session: AgentSession, view: string) {

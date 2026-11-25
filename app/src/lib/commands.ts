@@ -6,6 +6,7 @@ import BellRing from "@lucide/svelte/icons/bell-ring";
 import Gauge from "@lucide/svelte/icons/gauge";
 import History from "@lucide/svelte/icons/history";
 import CircleArrowUp from "@lucide/svelte/icons/circle-arrow-up";
+import CircleCheckBig from "@lucide/svelte/icons/circle-check-big";
 import CircleHelp from "@lucide/svelte/icons/circle-help";
 import Compass from "@lucide/svelte/icons/compass";
 import Images from "@lucide/svelte/icons/images";
@@ -44,10 +45,10 @@ import Telescope from "@lucide/svelte/icons/telescope";
 import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Workflow from "@lucide/svelte/icons/workflow";
-import { agents, conversation, showConversation, showExpert, waitingAgents } from "$lib/agents.svelte";
+import { agents, conversation, showConversation, showExpert, topicEnders, waitingAgents } from "$lib/agents.svelte";
 import { showClaude } from "$lib/claude.svelte";
 import { goToWait, home, projectWaits, talkCto } from "$lib/home.svelte";
-import { ask, askAI, askedProject, screenRole, toggleAsk } from "$lib/ask.svelte";
+import { ask, askAI, askedProject, currentRole, screenRole, threadOf, toggleAsk } from "$lib/ask.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { terminalReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
@@ -394,6 +395,10 @@ export function commands(): Command[] {
   if (waitingSessions().length || waitingAgents().length || waitingRuns().length) {
     list.push({ id: "next", label: t("nextWaiting"), keys: keys.next, icon: BellRing, group: "sessions", run: nextWaiting });
   }
+  // The conversation in front of the user: the ⌘I panel's, else the one Conversations shows.
+  const talking = ask.open ? threadOf(askedProject(), currentRole()) : ui.view === "conversations" ? conversation() : undefined;
+  const endTopic = talking && !talking.archived ? topicEnders.get(talking.id) : undefined;
+  if (endTopic) list.push({ id: "topic-new", label: t("topicNew"), icon: CircleCheckBig, group: "sessions", run: endTopic });
   const visible = app.sessions.filter(shown);
   const shownTabs = tabs.visibleTabs();
   for (const s of app.sessions) {

@@ -1440,6 +1440,74 @@ fn a_role_that_allows_the_browser_gets_it_from_termf_mcp() {
 }
 
 #[test]
+fn a_topic_done_archives_the_conversation_and_a_new_one_takes_its_place() {
+    let env = Env::new("topic");
+    let id = env.agents.start(env.spec(), Some("hello")).unwrap().id;
+    env.settle(id, 1, State::Idle);
+    assert!(
+        env.agents.delete(id).is_err(),
+        "a conversation in the list is archived first"
+    );
+
+    let fresh = env.agents.new_topic(id).unwrap();
+    let old = env.session(id);
+    assert!(old.archived);
+    assert_eq!(old.state, State::Stopped, "its process stopped");
+    assert!(!fresh.archived && fresh.id > id);
+    assert_eq!(fresh.spec, old.spec, "the same role and settings");
+    assert_ne!(
+        fresh.session_id, old.session_id,
+        "a conversation of its own"
+    );
+    assert!(env.events(fresh.id).is_empty(), "nothing said yet");
+    let refused = env.agents.send(id, "hello").unwrap_err().to_string();
+    assert!(refused.contains("archived"), "{refused}");
+
+    // Undo: the old one back, the new one gone, as nothing was said in it.
+    assert!(!env.agents.archive(id, false).unwrap().archived);
+    env.agents.delete(fresh.id).unwrap();
+    assert!(env.agents.session(fresh.id).is_err());
+    env.agents.send(id, "hello again").unwrap();
+    env.settle(id, 2, State::Idle);
+
+    env.agents.archive(id, true).unwrap();
+    let folder = env.root.join(format!("data/agents/{id}"));
+    assert!(folder.exists());
+    env.agents.delete(id).unwrap();
+    assert!(env.agents.session(id).is_err());
+    assert!(
+        env.agents.events(id, 0).unwrap().is_empty(),
+        "its events go"
+    );
+    assert!(!folder.exists(), "and its folder");
+}
+
+#[test]
+fn an_older_database_reads_with_nothing_archived() {
+    let env = Env::new("archived-migration");
+    let data = env.root.join("older");
+    fs::create_dir_all(&data).unwrap();
+    let db = rusqlite::Connection::open(data.join("termf.db")).unwrap();
+    db.execute_batch(
+        "CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, runtime TEXT NOT NULL, session_id TEXT NOT NULL,
+            spec TEXT NOT NULL, state TEXT NOT NULL, cost REAL NOT NULL, context TEXT, pid INTEGER,
+            created INTEGER NOT NULL, updated INTEGER NOT NULL);
+         INSERT INTO agent_sessions VALUES (7, 'claude-code', 's7', '{\"cwd\":\"/tmp\",\"title\":\"CTO · Acme\",\"mcp\":true}',
+            'idle', 0.5, NULL, NULL, 1, 2);",
+    )
+    .unwrap();
+    drop(db);
+    let read = sessions(&data).unwrap();
+    assert_eq!(read.len(), 1);
+    assert_eq!(
+        (read[0].id, read[0].archived, read[0].cost),
+        (7, false, 0.5)
+    );
+    assert_eq!(read[0].spec.title, "CTO · Acme");
+    assert_eq!(sessions(&data).unwrap(), read, "opened again: added once");
+}
+
+#[test]
 fn images_go_in_the_message_and_nowhere_else() {
     let env = Env::new("images");
     let id = env.agents.create(env.spec()).unwrap().id;

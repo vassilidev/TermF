@@ -10,6 +10,9 @@
 /** Commands an action runs through its screen's own code rather than an `invoke` of its own. */
 export const THROUGH: Record<string, string> = {
   ops_run: "ops.run_query",
+  agent_new_topic: "conversation.new_topic",
+  agent_archive: "conversation.new_topic",
+  agent_delete: "conversation.delete",
   git_branch_delete: "git.cleanup",
   git_worktree_remove: "git.cleanup",
   tickets_close: "git.cleanup",

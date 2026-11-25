@@ -20,6 +20,7 @@
   import Check from "@lucide/svelte/icons/check";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
+  import CircleCheckBig from "@lucide/svelte/icons/circle-check-big";
   import CircleDashed from "@lucide/svelte/icons/circle-dashed";
   import CirclePause from "@lucide/svelte/icons/circle-pause";
   import CircleX from "@lucide/svelte/icons/circle-x";
@@ -33,6 +34,7 @@
   import ShieldX from "@lucide/svelte/icons/shield-x";
   import Square from "@lucide/svelte/icons/square";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import Undo2 from "@lucide/svelte/icons/undo-2";
   import UserRound from "@lucide/svelte/icons/user-round";
   import X from "@lucide/svelte/icons/x";
@@ -45,11 +47,24 @@
   import { phrase as actPhrase } from "$lib/live-logic";
   import ContextGauge from "$lib/ContextGauge.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
-  import { apiUsd, budgetUsd, runtimes, showConversation, upsert, usd, type AgentSession } from "$lib/agents.svelte";
+  import {
+    apiUsd,
+    budgetUsd,
+    deleteConversations,
+    newTopic,
+    reopen,
+    runtimes,
+    showConversation,
+    topicEnders,
+    upsert,
+    usd,
+    type AgentSession,
+  } from "$lib/agents.svelte";
   import { budgetLabel, costHelp, resetClock, windowName } from "$lib/usage.svelte";
   import { focusSession } from "$lib/commands";
   import {
@@ -114,6 +129,7 @@
     fences,
     after,
     quote = question,
+    fresh = true,
   }: {
     session: AgentSession;
     embedded?: boolean;
@@ -129,6 +145,8 @@
     fences?: Record<string, Snippet<[string]>>;
     after?: Snippet<[string]>;
     quote?: (text: string) => string;
+    /** "Topic done" leaves an empty conversation in its place; false: the caller starts the next one. */
+    fresh?: boolean;
   } = $props();
 
   let events = $state.raw<StoredEvent[]>([]);
@@ -174,7 +192,7 @@
   // While a card waits, what is typed is a question about it: its answer, not a decision.
   const questioning = $derived(!to && (asking !== null || calling !== null));
   // A message to another agent does not wait for the CTO's turn.
-  const why = $derived(to || questioning ? null : blocked(session.state));
+  const why = $derived(session.archived ? "archived" : to || questioning ? null : blocked(session.state));
   // During a turn a message waits in a queue instead of being refused.
   const queueing = $derived(why === "working");
   const queued = $derived(queues[session.id] ?? []);
@@ -184,6 +202,9 @@
   let viewer = $state<HTMLDialogElement>();
   let zoomed = $state<string | null>(null);
   let dropping = $state(false);
+  /** The confirmations of a new topic during a turn, and of deleting an archived conversation. */
+  let stopping = $state(false);
+  let deleting = $state(false);
   const hint = $derived(
     questioning ? t("ciqCardPlaceholder") : (placeholder ?? (cto ? t("ctoMessage") : expert ? t("expertMessage") : t("chatMessage"))),
   );
@@ -218,6 +239,7 @@
     waiting: "chatWhyWaiting",
     interactive: "chatWhyInteractive",
     budget: "chatWhyBudget",
+    archived: "topicWhyArchived",
   } as const;
   const outcomes = {
     interrupted: ["stopped", "chatOutcomeInterrupted"],
@@ -569,6 +591,23 @@
       form?.requestSubmit();
     }
   }
+
+  function topicDone() {
+    stopping = false;
+    void run("topic", () => newTopic(session, fresh));
+  }
+
+  /** "Topic done", after asking during a turn. */
+  export function endTopic() {
+    if (turning) stopping = true;
+    else topicDone();
+  }
+
+  $effect(() => {
+    const id = session.id;
+    topicEnders.set(id, endTopic);
+    return () => void (topicEnders.get(id) === endTopic && topicEnders.delete(id));
+  });
 
   async function settle(name: string, command: string) {
     const updated = await run(name, () => invoke<AgentSession>(command, { id: id() }));
@@ -960,6 +999,26 @@
 {/snippet}
 
 {#snippet actions()}
+  {#if session.archived}
+    <button class="btn sm" disabled={!!busy} onclick={() => run("reopen", () => reopen(session.id))}>
+      <Undo2 size={14} aria-hidden="true" />{t("topicReopen")}
+    </button>
+    <button class="btn sm danger" disabled={!!busy} onclick={() => (deleting = true)}>
+      <Trash2 size={14} aria-hidden="true" />{t("topicDelete")}
+    </button>
+  {:else if turns.length}
+    <button class="btn sm" disabled={!!busy} title={t("topicDoneHelp")} onclick={endTopic}>
+      <CircleCheckBig size={14} aria-hidden="true" />{t("topicDone")}
+    </button>
+  {/if}
+  {#if session.archived}
+    <!-- An archived conversation is read, reopened or deleted: nothing else. -->
+  {:else}
+    {@render going()}
+  {/if}
+{/snippet}
+
+{#snippet going()}
   {#if turning}
     <button class="btn sm" disabled={!!busy} onclick={() => run("interrupt", () => invoke("agent_interrupt", { id: id() }))}>
       <CirclePause size={14} aria-hidden="true" />{t("chatInterrupt")}
@@ -1041,7 +1100,7 @@
     <div class="top">
       <h2>{session.title}</h2>
       {#if session.role}<span class="role"><UserRound size={12} aria-hidden="true" />{session.role}</span>{/if}
-      <StatusPill status={session.state} />
+      <StatusPill status={session.state} label={session.archived ? t("topicArchivedPill") : undefined} />
       <div class="actions">{@render actions()}</div>
     </div>
     {@render meta()}
@@ -1232,6 +1291,19 @@
     <img src={zoomed} alt={t("ciqImage")} />
   {/if}
 </dialog>
+
+<ConfirmDialog bind:open={stopping} title={t("topicBusyTitle")} confirm={t("topicBusyConfirm")} onconfirm={topicDone}>
+  <p>{t("topicBusyText")}</p>
+</ConfirmDialog>
+<ConfirmDialog
+  bind:open={deleting}
+  title={t("topicDeleteTitle")}
+  confirm={t("topicDelete")}
+  danger
+  onconfirm={() => run("delete", () => deleteConversations([session.id]))}
+>
+  <p>{t("topicDeleteText", { title: session.title })}</p>
+</ConfirmDialog>
 
 <style>
   .bar {

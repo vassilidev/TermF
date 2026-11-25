@@ -4,6 +4,7 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import { Approved, forAgent, refused, type Args, type Spec } from "$lib/actions-logic";
 import { ask } from "$lib/ask.svelte";
 import { ciActions, ciHere } from "$lib/ci-actions";
+import { conversationActions } from "$lib/conversation-actions";
 import { designActions } from "$lib/design-actions";
 import { gitActions } from "$lib/git-actions";
 import { t } from "$lib/i18n";
@@ -34,8 +35,9 @@ export type Action = Spec & {
   loses?: (args: Args, project: string) => string;
   /** What it waits for (no vault yet, no connection…), naming the action that settles it; null when ready. */
   needs?: (args: Args, project: string) => Promise<string | null>;
-  /** Runs it, updates the screen and says so in a toast; what the agent reads back, never a secret. */
-  run: (args: Args, secrets: Record<string, string>, project: string) => Promise<unknown>;
+  /** Runs it, updates the screen and says so in a toast; what the agent reads back, never a secret. `session`: the
+   * conversation that asked. */
+  run: (args: Args, secrets: Record<string, string>, project: string, session: number) => Promise<unknown>;
 };
 
 /** Each screen's actions, by view, and those of anywhere. */
@@ -54,7 +56,7 @@ const SCREENS: Record<string, Action[]> = {
   project: [...projectActions, ...ticketActions],
   claude: pluginActions,
 };
-const GLOBAL: Action[] = vaultAnywhere;
+const GLOBAL: Action[] = [...vaultAnywhere, ...conversationActions];
 
 /** What a screen holds, by name only, for the agent to act on: never a value. */
 const HERE: Record<string, (project: string) => Promise<unknown>> = {
@@ -122,7 +124,7 @@ export async function perform(call: Call, secrets: Record<string, string>) {
   const action = actionOf(call.session, call.action);
   if (!action) return reply(call.id, null, `No action ${call.action} here any more: list them again.`);
   try {
-    const result = await action.run(call.args, secrets, call.project);
+    const result = await action.run(call.args, secrets, call.project, call.session);
     await reply(call.id, result ?? { done: true }, null);
   } catch (e) {
     toast(String(e), { kind: "error" });

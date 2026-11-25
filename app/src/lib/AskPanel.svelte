@@ -5,6 +5,7 @@
   import FileText from "@lucide/svelte/icons/file-text";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import LayoutPanelLeft from "@lucide/svelte/icons/layout-panel-left";
+  import CircleCheckBig from "@lucide/svelte/icons/circle-check-big";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
   import TextSelect from "@lucide/svelte/icons/text-select";
@@ -29,6 +30,7 @@
   const project = $derived(askedProject());
   const role = $derived(currentRole());
   const session = $derived(threadOf(project, role));
+  let conv = $state<ReturnType<typeof Conversation>>();
   const sent = $derived(chips());
   const placeholder = $derived(role === "cto" ? t("aigPlaceholderCto") : t("aigPlaceholder", { role }));
 
@@ -167,6 +169,12 @@
           {/each}
         </select>
       </label>
+      <!-- A run step's session is the team's, not this panel's: its topic is not the user's to close. -->
+      {#if session && (standing || session.actions)}
+        <button class="icon-btn" aria-label={t("topicDone")} title={t("topicDoneHelp")} onclick={() => conv?.endTopic()}>
+          <CircleCheckBig size={16} aria-hidden="true" />
+        </button>
+      {/if}
       {#if session}
         <button class="icon-btn" aria-label={t("aigOpenConversation")} title={t("aigOpenConversation")} onclick={() => showConversation(session.id)}>
           <MessagesSquare size={16} aria-hidden="true" />
@@ -184,7 +192,7 @@
       </div>
     {:else if session}
       {#key session.id}
-        <Conversation {session} bare chips={chipRow} {outgoing} {placeholder} fences={{ "termf-cleanup": cleanupPlan }} />
+        <Conversation bind:this={conv} {session} bare fresh={standing} chips={chipRow} {outgoing} {placeholder} fences={{ "termf-cleanup": cleanupPlan }} />
       {/key}
     {:else if standing}
       <!-- Its conversation is being opened. -->

@@ -209,6 +209,9 @@ pub struct AgentSession {
     /// Seconds since the Unix epoch.
     pub created: i64,
     pub updated: i64,
+    /// Its topic is done: kept to read again, reopen or delete, and left out wherever a conversation is looked up.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

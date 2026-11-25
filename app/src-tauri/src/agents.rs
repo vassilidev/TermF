@@ -300,6 +300,28 @@ pub async fn agent_stop(app: AppHandle, id: i64) -> CmdResult<AgentSession> {
     blocking(app, move |app| agents(app).stop(id)).await
 }
 
+/// Archives a conversation (its process stopped first) or puts it back.
+#[tauri::command]
+pub async fn agent_archive(app: AppHandle, id: i64, archived: bool) -> CmdResult<AgentSession> {
+    blocking(app, move |app| agents(app).archive(id, archived)).await
+}
+
+/// "Topic done": the conversation archived, and the new one, empty, that takes its place.
+#[tauri::command]
+pub async fn agent_new_topic(app: AppHandle, id: i64) -> CmdResult<AgentSession> {
+    blocking(app, move |app| agents(app).new_topic(id)).await
+}
+
+/// Deletes archived conversations (or ones where nothing was said), their stored events with them.
+#[tauri::command]
+pub async fn agent_delete(app: AppHandle, ids: Vec<i64>) -> CmdResult<()> {
+    blocking(app, move |app| {
+        let agents = agents(app);
+        ids.iter().try_for_each(|&id| agents.delete(id))
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn agent_takeover(
     app: AppHandle,
