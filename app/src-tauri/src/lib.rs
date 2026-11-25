@@ -689,6 +689,7 @@ pub fn run() {
             ops::ops_follow_start,
             ops::ops_follow_stop,
             ops::ops_sql_copy,
+            ops::ops_chart_save,
             ops::ops_sql_export_all,
             ops::ops_parse_url,
             ops::ops_detect,

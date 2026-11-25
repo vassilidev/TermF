@@ -26,10 +26,13 @@
   import Play from "@lucide/svelte/icons/play";
   import ShieldX from "@lucide/svelte/icons/shield-x";
   import Sparkles from "@lucide/svelte/icons/sparkles";
+  import OpsChart from "$lib/OpsChart.svelte";
   import OpsDba from "$lib/OpsDba.svelte";
+  import OpsDiagram from "$lib/OpsDiagram.svelte";
   import OpsSaved from "$lib/OpsSaved.svelte";
   import OpsSchema from "$lib/OpsSchema.svelte";
   import Popover from "$lib/ui/Popover.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import { isMac } from "$lib/files.svelte";
   import { ago, lang, t } from "$lib/i18n";
   import {
@@ -370,6 +373,35 @@
     ops.studio.aside = "saved";
   }
 
+  let shownAs = $state<"table" | "chart">("table");
+  let chart = $state<ReturnType<typeof OpsChart>>();
+
+  async function exportChart(format: "png" | "svg") {
+    exportOpen = false;
+    if (!result) return;
+    try {
+      const base = `${result.plan.connection}-${firstTable(result.plan.params[param] ?? "")}`;
+      const label = t(format === "png" ? "sqlcsExportPng" : "sqlcsExportSvg");
+      const path = await save({ defaultPath: `${base}.${format}`, filters: [{ name: label, extensions: [format] }] });
+      if (!path) return;
+      const bytes = await chart?.image(format);
+      if (!bytes) return;
+      await invoke("ops_chart_save", { path, bytes: Array.from(bytes) });
+      notice = t("opsdbExported", { path });
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  function queryTable(name: string) {
+    ops.sql.query = `SELECT * FROM ${name}`;
+    ops.studio.view = "query";
+  }
+
+  function askTable(name: string) {
+    dba?.ask("write", t("sqlcsAskTable", { table: name }));
+  }
+
   let dba = $state<ReturnType<typeof OpsDba>>();
   const tabs = [
     { id: "dba", label: "opsdbAsideDba" },
@@ -381,12 +413,14 @@
 {#if !databases.length}
   <p class="notice none">{t("opssqlNoDatabase")}</p>
 {:else}
-  <div class="studio">
-    <aside class="left">
-      {#if conn}<OpsSchema {project} connection={conn.name} oninsert={insert} />{/if}
-    </aside>
+  <div class="studio" class:wide={ops.studio.view === "schema"}>
+    {#if ops.studio.view === "query"}
+      <aside class="left">
+        {#if conn}<OpsSchema {project} connection={conn.name} oninsert={insert} />{/if}
+      </aside>
+    {/if}
     <div class="main">
-      <p class="intro muted">{t("opssqlIntro")}</p>
+      {#if ops.studio.view === "query"}<p class="intro muted">{t("opssqlIntro")}</p>{/if}
       <div class="bar">
         <label class="inline">
           <span>{t("opssqlConnection")}</span>
@@ -396,134 +430,166 @@
         </label>
         {#if conn}<span class="badge env" class:prod={conn.env === "prod"}>{conn.env}</span>{/if}
         <span class="muted limits">{t("opssqlLimits", { rows, seconds: recipe?.limits.timeout_s ?? 15 })}</span>
-      </div>
-      {#if writes && conn}<p class="notice warn">{t("opsCheckReadonlyWarn", { subject: conn.user ?? "" })}</p>{/if}
-      <div class="editor" use:editor></div>
-      <div class="tools">
-        <div class="buttons">
-          <button class="btn sm" disabled={!plan} onclick={() => dba?.ask("explain", ops.sql.query)}>
-            <MessageCircleQuestion size={13} aria-hidden="true" />{t("opsdbExplain")}
-          </button>
-          <button class="btn sm" disabled={!plan} onclick={() => dba?.ask("optimize", ops.sql.query)}>
-            <Gauge size={13} aria-hidden="true" />{t("opsdbOptimize")}
-          </button>
-          <button class="btn sm" disabled={!ops.sql.query.trim()} onclick={() => saveQuery(ops.sql.query)}>
-            <Bookmark size={13} aria-hidden="true" />{t("opsdbSave")}
-          </button>
-          <span class="muted keys">{t("opssqlRunHint", { keys: isMac ? "⌘↵" : "Ctrl+↵" })}</span>
-          <button class="btn primary" disabled={running || !plan} onclick={run}>
-            {#if running}<LoaderCircle size={14} aria-hidden="true" class="spin" />{t("opssqlRunning")}{:else}<Play
-                size={14}
-                aria-hidden="true"
-              />{t("opssqlRun")}{/if}
-          </button>
+        <div class="segmented end" role="group" aria-label={t("sqlcsMain")}>
+          <button aria-pressed={ops.studio.view === "query"} onclick={() => (ops.studio.view = "query")}>{t("sqlcsQuery")}</button>
+          <button aria-pressed={ops.studio.view === "schema"} onclick={() => (ops.studio.view = "schema")}>{t("opsdbSchema")}</button>
         </div>
       </div>
-      <div class="check" aria-live="polite">
-        {#if refused}
-          <p class="refused"><ShieldX size={14} aria-hidden="true" /><span>{t("opssqlRefused", { reason: refused })}</span></p>
-        {:else if plan}
-          <p class="ok"><Check size={14} aria-hidden="true" /><span>{t("opssqlChecked")}</span></p>
-          <pre>{plan.params[param]}</pre>
+      {#if ops.studio.view === "schema"}
+        {#if conn}
+          {@const read = ops.studio.schemas[`${project}/${conn.name}`]}
+          {#if read === "loading" || read === undefined}
+            <Skeleton rows={6} />
+          {:else if !Array.isArray(read)}
+            <p class="notice error">{t("opsdbSchemaError", { error: read.error })}</p>
+          {:else if !read.length}
+            <p class="muted">{t("opsdbSchemaEmpty")}</p>
+          {:else}
+            {#key `${project}/${conn.name}`}<OpsDiagram tables={read} onquery={queryTable} onask={askTable} />{/key}
+          {/if}
         {/if}
-      </div>
-      {#if flash}<p class="flash" role="status">{flash}</p>{/if}
-      {#if error}<p class="notice error">{error}</p>{/if}
-
-      {#if running && !(result && result.plan.connection === conn?.name)}
-        <div class="loading" aria-hidden="true">
-          {#each [0, 1, 2, 3, 4] as i (i)}<span style:width="{92 - i * 9}%"></span>{/each}
-        </div>
-      {/if}
-      {#if result && result.plan.connection === conn?.name}
-        {@const out = result.output}
-        <section class="result" class:stale={running} aria-label={t("opssqlResult")}>
-          <div class="result-head">
-            <span class="badge" class:ok={out.exit === 0} class:danger={out.exit !== 0}>
-              {out.exit === null ? (out.stopped ?? "—") : t("opsExit", { code: out.exit })}
-            </span>
-            {#if table}<span>{t("opssqlRows", { count: table.rows.length })}</span>{/if}
-            <span class="muted">{t("opsDuration", { seconds: (out.millis / 1000).toFixed(1) })}</span>
-            <span class="muted">{t("opsMasked", { count: out.masks })}</span>
-            {#if out.truncated}<span class="muted">{t("opsTruncated")}</span>{/if}
-            {#if table?.columns.length}
-              <span class="end"></span>
-              <button class="btn sm" bind:this={copyButton} aria-expanded={copyOpen} onclick={() => (copyOpen = !copyOpen)}>
-                <Copy size={13} aria-hidden="true" />{t("opsdbCopy")}<ChevronDown size={12} aria-hidden="true" />
-              </button>
-              <button class="btn sm" bind:this={exportButton} aria-expanded={exportOpen} disabled={exporting} onclick={() => (exportOpen = !exportOpen)}>
-                {#if exporting}<LoaderCircle size={13} aria-hidden="true" class="spin" />{t("opsdbExporting")}{:else}<Download
-                    size={13}
-                    aria-hidden="true"
-                  />{t("opsdbExport")}<ChevronDown size={12} aria-hidden="true" />{/if}
-              </button>
-            {/if}
+      {:else}
+        {#if writes && conn}<p class="notice warn">{t("opsCheckReadonlyWarn", { subject: conn.user ?? "" })}</p>{/if}
+        <div class="editor" use:editor></div>
+        <div class="tools">
+          <div class="buttons">
+            <button class="btn sm" disabled={!plan} onclick={() => dba?.ask("explain", ops.sql.query)}>
+              <MessageCircleQuestion size={13} aria-hidden="true" />{t("opsdbExplain")}
+            </button>
+            <button class="btn sm" disabled={!plan} onclick={() => dba?.ask("optimize", ops.sql.query)}>
+              <Gauge size={13} aria-hidden="true" />{t("opsdbOptimize")}
+            </button>
+            <button class="btn sm" disabled={!ops.sql.query.trim()} onclick={() => saveQuery(ops.sql.query)}>
+              <Bookmark size={13} aria-hidden="true" />{t("opsdbSave")}
+            </button>
+            <span class="muted keys">{t("opssqlRunHint", { keys: isMac ? "⌘↵" : "Ctrl+↵" })}</span>
+            <button class="btn primary" disabled={running || !plan} onclick={run}>
+              {#if running}<LoaderCircle size={14} aria-hidden="true" class="spin" />{t("opssqlRunning")}{:else}<Play
+                  size={14}
+                  aria-hidden="true"
+                />{t("opssqlRun")}{/if}
+            </button>
           </div>
-          {#if copyOpen}
-            <Popover bind:open={copyOpen} trigger={copyButton} label={t("opsdbCopy")} align="end" width={200}>
-              <div class="menu" role="menu">
-                {#each COPIES as f (f)}<button role="menuitem" onclick={() => copyAs(f)}>{t(formats[f])}</button>{/each}
-              </div>
-            </Popover>
+        </div>
+        <div class="check" aria-live="polite">
+          {#if refused}
+            <p class="refused"><ShieldX size={14} aria-hidden="true" /><span>{t("opssqlRefused", { reason: refused })}</span></p>
+          {:else if plan}
+            <p class="ok"><Check size={14} aria-hidden="true" /><span>{t("opssqlChecked")}</span></p>
+            <pre>{plan.params[param]}</pre>
           {/if}
-          {#if exportOpen}
-            <Popover bind:open={exportOpen} trigger={exportButton} label={t("opsdbExport")} align="end" width={360}>
-              <div class="menu" role="menu">
-                <div class="formats">
-                  {#each EXPORTS as f (f)}<button role="menuitem" onclick={() => exportAs(f)}>{t(formats[f])}</button>{/each}
+        </div>
+        {#if flash}<p class="flash" role="status">{flash}</p>{/if}
+        {#if error}<p class="notice error">{error}</p>{/if}
+
+        {#if running && !(result && result.plan.connection === conn?.name)}
+          <div class="loading" aria-hidden="true">
+            {#each [0, 1, 2, 3, 4] as i (i)}<span style:width="{92 - i * 9}%"></span>{/each}
+          </div>
+        {/if}
+        {#if result && result.plan.connection === conn?.name}
+          {@const out = result.output}
+          <section class="result" class:stale={running} aria-label={t("opssqlResult")}>
+            <div class="result-head">
+              <span class="badge" class:ok={out.exit === 0} class:danger={out.exit !== 0}>
+                {out.exit === null ? (out.stopped ?? "—") : t("opsExit", { code: out.exit })}
+              </span>
+              {#if table}<span>{t("opssqlRows", { count: table.rows.length })}</span>{/if}
+              <span class="muted">{t("opsDuration", { seconds: (out.millis / 1000).toFixed(1) })}</span>
+              <span class="muted">{t("opsMasked", { count: out.masks })}</span>
+              {#if out.truncated}<span class="muted">{t("opsTruncated")}</span>{/if}
+              {#if table?.columns.length}
+                <span class="end"></span>
+                <div class="segmented" role="group" aria-label={t("sqlcsShownAs")}>
+                  <button aria-pressed={shownAs === "table"} onclick={() => (shownAs = "table")}>{t("sqlcsTable")}</button>
+                  <button aria-pressed={shownAs === "chart"} onclick={() => (shownAs = "chart")}>{t("sqlcsChart")}</button>
                 </div>
-                <hr />
-                <div class="all">
-                  <div class="all-row">
-                    <button role="menuitem" class="strong" onclick={exportAll}>
-                      <Sparkles size={13} aria-hidden="true" />{t("opsdbExportAll", { rows: (100000).toLocaleString(lang) })}
-                    </button>
-                    <select class="field" bind:value={exportFormat} aria-label={t("opsdbExport")}>
-                      {#each EXPORTS as f (f)}<option value={f}>{t(formats[f])}</option>{/each}
-                    </select>
-                  </div>
-                  <small class="muted">{t("opsdbExportAllHelp", { shown: rows })}</small>
-                </div>
-              </div>
-            </Popover>
-          {/if}
-          {#if notice}<p class="muted small" role="status">{notice}</p>{/if}
-          {#if table && !table.columns.length}
-            <p class="muted">{t("opssqlNoRows")}</p>
-          {:else if table}
-            <div class="grid">
-              <table>
-                <thead>
-                  <tr>
-                    {#each table.columns as column, i (i)}
-                      <th aria-sort={sort?.column === i ? (sort.desc ? "descending" : "ascending") : "none"}>
-                        <button onclick={() => sortBy(i)} title={t("opssqlSort", { column })}>
-                          <span>{column}</span>
-                          {#if sort?.column === i}
-                            {#if sort.desc}<ArrowDown size={12} aria-hidden="true" />{:else}<ArrowUp size={12} aria-hidden="true" />{/if}
-                          {/if}
-                        </button>
-                      </th>
-                    {/each}
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each shown as row, r (r)}
-                    <tr>
-                      {#each row as cell, c (c)}<td class:null={cell === "NULL"}>{cell}</td>{/each}
-                    </tr>
-                  {:else}
-                    <tr><td class="muted" colspan={table.columns.length}>{t("opssqlNoRows")}</td></tr>
-                  {/each}
-                </tbody>
-              </table>
+                <button class="btn sm" bind:this={copyButton} aria-expanded={copyOpen} onclick={() => (copyOpen = !copyOpen)}>
+                  <Copy size={13} aria-hidden="true" />{t("opsdbCopy")}<ChevronDown size={12} aria-hidden="true" />
+                </button>
+                <button class="btn sm" bind:this={exportButton} aria-expanded={exportOpen} disabled={exporting} onclick={() => (exportOpen = !exportOpen)}>
+                  {#if exporting}<LoaderCircle size={13} aria-hidden="true" class="spin" />{t("opsdbExporting")}{:else}<Download
+                      size={13}
+                      aria-hidden="true"
+                    />{t("opsdbExport")}<ChevronDown size={12} aria-hidden="true" />{/if}
+                </button>
+              {/if}
             </div>
-          {/if}
-          {#if out.errors.trim()}
-            <span class="label">{t("opsErrors")}</span>
-            <pre class="errors">{out.errors}</pre>
-          {/if}
-        </section>
+            {#if copyOpen}
+              <Popover bind:open={copyOpen} trigger={copyButton} label={t("opsdbCopy")} align="end" width={200}>
+                <div class="menu" role="menu">
+                  {#each COPIES as f (f)}<button role="menuitem" onclick={() => copyAs(f)}>{t(formats[f])}</button>{/each}
+                </div>
+              </Popover>
+            {/if}
+            {#if exportOpen}
+              <Popover bind:open={exportOpen} trigger={exportButton} label={t("opsdbExport")} align="end" width={360}>
+                <div class="menu" role="menu">
+                  <div class="formats">
+                    {#each EXPORTS as f (f)}<button role="menuitem" onclick={() => exportAs(f)}>{t(formats[f])}</button>{/each}
+                  </div>
+                  <hr />
+                  <div class="all">
+                    <div class="all-row">
+                      <button role="menuitem" class="strong" onclick={exportAll}>
+                        <Sparkles size={13} aria-hidden="true" />{t("opsdbExportAll", { rows: (100000).toLocaleString(lang) })}
+                      </button>
+                      <select class="field" bind:value={exportFormat} aria-label={t("opsdbExport")}>
+                        {#each EXPORTS as f (f)}<option value={f}>{t(formats[f])}</option>{/each}
+                      </select>
+                    </div>
+                    <small class="muted">{t("opsdbExportAllHelp", { shown: rows })}</small>
+                  </div>
+                  {#if shownAs === "chart"}
+                    <hr />
+                    <div class="formats">
+                      <button role="menuitem" onclick={() => exportChart("png")}>{t("sqlcsExportPng")}</button>
+                      <button role="menuitem" onclick={() => exportChart("svg")}>{t("sqlcsExportSvg")}</button>
+                    </div>
+                  {/if}
+                </div>
+              </Popover>
+            {/if}
+            {#if notice}<p class="muted small" role="status">{notice}</p>{/if}
+            {#if table && !table.columns.length}
+              <p class="muted">{t("opssqlNoRows")}</p>
+            {:else if table && shownAs === "chart"}
+              {#key result.id}<OpsChart bind:this={chart} {table} />{/key}
+            {:else if table}
+              <div class="grid">
+                <table>
+                  <thead>
+                    <tr>
+                      {#each table.columns as column, i (i)}
+                        <th aria-sort={sort?.column === i ? (sort.desc ? "descending" : "ascending") : "none"}>
+                          <button onclick={() => sortBy(i)} title={t("opssqlSort", { column })}>
+                            <span>{column}</span>
+                            {#if sort?.column === i}
+                              {#if sort.desc}<ArrowDown size={12} aria-hidden="true" />{:else}<ArrowUp size={12} aria-hidden="true" />{/if}
+                            {/if}
+                          </button>
+                        </th>
+                      {/each}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each shown as row, r (r)}
+                      <tr>
+                        {#each row as cell, c (c)}<td class:null={cell === "NULL"}>{cell}</td>{/each}
+                      </tr>
+                    {:else}
+                      <tr><td class="muted" colspan={table.columns.length}>{t("opssqlNoRows")}</td></tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {/if}
+            {#if out.errors.trim()}
+              <span class="label">{t("opsErrors")}</span>
+              <pre class="errors">{out.errors}</pre>
+            {/if}
+          </section>
+        {/if}
       {/if}
     </div>
 
@@ -589,6 +655,10 @@
     flex: 1;
     grid-template-columns: 232px minmax(0, 1fr) 340px;
     min-height: 0;
+  }
+
+  .studio.wide {
+    grid-template-columns: minmax(0, 1fr) 340px;
   }
 
   .left,

@@ -59,6 +59,8 @@ export const ops = $state({
   studio: {
     schemas: {} as Record<string, SchemaTable[] | "loading" | { error: string }>,
     aside: "saved" as "dba" | "saved" | "recent",
+    /** The studio's middle: the query and its result, or the whole schema as a diagram. */
+    view: "query" as "query" | "schema",
     dba: {} as Record<string, number>,
     /** The saved query being written: a new one (`previous` null) or one being changed. */
     editing: null as { query: Query; previous: string | null } | null,

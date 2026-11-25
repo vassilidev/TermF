@@ -2252,7 +2252,7 @@ done"#,
     assert_eq!(table.rows, [vec!["DE", "300"], vec!["FR", "200.5"]]);
     let stdin = fs::read_to_string(env.root.join("claude.stdin")).unwrap();
     assert!(
-        stdin.contains("orders(id INTEGER pk, customer_id INTEGER not null"),
+        stdin.contains("orders(id INTEGER pk, customer_id INTEGER fk not null"),
         "{stdin}"
     );
     assert!(stdin.contains("Answer in French") && stdin.contains("You see no rows"));
