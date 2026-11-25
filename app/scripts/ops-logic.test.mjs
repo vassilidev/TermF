@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import {
   asked,
-  openBlock,
   bounded,
   clean,
   completions,
@@ -13,7 +12,6 @@ import {
   secretClash,
   firstTable,
   passwordName,
-  prose,
   savedGroups,
   sqlBlock,
   historyRow,
@@ -212,16 +210,12 @@ test("a history row says what was done with a .env's value", () => {
   assert.equal(historyRow({ id: 1, at: 0, actor: { kind: "human" }, detail: "{}" }).event, null);
 });
 
-test("the DBA's answer gives its query and its explanation apart, even while it streams", () => {
+test("the DBA's answer gives its query, none while it streams", () => {
   const answer = "Voici :\n\n```sql\nSELECT id, total\nFROM orders\nORDER BY total DESC\n```\n\nLes 10 plus grosses **commandes**.";
   assert.equal(sqlBlock(answer), "SELECT id, total\nFROM orders\nORDER BY total DESC");
-  assert.equal(prose(answer), "Voici :\n\nLes 10 plus grosses **commandes**.");
   assert.equal(sqlBlock("```sql\nSELECT 1"), null, "a block still streaming has no end yet");
-  assert.equal(prose("Je lis\n```sql\nSELECT"), "Je lis");
   assert.equal(sqlBlock("```sql\nSELECT 1\n```\nthen\n```sql\nSELECT 2\n```"), "SELECT 2", "the last one");
   assert.equal(sqlBlock("no query"), null);
-  assert.equal(openBlock("Voici :\n```sql\nSELECT id\nFROM"), "SELECT id\nFROM");
-  assert.equal(openBlock("```sql\nSELECT 1\n```"), null);
 });
 
 test("what the user asked is read back from the message the DBA got", () => {

@@ -498,22 +498,6 @@ export function asked(text: string): { kind: "write" | "explain" | "optimize"; t
   return kind === "write" ? { kind, text: text.slice(at + mark.length) } : { kind, text: sqlBlock(text) ?? "" };
 }
 
-/** The query of a ```sql block the answer is still writing, or `null`. */
-export function openBlock(text: string): string | null {
-  const fences = [...text.matchAll(/```/g)];
-  if (fences.length % 2 === 0) return null;
-  const rest = text.slice(fences.at(-1)!.index! + 3);
-  return rest.slice(rest.indexOf("\n") + 1 || rest.length);
-}
-
-/** The answer without its query block, what is left to read: the explanation. */
-export function prose(text: string): string {
-  return text
-    .replace(/```[\s\S]*?(```|$)/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
 /** Saved queries matching a search (name, description, folder, tags, the query itself), grouped by folder, those
  * without one last. */
 export function savedGroups(queries: Query[], search: string): { folder: string; queries: Query[] }[] {
