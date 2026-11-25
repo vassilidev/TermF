@@ -9,7 +9,7 @@ export type Usage = { input: number; output: number; cacheRead: number; cacheCre
 export type StoredEvent = { id: number; session: number; at: number } & (
   | { kind: "started"; resumed: boolean }
   | { kind: "init"; sessionId: string; model: string; permissionMode: string }
-  | { kind: "user"; text: string }
+  | { kind: "user"; text: string; images?: number }
   | { kind: "delta"; text: string }
   | { kind: "text"; text: string; parent?: string }
   | { kind: "tool_use"; call: string; name: string; input: unknown; parent?: string }
@@ -63,7 +63,8 @@ export type Permission = {
   tool: string;
   input: unknown;
   description: string | null;
-  answer: { allow: boolean; message: string | null } | null;
+  /** `asked`: the user asked a question instead of answering. */
+  answer: { allow: boolean; message: string | null; asked?: true } | null;
 };
 export type Item =
   | { type: "text"; key: number; text: string }
@@ -74,10 +75,40 @@ export type Item =
   | { type: "error"; key: number; message: string }
   | { type: "taken_over"; key: number; tile: number }
   | { type: "handed_back"; key: number }
-  | ({ type: "notice"; key: number } & NoticeFields);
+  | ({ type: "notice"; key: number } & NoticeFields)
+  /** The user's question about a request, written while it waited. */
+  | { type: "question"; key: number; text: string };
 export type End = Extract<StoredEvent, { kind: "turn_end" }>;
-/** A message and what followed; `user` is null for what happened outside a turn. */
-export type Turn = { key: number; user: string | null; items: Item[]; end: End | null };
+/** A message and what followed; `user` is null for what happened outside a turn; `images`: how many it carried. */
+export type Turn = { key: number; user: string | null; images?: number; items: Item[]; end: End | null };
+
+/** An image of a message, base64 as Claude reads it. */
+export type Image = { mediaType: string; data: string };
+export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+/** 10 MB once in base64, the Claude API's limit per image. */
+export const IMAGE_MAX = ((10 * 1024 * 1024) / 4) * 3;
+
+/** Why a file cannot go with a message: not an image Claude reads, or too heavy; null when it can. */
+export function unfit(file: { type: string; size: number }): "type" | "size" | null {
+  if (!IMAGE_TYPES.includes(file.type)) return "type";
+  return file.size > IMAGE_MAX ? "size" : null;
+}
+
+/** The media type of a dropped file by its name, "" for one Claude does not read. */
+export function imageType(path: string): string {
+  const ext = /\.([a-z]+)$/i.exec(path)?.[1].toLowerCase();
+  return { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" }[ext ?? ""] ?? "";
+}
+
+/** What the agent reads when the user asks about a request instead of answering it: a refusal that is no decision. */
+export function questionAbout(question: string): string {
+  return `The user has not decided yet: they ask a question about this request first, so it did not run. Answer them; then, if you still need it, ask for it again.\n<user-question>\n${question}\n</user-question>`;
+}
+
+/** The question in a refusal that `questionAbout` wrote, else null. */
+export function questionIn(text: string | null): string | null {
+  return /<user-question>\n([\s\S]*?)\n<\/user-question>/.exec(text ?? "")?.[1] ?? null;
+}
 
 /** Stored events in id order, each once. */
 export function merge(events: StoredEvent[], incoming: StoredEvent[]): StoredEvent[] {
@@ -110,6 +141,8 @@ export function thread(events: StoredEvent[]): Turn[] {
   const turns: Turn[] = [];
   const tools = new Map<string, Tool>();
   const asks = new Map<string, Permission>();
+  // A question asked on a permission card comes back as the refused call's result too: shown once.
+  const asked: string[] = [];
   const open = (key: number): Turn => {
     const last = turns.at(-1);
     if (last && !last.end) return last;
@@ -124,7 +157,7 @@ export function thread(events: StoredEvent[]): Turn[] {
   for (const e of events) {
     switch (e.kind) {
       case "user":
-        turns.push({ key: e.id, user: e.text, items: [], end: null });
+        turns.push({ key: e.id, user: e.text, ...(e.images ? { images: e.images } : {}), items: [], end: null });
         break;
       case "text":
         place({ type: "text", key: e.id, text: e.text }, e.parent);
@@ -138,6 +171,10 @@ export function thread(events: StoredEvent[]): Turn[] {
       case "tool_result": {
         const tool = tools.get(e.call);
         if (tool) tool.result = { output: e.output, isError: e.isError, truncated: e.truncated };
+        const question = questionIn(e.output);
+        const twice = question === null ? -1 : asked.indexOf(question);
+        if (twice >= 0) asked.splice(twice, 1);
+        else if (question !== null) place({ type: "question", key: e.id, text: question }, e.parent);
         break;
       }
       case "permission": {
@@ -156,7 +193,12 @@ export function thread(events: StoredEvent[]): Turn[] {
       }
       case "permission_answer": {
         const ask = asks.get(e.request);
-        if (ask) ask.answer = { allow: e.allow, message: e.message };
+        const question = questionIn(e.message);
+        if (ask) ask.answer = question === null ? { allow: e.allow, message: e.message } : { allow: e.allow, message: null, asked: true };
+        if (question !== null) {
+          asked.push(question);
+          place({ type: "question", key: e.id, text: question });
+        }
         break;
       }
       case "denied":

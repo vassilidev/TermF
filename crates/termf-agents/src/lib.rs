@@ -50,8 +50,12 @@ pub trait AgentRuntime: Send + Sync {
     fn interactive_args(&self, spec: &SessionSpec, session_id: &str) -> Vec<String>;
     /// Reads one process's output, line by line.
     fn parser(&self) -> Box<dyn Parser>;
+    /// Its input takes images besides text.
+    fn images(&self) -> bool {
+        false
+    }
     /// The stdin line of a user message.
-    fn message(&self, text: &str) -> String;
+    fn message(&self, text: &str, images: &[Image]) -> String;
     /// The stdin line that stops the turn under way; `None`: an interrupt signal does.
     fn interrupt(&self) -> Option<String>;
     /// The stdin line that answers a permission request; `input` is the tool input it asked about.
@@ -247,6 +251,9 @@ pub enum AgentEvent {
     /// A message sent to the agent.
     User {
         text: String,
+        /// How many images it carried: they are in the message only, never stored.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        images: usize,
     },
     /// Text as it streams: sent to the UI, never stored; the `text` event that follows holds all of it.
     Delta {
@@ -368,7 +375,7 @@ impl AgentEvent {
                 permission_mode,
                 ..
             } => format!("{model}, permission mode {permission_mode}"),
-            AgentEvent::User { text } => format!("you: {text}"),
+            AgentEvent::User { text, .. } => format!("you: {text}"),
             AgentEvent::Delta { text } | AgentEvent::Text { text, .. } => text.clone(),
             AgentEvent::ToolUse { name, input, .. } => format!("{name} {input}"),
             AgentEvent::ToolResult {
@@ -438,6 +445,22 @@ pub struct StoredEvent {
     pub at: i64,
     #[serde(flatten)]
     pub event: AgentEvent,
+}
+
+/// An image of the user's message, base64 as Claude reads it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Image {
+    pub media_type: String,
+    pub data: String,
+}
+
+/// The images Claude reads, and how long one may be once in base64: the Claude API's limit per image.
+pub const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+pub const IMAGE_MAX: usize = 10 * 1024 * 1024;
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// What the UI hears about.

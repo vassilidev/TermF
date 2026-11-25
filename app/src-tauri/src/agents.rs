@@ -7,7 +7,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
-use termf_agents::{AgentEvent, AgentSession, Agents, SessionSpec, StoredEvent, Update};
+use termf_agents::{
+    AgentEvent, AgentSession, Agents, IMAGE_MAX, Image, SessionSpec, StoredEvent, Update,
+};
 use termf_core::ipc::{AgentCall, SessionSummary};
 
 use crate::tickets::blocking;
@@ -239,11 +241,31 @@ pub async fn agent_start(
 }
 
 #[tauri::command]
-pub async fn agent_send(app: AppHandle, id: i64, text: String) -> CmdResult<()> {
+pub async fn agent_send(
+    app: AppHandle,
+    id: i64,
+    text: String,
+    images: Option<Vec<Image>>,
+) -> CmdResult<()> {
     blocking(app, move |app| {
         let agents = agents(app);
         crate::memory::before_expert(app, &agents.session(id)?, &text);
-        agents.send(id, &text)
+        agents.send_with(id, &text, &images.unwrap_or_default())
+    })
+    .await
+}
+
+/// An image file dropped on a conversation: its bytes, for the message only.
+#[tauri::command]
+pub async fn agent_image(app: AppHandle, path: String) -> CmdResult<tauri::ipc::Response> {
+    blocking(app, move |_| {
+        let size = std::fs::metadata(&path)?.len();
+        // Claude's limit is on the base64 of the file, a third longer.
+        anyhow::ensure!(
+            size <= (IMAGE_MAX / 4 * 3) as u64,
+            "this image is over 7.5 MB: Claude refuses it"
+        );
+        Ok(tauri::ipc::Response::new(std::fs::read(&path)?))
     })
     .await
 }

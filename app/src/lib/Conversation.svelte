@@ -1,12 +1,19 @@
 <script lang="ts" module>
-  /** Messages typed during a turn, per session: sent together once it ends. */
-  const queues = $state<Record<number, string[]>>({});
+  /** An image attached to a message, as a data URL. */
+  type Picture = { name: string; mediaType: string; url: string };
+  /** Messages typed during a turn, per session, with their images: sent together once it ends. */
+  const queues = $state<Record<number, { text: string; images: Picture[] }[]>>({});
+  /** The images of the user's messages by event, for this launch only: nothing stores them. */
+  const shown = $state<Record<number, string[]>>({});
+  /** By session, the images of the message on its way, until its event comes. */
+  const outbox: Record<number, string[]> = {};
 </script>
 
 <script lang="ts">
   import { onMount, tick, type Snippet } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWebview } from "@tauri-apps/api/webview";
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import AtSign from "@lucide/svelte/icons/at-sign";
@@ -17,8 +24,10 @@
   import CirclePause from "@lucide/svelte/icons/circle-pause";
   import CircleX from "@lucide/svelte/icons/circle-x";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
+  import Images from "@lucide/svelte/icons/images";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Megaphone from "@lucide/svelte/icons/megaphone";
+  import Paperclip from "@lucide/svelte/icons/paperclip";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import ShieldQuestionMark from "@lucide/svelte/icons/shield-question-mark";
   import ShieldX from "@lucide/svelte/icons/shield-x";
@@ -29,7 +38,7 @@
   import X from "@lucide/svelte/icons/x";
   import Action from "$lib/Action.svelte";
   import ActionAsk from "$lib/ActionAsk.svelte";
-  import { actionOf, agentActions, approve, perform, refuse, type Call } from "$lib/actions.svelte";
+  import { actionOf, agentActions, approve, askFirst, perform, refuse, type Call } from "$lib/actions.svelte";
   import StreamSteps, { type Step } from "$lib/ui/StreamSteps.svelte";
   import { toast } from "$lib/ui/toast.svelte";
   import { afterChange, changeOf, diffOf, question, within } from "$lib/ask-logic";
@@ -44,18 +53,24 @@
   import { budgetLabel, costHelp, resetClock, windowName } from "$lib/usage.svelte";
   import { focusSession } from "$lib/commands";
   import {
+    IMAGE_TYPES,
     addressed,
     blocked,
     fields,
+    imageType,
     mentioned,
     merge,
     pending,
+    questionAbout,
+    questionIn,
     stream,
     summary,
     thread,
     ticketNamed,
+    unfit,
     unsaid,
     type End,
+    type Image,
     type Item,
     type NoticeFields,
     type Permission,
@@ -69,6 +84,7 @@
   import { asks as runAsks } from "$lib/team-run-logic";
   import { showTeamRun, stepTitle, team } from "$lib/team.svelte";
   import { tickets } from "$lib/tickets.svelte";
+  import { dropPoint } from "$lib/workspace-logic";
 
   type Notice = Extract<Item, { type: "notice" }>;
 
@@ -79,7 +95,7 @@
    * caller whose `top` already asks something.
    * `bare`: in the ⌘I panel, with no header; the agent's actions fold into one line, a permission is a proposal
    * (Apply, Modify, Ignore) and an applied file change can be undone. `chips` goes above the field; `outgoing` turns
-   * what is typed into what is sent, null when it went elsewhere. `fences` draws a fenced block of the given language
+   * what is typed into what is sent, null when it went elsewhere with its images. `fences` draws a fenced block of the given language
    * its own way (a proposal the agent wrote), instead of as code. `after` goes under each of the agent's texts;
    * `quote` says how the user's messages read (by default, without the panel's context).
    */
@@ -108,7 +124,7 @@
     examples?: boolean;
     bare?: boolean;
     chips?: Snippet;
-    outgoing?: (text: string) => Promise<string | null>;
+    outgoing?: (text: string, images: Image[]) => Promise<string | null>;
     placeholder?: string;
     fences?: Record<string, Snippet<[string]>>;
     after?: Snippet<[string]>;
@@ -152,13 +168,28 @@
   const repos = $derived(app.workspace?.projects.find((p) => p.id === session.project)?.repos ?? []);
   const to = $derived(cto ? addressed(draft, roles) : null);
   const offered = $derived(cto && !closed ? mentioned(draft, roles) : []);
+  const asking = $derived(session.state === "waiting" ? pending(events) : null);
+  /** An action TermF's own card asks the user about, no permission card having approved it. */
+  const calling = $derived(agentActions.waiting.find((c) => c.session === session.id) ?? null);
+  // While a card waits, what is typed is a question about it: its answer, not a decision.
+  const questioning = $derived(!to && (asking !== null || calling !== null));
   // A message to another agent does not wait for the CTO's turn.
-  const why = $derived(to ? null : blocked(session.state));
+  const why = $derived(to || questioning ? null : blocked(session.state));
   // During a turn a message waits in a queue instead of being refused.
   const queueing = $derived(why === "working");
   const queued = $derived(queues[session.id] ?? []);
   const turning = $derived(session.state === "working" || session.state === "waiting");
-  const asking = $derived(session.state === "waiting" ? pending(events) : null);
+  let attached = $state<Picture[]>([]);
+  let picker = $state<HTMLInputElement>();
+  let viewer = $state<HTMLDialogElement>();
+  let zoomed = $state<string | null>(null);
+  let dropping = $state(false);
+  const hint = $derived(
+    questioning ? t("ciqCardPlaceholder") : (placeholder ?? (cto ? t("ctoMessage") : expert ? t("expertMessage") : t("chatMessage"))),
+  );
+  // A question, or a message to another agent, goes without images.
+  const empty = $derived(questioning || to ? !draft.trim() : !draft.trim() && !attached.length);
+  const off = $derived((!!why && !queueing) || !!busy || empty);
   /** At work with no word yet and no call running: it reads, plans, or reads what a call gave. */
   const thinking = $derived.by(() => {
     if (session.state !== "working" || live) return false;
@@ -198,6 +229,8 @@
   const mode = $derived(session.permissionMode || (init?.kind === "init" ? init.permissionMode : ""));
   const left = $derived(session.budget === null ? null : Math.max(0, session.budget - session.cost));
   const runtime = $derived(runtimes[session.runtime]);
+  // Codex and Gemini read their message as plain text on stdin.
+  const takesImages = $derived(!runtime);
 
   const atBottom = () => !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
 
@@ -333,16 +366,85 @@
     const id = session.id;
     const off = listen<StoredEvent>("agent-event", ({ payload }) => {
       if (payload.session !== id) return;
+      if (payload.kind === "user" && payload.images && outbox[id]) {
+        shown[payload.id] = outbox[id];
+        delete outbox[id];
+      }
       if (buffer) return void buffer.push(payload);
       queue.push(payload);
       frame ||= requestAnimationFrame(flush);
     });
     // Listening first, then reading what is stored: nothing falls in between.
     off.then(load);
+    // The window takes files dropped from the system: their paths come here, not to the page.
+    let offDrop: Promise<() => void> | undefined;
+    try {
+      offDrop = getCurrentWebview().onDragDropEvent(({ payload }) => {
+        const at = "position" in payload ? dropPoint(payload.position, devicePixelRatio) : null;
+        const here = at ? document.elementFromPoint(at.x, at.y) : null;
+        dropping = payload.type !== "leave" && payload.type !== "drop" && !!here && (!!form?.contains(here) || !!scroller?.contains(here));
+        if (payload.type === "drop" && here && (form?.contains(here) || scroller?.contains(here))) void dropped(payload.paths);
+      });
+    } catch {
+      // Outside Tauri: nothing is dropped.
+    }
     return () => {
       cancelAnimationFrame(frame);
       off.then((stop) => stop());
+      offDrop?.then((stop) => stop(), () => {});
     };
+  });
+
+  const readUrl = (blob: Blob) =>
+    new Promise<string>((done, fail) => {
+      const reader = new FileReader();
+      reader.onload = () => done(String(reader.result));
+      reader.onerror = () => fail(reader.error);
+      reader.readAsDataURL(blob);
+    });
+
+  /** Joins images to the message being written; one Claude would refuse is said, the others join. */
+  async function attach(files: Iterable<File>) {
+    if (!takesImages) return void (error = t("ciqNoImages", { tool: t(runtime!) }));
+    for (const file of files) {
+      const unfitFor = unfit(file);
+      if (unfitFor) {
+        const size = (file.size / 1024 / 1024).toLocaleString(lang, { maximumFractionDigits: 1 });
+        error = unfitFor === "type" ? t("ciqType", { name: file.name }) : t("ciqSize", { name: file.name, size });
+        continue;
+      }
+      attached = [...attached, { name: file.name, mediaType: file.type, url: await readUrl(file) }];
+    }
+    box?.focus();
+  }
+
+  async function dropped(paths: string[]) {
+    if (!takesImages) return void (error = t("ciqNoImages", { tool: t(runtime!) }));
+    for (const path of paths) {
+      const name = path.split(/[\\/]/).at(-1) ?? path;
+      const type = imageType(path);
+      if (!type) {
+        error = t("ciqType", { name });
+        continue;
+      }
+      try {
+        const bytes = await invoke<ArrayBuffer>("agent_image", { path });
+        await attach([new File([bytes], name, { type })]);
+      } catch (e) {
+        error = String(e);
+      }
+    }
+  }
+
+  function paste(e: ClipboardEvent) {
+    const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+    if (!files.length) return;
+    e.preventDefault();
+    void attach(files);
+  }
+
+  $effect(() => {
+    if (zoomed) viewer?.showModal();
   });
 
   /** Runs one action at a time; the backend's refusal is shown as it is. */
@@ -363,30 +465,71 @@
   async function send(e: SubmitEvent) {
     e.preventDefault();
     const text = draft.trim();
-    if (!text || busy) return;
+    const images = attached;
+    if (busy) return;
+    if (questioning) {
+      if (text && (await askAbout(text))) draft = "";
+      return;
+    }
+    if (!text && !images.length) return;
     if (queueing) {
-      queues[session.id] = [...queued, text];
+      queues[session.id] = [...queued, { text, images }];
       draft = "";
+      attached = [];
       return;
     }
     if (why) return;
-    if (await deliver(text)) draft = "";
+    if (await deliver(text, to, images)) {
+      draft = "";
+      attached = [];
+    }
+  }
+
+  /** The waiting card's answer is the user's question: nothing runs, and the agent asks again once answered. */
+  async function askAbout(text: string): Promise<boolean> {
+    const message = questionAbout(text);
+    if (asking !== null) {
+      const request = asking;
+      delete actionSecrets[request];
+      return !!(await run("answer", () => invoke("agent_answer", { id: id(), request, allow: false, message }).then(() => true)));
+    }
+    if (calling === null) return false;
+    delete actionSecrets[`call:${calling.id}`];
+    await askFirst(calling, message);
+    return true;
   }
 
   // The turn ended: what was queued goes as one message, as Claude Code itself does.
   $effect(() => {
-    if (why || busy || !queued.length) return;
-    const text = queued.join("\n\n");
+    if (why || questioning || busy || !queued.length) return;
+    const text = queued
+      .map((q) => q.text)
+      .filter(Boolean)
+      .join("\n\n");
+    const images = queued.flatMap((q) => q.images);
     delete queues[session.id];
-    void deliver(text, null).then((ok) => {
-      if (!ok) queues[session.id] = [text, ...(queues[session.id] ?? [])];
+    void deliver(text, null, images).then((ok) => {
+      if (!ok) queues[session.id] = [{ text, images }, ...(queues[session.id] ?? [])];
     });
   });
 
-  /** Sends `text` now, to `target` when it names another agent; true once it left. */
-  async function deliver(text: string, target = to): Promise<boolean> {
+  /** Sends `text` and its images now, to `target` when it names another agent; true once it left. */
+  async function deliver(text: string, target = to, pictures: Picture[] = []): Promise<boolean> {
+    if (target && pictures.length) {
+      error = t("ciqElsewhere");
+      return false;
+    }
+    const images = pictures.map(({ mediaType, url }) => ({ mediaType, data: url.slice(url.indexOf(",") + 1) }));
+    // The message's event shows them in the thread: they are kept nowhere else.
+    if (images.length) outbox[session.id] = pictures.map((p) => p.url);
+    const sent = await post(text, target, images);
+    if (!sent) delete outbox[session.id];
+    return sent;
+  }
+
+  async function post(text: string, target: typeof to, images: Image[]): Promise<boolean> {
     if (outgoing) {
-      const out = await run("send", () => outgoing(text));
+      const out = await run("send", () => outgoing(text, images));
       if (out === undefined) return false;
       if (out === null) return true;
       text = out;
@@ -399,7 +542,7 @@
       showConversation(reached.session.id);
       return true;
     }
-    const sent = await run("send", () => invoke("agent_send", { id: id(), text }).then(() => true));
+    const sent = await run("send", () => invoke("agent_send", { id: id(), text, images }).then(() => true));
     if (sent) follow(true);
     return !!sent;
   }
@@ -502,7 +645,8 @@
   }
 
   function stepOf(item: Tool, now: boolean): Step {
-    const state = item.result === null ? (now ? "now" : undefined) : item.result.isError ? "fail" : "ok";
+    const asked = item.result !== null && questionIn(item.result.output) !== null;
+    const state = item.result === null ? (now ? "now" : undefined) : asked ? undefined : item.result.isError ? "fail" : "ok";
     if (termfTools[item.name]) return { verb: toolName(item.name), object: about(item.name, item.input) || undefined, state };
     const p = actPhrase(item.name, item.input);
     const verb = t(p.key as Parameters<typeof t>[0], { ...p.vars, target: "" }).replace(/\s+/g, " ").trim();
@@ -630,7 +774,28 @@
     <p class="sys"><Undo2 size={14} aria-hidden="true" />{t("chatHandedBack")}</p>
   {:else if item.type === "notice"}
     {#if card}{@render card(item, termfNotice)}{:else}{@render termfNotice(item)}{/if}
+  {:else if item.type === "question"}
+    <p class="user">{item.text}</p>
   {/if}
+{/snippet}
+
+{#snippet pictures(key: number, count: number)}
+  {@const urls = shown[key]}
+  <div class="pictures">
+    {#if urls}
+      {#each urls as url, i (i)}
+        <button type="button" class="picture" aria-label={t("ciqOpen")} title={t("ciqOpen")} onclick={() => (zoomed = url)}>
+          <img src={url} alt={t("ciqImage")} />
+        </button>
+      {/each}
+    {:else}
+      <span class="sent"><Images size={13} aria-hidden="true" />{t("ciqSent", { count })}</span>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet helpLink()}
+  <button type="button" class="help" onclick={() => suggest(t("ciqHelpQuestion"))}>{t("ciqHelp")}</button>
 {/snippet}
 
 {#snippet termfNotice(item: Notice)}
@@ -649,7 +814,9 @@
 {/snippet}
 
 {#snippet tool(item: Tool, now: boolean)}
-  {@const failed = item.result?.isError}
+  <!-- A call the user asked a question about did not run, and did not fail either. -->
+  {@const asked = !!item.result && questionIn(item.result.output) !== null}
+  {@const failed = item.result?.isError && !asked}
   <details class="tool" class:failed>
     <summary>
       <span class="call">
@@ -662,6 +829,8 @@
           {/if}
         {:else if failed}
           <CircleX size={14} aria-label={t("chatToolFailed")} />
+        {:else if asked}
+          <ShieldQuestionMark size={14} aria-hidden="true" />
         {:else}
           <Check size={14} aria-hidden="true" />
         {/if}
@@ -695,14 +864,14 @@
 
 {#snippet ask(item: Permission)}
   {#if item.request !== asking}
-    <p class="sys" class:failed={item.answer && !item.answer.allow}>
-      {#if item.answer?.allow}<ShieldCheck size={14} aria-hidden="true" />{:else if item.answer}<ShieldX
+    <p class="sys" class:failed={item.answer && !item.answer.allow && !item.answer.asked}>
+      {#if item.answer?.allow}<ShieldCheck size={14} aria-hidden="true" />{:else if item.answer && !item.answer.asked}<ShieldX
           size={14}
           aria-hidden="true"
         />{:else}<ShieldQuestionMark size={14} aria-hidden="true" />{/if}
       <span>
         {asks(item.tool)} ·
-        {#if item.answer?.allow}{t("chatAllowed")}{:else if item.answer?.message}{t("chatRefusedWhy", {
+        {#if item.answer?.allow}{t("chatAllowed")}{:else if item.answer?.asked}{t("ciqAsked")}{:else if item.answer?.message}{t("chatRefusedWhy", {
             message: item.answer.message,
           })}{:else if item.answer}{t("chatRefused")}{:else}{t("chatUnanswered")}{/if}
       </span>
@@ -754,6 +923,7 @@
         </details>
       {/if}
       <div class="answer">
+        {@render helpLink()}
         <input
           class="field"
           placeholder={t("chatReason")}
@@ -913,7 +1083,11 @@
     {/if}
     {#each drawn as turn (turn.key)}
       {@const now = turning && turn === turns.at(-1) && !turn.end}
-      {#if turn.user !== null}<p class="user">{quote(turn.user)}</p>{/if}
+      {#if turn.user !== null}
+        {@const said = quote(turn.user)}
+        {#if said}<p class="user">{said}</p>{/if}
+        {#if turn.images}{@render pictures(turn.key, turn.images)}{/if}
+      {/if}
       {#if bare}
         {@const list = groups(turn.items)}
         {#each list as g, gi (g.key)}
@@ -934,6 +1108,7 @@
         <p class="ask-title"><ShieldQuestionMark size={16} aria-hidden="true" />{t("actCardTitle", { who })}</p>
         <ActionAsk session={session.id} project={call.project} {who} input={call} bind:values={() => actionSecrets[`call:${call.id}`] ?? {}, (v) => (actionSecrets[`call:${call.id}`] = v)} />
         <div class="answer">
+          {@render helpLink()}
           <input
             class="field"
             placeholder={t("chatReason")}
@@ -955,13 +1130,13 @@
   </div>
 </div>
 
-<form class="composer" class:embedded={embedded || bare} class:bare bind:this={form} onsubmit={send}>
+<form class="composer" class:embedded={embedded || bare} class:bare class:dropping bind:this={form} onsubmit={send}>
   {#if chips}<div class="chips">{@render chips()}</div>{/if}
   {#if queued.length}
     <ul class="queued" aria-label={t("chatQueued")}>
-      {#each queued as text, i (i)}
+      {#each queued as { text, images }, i (i)}
         <li>
-          <span>{text}</span>
+          <span>{text}{#if images.length}<span class="sent"><Images size={13} aria-hidden="true" />{t("ciqSent", { count: images.length })}</span>{/if}</span>
           <button type="button" class="icon" aria-label={t("chatUnqueue")} title={t("chatUnqueue")} onclick={() => (queues[session.id] = queued.filter((_, j) => j !== i))}>
             <X size={13} aria-hidden="true" />
           </button>
@@ -979,17 +1154,36 @@
       {/each}
     </ul>
   {/if}
+  {#if attached.length}
+    <ul class="tray" aria-label={t("ciqAttached")}>
+      {#each attached as image, i (i)}
+        <li>
+          <img src={image.url} alt={image.name} />
+          <button
+            type="button"
+            class="icon"
+            aria-label={t("ciqRemove", { name: image.name })}
+            title={t("ciqRemove", { name: image.name })}
+            onclick={() => (attached = attached.filter((_, j) => j !== i))}
+          >
+            <X size={12} aria-hidden="true" />
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
   <textarea
     class="field"
     rows="2"
-    placeholder={placeholder ?? (cto ? t("ctoMessage") : expert ? t("expertMessage") : t("chatMessage"))}
-    aria-label={placeholder ?? (cto ? t("ctoMessage") : expert ? t("expertMessage") : t("chatMessage"))}
+    placeholder={hint}
+    aria-label={hint}
     aria-describedby={why ? "chat-why" : undefined}
     aria-controls={offered.length ? "cto-roles" : undefined}
     aria-activedescendant={offered.length ? `cto-role-${offered[Math.min(picked, offered.length - 1)]}` : undefined}
     bind:this={box}
     bind:value={draft}
     onkeydown={enter}
+    onpaste={paste}
   ></textarea>
   <div class="send">
     {#if to && !bare && to.role !== "expert" && repos.length > 1}
@@ -997,22 +1191,47 @@
         {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
       </select>
     {/if}
+    {#if takesImages}
+      <input bind:this={picker} type="file" accept={IMAGE_TYPES.join(",")} multiple hidden onchange={(e) => {
+        void attach(e.currentTarget.files ?? []);
+        e.currentTarget.value = "";
+      }} />
+      <button type="button" class="icon-btn attach" aria-label={t("ciqAttach")} title={t("ciqAttach")} onclick={() => picker?.click()}>
+        <Paperclip size={16} aria-hidden="true" />
+      </button>
+    {/if}
     {#if embedded || bare}
       <!-- On the Home the primary action is the latest decision: sending is an icon in the field. -->
-      {@const label = to ? t("ctoSendTo", { role: to.role }) : t("chatSend")}
-      <button type="submit" class="icon-send" aria-label={label} title={label} disabled={(!!why && !queueing) || !!busy || !draft.trim()}>
-        {#if busy === "send"}<LoaderCircle size={16} aria-hidden="true" class="spin" />{:else}<ArrowUp size={16} aria-hidden="true" />{/if}
+      {@const label = to ? t("ctoSendTo", { role: to.role }) : questioning ? t("ciqAsk") : t("chatSend")}
+      <button type="submit" class="icon-send" aria-label={label} title={label} disabled={off}>
+        {#if busy === "send" || busy === "answer"}<LoaderCircle size={16} aria-hidden="true" class="spin" />{:else}<ArrowUp
+            size={16}
+            aria-hidden="true"
+          />{/if}
       </button>
     {:else}
-      <button type="submit" class="btn primary" disabled={(!!why && !queueing) || !!busy || !draft.trim()}>
-        {#if busy === "send"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}{to
+      <button type="submit" class="btn primary" disabled={off}>
+        {#if busy === "send" || (questioning && busy === "answer")}<LoaderCircle size={14} aria-hidden="true" class="spin" />{/if}{to
           ? t("ctoSendTo", { role: to.role })
-          : t("chatSend")}
+          : questioning
+            ? t("ciqAsk")
+            : t("chatSend")}
       </button>
     {/if}
   </div>
-  {#if why}<p class="why" id="chat-why">{t(queueing ? "chatQueueHint" : reasonsWhy[why])}</p>{/if}
+  {#if dropping}
+    <p class="why drop" role="status">{t("ciqDrop")}</p>
+  {:else if why}
+    <p class="why" id="chat-why">{t(queueing ? "chatQueueHint" : reasonsWhy[why])}</p>
+  {/if}
 </form>
+
+<dialog bind:this={viewer} class="viewer" aria-label={t("ciqImage")} onclose={() => (zoomed = null)}>
+  {#if zoomed}
+    <button type="button" class="close" aria-label={t("close")} title={t("close")} onclick={() => viewer?.close()}><X size={16} aria-hidden="true" /></button>
+    <img src={zoomed} alt={t("ciqImage")} />
+  {/if}
+</dialog>
 
 <style>
   .bar {
@@ -1059,7 +1278,7 @@
   }
 
   .composer.embedded {
-    grid-template: "queued" auto "mentions" auto "field" auto "why" auto / minmax(0, 1fr);
+    grid-template: "queued" auto "tray" auto "mentions" auto "field" auto "why" auto / minmax(0, 1fr);
     row-gap: 0;
     padding: 12px 20px 16px;
     background: var(--panel);
@@ -1104,7 +1323,7 @@
   }
 
   .composer.bare {
-    grid-template: "chips" auto "queued" auto "mentions" auto "field" auto "why" auto / minmax(0, 1fr);
+    grid-template: "chips" auto "queued" auto "tray" auto "mentions" auto "field" auto "why" auto / minmax(0, 1fr);
     padding: 10px 12px 12px;
   }
 
@@ -1127,6 +1346,15 @@
 
   .thread.bare .answer .field {
     flex-basis: 100%;
+  }
+
+  .thread.bare .answer .help {
+    order: 1;
+    margin-right: auto;
+  }
+
+  .thread.bare .answer .btn {
+    order: 2;
   }
 
   .diff {
@@ -1860,5 +2088,161 @@
     border-color: var(--accent);
     background: var(--accent-soft);
     font-weight: 600;
+  }
+
+  /* Images: attached before sending, then with the message in the thread. */
+  .tray {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .composer.embedded .tray {
+    grid-area: tray;
+    margin-bottom: 8px;
+  }
+
+  .tray li {
+    position: relative;
+  }
+
+  .tray img {
+    display: block;
+    width: 56px;
+    height: 56px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    object-fit: cover;
+  }
+
+  .tray button {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--panel);
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .tray button:hover {
+    color: var(--text);
+  }
+
+  .pictures {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    align-self: flex-end;
+    max-width: 85%;
+  }
+
+  .picture {
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: none;
+    overflow: hidden;
+    cursor: zoom-in;
+  }
+
+  .picture img {
+    display: block;
+    max-width: 160px;
+    max-height: 120px;
+    object-fit: cover;
+  }
+
+  .picture:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .sent {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .queued .sent {
+    margin-left: 8px;
+  }
+
+  .composer.embedded:has(.attach) textarea {
+    padding-right: 80px;
+  }
+
+  .composer.dropping {
+    outline: 2px dashed var(--accent);
+    outline-offset: -4px;
+  }
+
+  .why.drop {
+    color: var(--accent);
+  }
+
+  .viewer {
+    max-width: calc(100vw - 64px);
+    max-height: calc(100vh - 64px);
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+    box-shadow: var(--shadow-3);
+  }
+
+  .viewer::backdrop {
+    background: var(--scrim, rgb(10 12 20 / 0.3));
+  }
+
+  .viewer img {
+    display: block;
+    max-width: calc(100vw - 66px);
+    max-height: calc(100vh - 66px);
+    object-fit: contain;
+  }
+
+  .viewer .close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--text);
+    box-shadow: var(--shadow-1);
+    cursor: pointer;
+  }
+
+  /* The question a card waits for: the field below takes it. */
+  .help {
+    flex-shrink: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+
+  .help:hover {
+    text-decoration: underline;
   }
 </style>

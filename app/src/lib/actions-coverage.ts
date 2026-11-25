@@ -198,7 +198,7 @@ export const EXCLUDED: [why: string, commands: string[]][] = [
   ],
   [
     "Conversations are started, addressed and stopped from the ⌘I panel and by termf mcp's send_message: no screen action drives another agent's conversation.",
-    ["agent_send", "agent_send_or_queue", "agent_start", "agent_stop", "agent_interrupt", "agent_takeover", "agent_handback", "cto_address", "cto_open", "expert_open", "ops_ask", "context_reset", "claude_background_stop", "claude_purge", "artifacts_edit"],
+    ["agent_send", "agent_send_or_queue", "agent_image", "agent_start", "agent_stop", "agent_interrupt", "agent_takeover", "agent_handback", "cto_address", "cto_open", "expert_open", "ops_ask", "context_reset", "claude_background_stop", "claude_purge", "artifacts_edit"],
   ],
   [
     "The user's own answers to what an agent asks or proposes (a question, a key, a confirmation, a library proposal, a visual verdict): an agent answering them would approve itself.",
