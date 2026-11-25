@@ -105,7 +105,12 @@ pub fn sharing(config_dir: &Path, token: &str, except: &str) -> Result<Vec<Strin
     Ok(termf_core::load_projects(config_dir)?
         .into_iter()
         .filter(|p| p.id != except)
-        .filter(|p| account(config_dir, &p.id).ok().flatten().is_some_and(|a| a.token == token))
+        .filter(|p| {
+            account(config_dir, &p.id)
+                .ok()
+                .flatten()
+                .is_some_and(|a| a.token == token)
+        })
         .map(|p| p.name)
         .collect())
 }

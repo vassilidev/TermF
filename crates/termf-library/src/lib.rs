@@ -1471,10 +1471,15 @@ mod tests {
         let gone = remove_copy(&dir, &scope, Kind::Preference, "canary").unwrap();
         assert!(!gone.exists());
         assert_eq!(
-            explain(&dir, &scope, Kind::Preference, "canary").unwrap().layer,
+            explain(&dir, &scope, Kind::Preference, "canary")
+                .unwrap()
+                .layer,
             Layer::Shipped
         );
-        assert!(remove_copy(&dir, &scope, Kind::Preference, "canary").is_err(), "nothing left to remove");
+        assert!(
+            remove_copy(&dir, &scope, Kind::Preference, "canary").is_err(),
+            "nothing left to remove"
+        );
         let gone = remove_copy(&dir, &global, Kind::Skill, "nextjs").unwrap();
         assert!(!gone.exists(), "a skill's whole folder goes");
         assert_eq!(

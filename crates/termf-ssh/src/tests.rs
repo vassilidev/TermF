@@ -583,7 +583,10 @@ fn deletes_a_host_and_only_its_block() {
         "# my config\nInclude config.d/*\n\n# defaults\nHost *\n    AddKeysToAgent yes\n",
         "its options and comments go, the next block's comment stays"
     );
-    assert!(config::remove(CONFIG, "gitlab.com").is_err(), "no such host");
+    assert!(
+        config::remove(CONFIG, "gitlab.com").is_err(),
+        "no such host"
+    );
     assert!(
         config::remove("Host a b\n    User me\n", "a").is_err(),
         "a block shared with other hosts stays"

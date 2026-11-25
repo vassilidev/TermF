@@ -256,7 +256,10 @@ pub async fn ci_hook_update(
     url: String,
     events: Vec<String>,
 ) -> CmdResult<()> {
-    blocking(app, move |app| ci(app).update_hook(&repo, hook, &url, &events)).await
+    blocking(app, move |app| {
+        ci(app).update_hook(&repo, hook, &url, &events)
+    })
+    .await
 }
 
 /// Asked to the user first, in the UI.

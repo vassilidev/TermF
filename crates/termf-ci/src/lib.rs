@@ -771,7 +771,14 @@ impl Ci {
         )?;
         let body = serde_json::json!({ "url": url });
         self.call(
-            &["api", "--method", "PATCH", &format!("{path}/config"), "--input", "-"],
+            &[
+                "api",
+                "--method",
+                "PATCH",
+                &format!("{path}/config"),
+                "--input",
+                "-",
+            ],
             Some(&body.to_string()),
         )
         .map(drop)

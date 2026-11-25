@@ -412,14 +412,22 @@ fn a_forge_token_shared_with_another_project_is_named() {
         token: "FORGE_TOKEN_ACME_AGENCY".into(),
     };
     save_account(&env.config(), "acme", Some(&acme)).unwrap();
-    assert!(sharing(&env.config(), &acme.token, "acme").unwrap().is_empty());
+    assert!(
+        sharing(&env.config(), &acme.token, "acme")
+            .unwrap()
+            .is_empty()
+    );
     save_account(&env.config(), "shop", Some(&acme)).unwrap();
     assert_eq!(
         sharing(&env.config(), &acme.token, "acme").unwrap(),
         ["Shop"],
         "the token stays for Shop"
     );
-    assert!(sharing(&env.config(), "FORGE_TOKEN_OTHER", "acme").unwrap().is_empty());
+    assert!(
+        sharing(&env.config(), "FORGE_TOKEN_OTHER", "acme")
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
