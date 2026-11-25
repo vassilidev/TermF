@@ -17,7 +17,7 @@ From then on it syncs in the background. Changes merge three ways, key by key fo
 
 | Choice | What it carries |
 |---|---|
-| Config | `termf.toml`, layouts, schedules, the global library, the library scout's results, refusals and journal |
+| Config | `termf.toml`, layouts, schedules, the global library, the library scout's results, refusals and journal, [your environment](environment.md) (`env.toml` and its scripts) |
 | Projects | Each project with its repositories, Ops connections, saved SQL queries, Forge account and ticket sources, its library and its recipes |
 | Conventions | The conventions of each project |
 | Vault | The vault, sealed by its own master password, merged item by item |
