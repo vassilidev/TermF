@@ -1151,9 +1151,7 @@
     align-items: center;
     gap: 6px;
     width: auto;
-    min-width: 0;
     min-height: 0;
-    overflow-wrap: anywhere;
     padding: 0;
     font-size: var(--text-base);
     font-weight: 400;
