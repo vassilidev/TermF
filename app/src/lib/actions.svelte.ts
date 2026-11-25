@@ -117,6 +117,12 @@ export function refuse(call: Call, why: string) {
   return reply(call.id, null, `The user refused this in TermF: it did not run.${said} Do not ask again unless they tell you to.`);
 }
 
+/** The card answered with the user's question: the call did not run, and nothing is decided yet. */
+export function askFirst(call: Call, message: string) {
+  drop(call.id);
+  return reply(call.id, null, message);
+}
+
 async function answer(call: Call) {
   const here = available(call.session);
   if (call.action === null) {

@@ -255,7 +255,7 @@ export async function send(text: string): Promise<boolean> {
  * `send` instead, written to another role with `@role`, or following up a run's step, which is routed again (the step
  * may be over: the role's own conversation then takes it).
  */
-export async function outgoing(text: string): Promise<string | null> {
+export async function outgoing(text: string, images: unknown[] = []): Promise<string | null> {
   const role = currentRole();
   const to = target(text, role, ask.roles);
   const shown = threadOf(askedProject(), role);
@@ -263,6 +263,7 @@ export async function outgoing(text: string): Promise<string | null> {
     if (shown) ask.screens[shown.id] = ui.view;
     return compose(to.text, chips(), screenName(ui.view));
   }
+  if (images.length) throw new Error(t("ciqElsewhere"));
   if (!(await send(text))) throw new Error(ask.error);
   return null;
 }

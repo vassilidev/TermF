@@ -11,6 +11,7 @@
   import SquareArrowOutUpRight from "@lucide/svelte/icons/square-arrow-out-up-right";
   import Conversation from "$lib/Conversation.svelte";
   import { agents, showConversation, upsert, type AgentSession } from "$lib/agents.svelte";
+  import type { Image } from "$lib/conversation-logic";
   import { lang, t } from "$lib/i18n";
   import { asked, sqlBlock, type Connection } from "$lib/ops-logic";
   import { ops } from "$lib/ops.svelte";
@@ -51,7 +52,7 @@
   }
 
   /** Through `ops_ask`: the first question starts the conversation, with the schema. */
-  async function post(kind: "write" | "explain" | "optimize", what: string) {
+  async function post(kind: "write" | "explain" | "optimize", what: string, images: Image[] = []) {
     const s = await invoke<AgentSession>("ops_ask", {
       project,
       connection: conn.name,
@@ -59,6 +60,7 @@
       kind,
       text: what.trim(),
       lang,
+      images,
     });
     upsert(s);
     ops.studio.dba[key] = s.id;
@@ -142,7 +144,7 @@
         {session}
         bare
         placeholder={t("opsdbAskFollow")}
-        outgoing={(text) => post("write", text).then(() => null)}
+        outgoing={(text, images) => post("write", text, images).then(() => null)}
         after={query}
         {quote}
       />
