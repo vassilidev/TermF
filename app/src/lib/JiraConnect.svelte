@@ -205,6 +205,11 @@
     go(step + 1);
   }
 
+  /** Another way in reads the projects again: the server's and the API's may differ. */
+  function choose(to: "mcp" | "token") {
+    if (how !== to) [how, projects, checked, reached] = [to, null, [], step];
+  }
+
   function toggle(key: string, on: boolean) {
     checked = on ? [...checked, key] : checked.filter((k) => k !== key);
   }
@@ -240,12 +245,12 @@
               <span class="muted small">{t("tjdLooking")}</span>
             </div>
           {:else if atlassian}
-            <button class="choice" role="radio" aria-checked={how === "mcp"} class:on={how === "mcp"} onclick={() => (how = "mcp")}>
+            <button class="choice" role="radio" aria-checked={how === "mcp"} class:on={how === "mcp"} onclick={() => choose("mcp")}>
               <span class="head"><Sparkles size={16} aria-hidden="true" />{t("tjdUseMcp")}<span class="badge">{t("tjdRecommended")}</span></span>
               <span class="muted">{t("tjdUseMcpHelp", { server: atlassian.name })}</span>
             </button>
           {/if}
-          <button class="choice" role="radio" aria-checked={how === "token"} class:on={how === "token"} onclick={() => (how = "token")}>
+          <button class="choice" role="radio" aria-checked={how === "token"} class:on={how === "token"} onclick={() => choose("token")}>
             <span class="head"><KeyRound size={16} aria-hidden="true" />{t("tjdUseToken")}</span>
             <span class="muted">{t("tjdUseTokenHelp")}</span>
           </button>

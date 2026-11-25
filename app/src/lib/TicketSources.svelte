@@ -816,7 +816,7 @@
 <style>
   .connect {
     align-self: flex-start;
-    margin-top: 6px;
+    margin-left: 14px;
   }
 
   .sources {

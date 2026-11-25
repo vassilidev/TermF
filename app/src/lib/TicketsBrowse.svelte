@@ -68,6 +68,8 @@
     projectsOf = `${p} ${s}`;
     [projects, projectsError] = [null, ""];
     filter.projects = [];
+    // Through an MCP server each read is a paid Claude Code call: its words say the projects instead.
+    if (s.startsWith("mcp:")) return void (projects = []);
     invoke<TrackerProject[]>("tickets_source_projects", { project: p, source: s }).then(
       (list) => projectsOf === `${p} ${s}` && (projects = list),
       (e) => projectsOf === `${p} ${s}` && ([projects, projectsError] = [[], String(e)]),
@@ -219,10 +221,12 @@
               <button class="ticket" class:chosen={chosen?.url === ticket.url} onclick={() => show(ticket)}>
                 <span class="what">
                   <span class="name">{ticket.title}</span>
-                  <span class="desc">
-                    <span class="mono">{ticket.key}</span> · {t("ticketUpdated", { ago: ago(Date.parse(ticket.updated) / 1000) })}
-                    {#if ticket.assignees.length}· {t("ticketsUiAssignees", { names: ticket.assignees.join(", ") })}{/if}
-                  </span>
+                  <span class="desc"
+                    ><span class="mono">{ticket.key}</span>{` · ${t("ticketUpdated", { ago: ago(Date.parse(ticket.updated) / 1000) })}`}{ticket.assignees
+                      .length
+                      ? ` · ${t("ticketsUiAssignees", { names: ticket.assignees.join(", ") })}`
+                      : ""}</span
+                  >
                 </span>
                 {#if ticket.state}<span class="tag">{ticket.state}</span>{/if}
               </button>
@@ -249,8 +253,13 @@
         </header>
         <h3>{detail?.title ?? chosen.title}</h3>
         <p class="muted small">
-          {#if detail?.author}{t("tjdBy", { author: detail.author })} · {/if}{t("ticketUpdated", { ago: ago(Date.parse(chosen.updated) / 1000) })}
-          {#if chosen.assignees.length}· {t("ticketsUiAssignees", { names: chosen.assignees.join(", ") })}{/if}
+          {[
+            detail?.author ? t("tjdBy", { author: detail.author }) : "",
+            t("ticketUpdated", { ago: ago(Date.parse(chosen.updated) / 1000) }),
+            chosen.assignees.length ? t("ticketsUiAssignees", { names: chosen.assignees.join(", ") }) : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </p>
         <div class="buttons">
           <button class="btn primary" onclick={() => chosen && onlaunch(chosen)} disabled={!!starting}>
