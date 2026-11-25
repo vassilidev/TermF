@@ -40,13 +40,18 @@ fn project(app: &AppHandle, id: &str) -> Result<Project> {
 /// It has no budget: the user talks with it as long as they like, while each answer of the expert to another agent
 /// (`ask_expert`) gets its own session and budget.
 fn conversation(agents: &Agents, project: &str, role: &str) -> Result<Option<AgentSession>> {
-    let sessions = agents.sessions()?.into_iter();
-    Ok(sessions.into_iter().find(|s| {
+    Ok(standing_in(agents.sessions()?, project, role))
+}
+
+/// Among `sessions`, newest first: an archived one's topic is done, and a new one takes its place.
+fn standing_in(sessions: Vec<AgentSession>, project: &str, role: &str) -> Option<AgentSession> {
+    sessions.into_iter().find(|s| {
         s.spec.mcp
+            && !s.archived
             && s.spec.budget.is_none()
             && s.spec.role.as_deref() == Some(role)
             && s.spec.project.as_deref() == Some(project)
-    }))
+    })
 }
 
 /// The project's standing conversation with `role`, created the first time with no process: the first message
@@ -264,6 +269,7 @@ fn direct_conversation(
     sessions.into_iter().find(|s| {
         s.spec.project.as_deref() == Some(project)
             && s.spec.role.as_deref() == Some(role)
+            && !s.archived
             && !s.spec.mcp
             && s.spec.json_schema.is_none()
             && s.spec.cwd == cwd
@@ -946,6 +952,37 @@ mod tests {
             "the newest in that repository"
         );
         assert!(direct_conversation(sessions, "acme", "cto", cwd).is_none());
+    }
+
+    #[test]
+    fn an_archived_conversation_is_never_the_one_a_role_keeps() {
+        let standing = |id, archived| {
+            session(
+                id,
+                "cto",
+                "/src/api",
+                json!({"mcp": true, "archived": archived}),
+            )
+        };
+        let sessions = vec![standing(9, true), standing(8, false), standing(7, false)];
+        assert_eq!(
+            standing_in(sessions, "acme", "cto").map(|s| s.id),
+            Some(8),
+            "the newest not archived"
+        );
+        assert!(
+            standing_in(vec![standing(9, true)], "acme", "cto").is_none(),
+            "all archived: a new one is created"
+        );
+        let direct = vec![
+            session(5, "back", "/src/api", json!({"archived": true})),
+            session(4, "back", "/src/api", json!({})),
+        ];
+        let cwd = Path::new("/src/api");
+        assert_eq!(
+            direct_conversation(direct, "acme", "back", cwd).map(|s| s.id),
+            Some(4)
+        );
     }
 
     #[test]

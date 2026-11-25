@@ -6,6 +6,7 @@ import { lang, t } from "$lib/i18n";
 import { projectsOf } from "$lib/nav-logic";
 import { app, setProject, ui, type Gauge } from "$lib/state.svelte";
 import { tickets } from "$lib/tickets.svelte";
+import { toast } from "$lib/ui/toast.svelte";
 import { approxUsd, equivalent } from "$lib/usage.svelte";
 
 /** A headless session, as `agent_sessions` and `agent-updated` give it. */
@@ -27,6 +28,8 @@ export type AgentSession = {
   mcp?: boolean;
   /** A conversation of the ⌘I panel: it acts on TermF's screens. */
   actions?: boolean;
+  /** Its topic is done: kept to read again, reopen or delete, out of the list and of every lookup. */
+  archived?: boolean;
   state: AgentState;
   cost: number;
   context: Gauge | null;
@@ -75,13 +78,18 @@ export function waitingAgents(): AgentSession[] {
 
 /** The sessions the view lists: the current project's, most recent first. */
 export function listed(): AgentSession[] {
-  return agents.sessions.filter(inScope).sort((a, b) => b.id - a.id);
+  return agents.sessions.filter((a) => inScope(a) && !a.archived).sort((a, b) => b.id - a.id);
+}
+
+/** The current project's archived conversations, most recent first. */
+export function archives(): AgentSession[] {
+  return agents.sessions.filter((a) => inScope(a) && a.archived).sort((a, b) => b.id - a.id);
 }
 
 function standingOf(project: string | null, role: string): AgentSession | undefined {
   return project === null
     ? undefined
-    : agents.sessions.filter((a) => pinned(a) && a.role === role && a.project === project).sort((a, b) => b.id - a.id)[0];
+    : agents.sessions.filter((a) => pinned(a) && !a.archived && a.role === role && a.project === project).sort((a, b) => b.id - a.id)[0];
 }
 
 /** The project's CTO conversation, once it exists. */
@@ -123,7 +131,7 @@ export async function showCto() {
 /** The conversation the view shows, or keeps behind the new session form. */
 export function conversation(): AgentSession | undefined {
   const list = listed();
-  return list.find((a) => a.id === agents.selected) ?? list[0];
+  return list.find((a) => a.id === agents.selected) ?? archives().find((a) => a.id === agents.selected) ?? list[0];
 }
 
 export function showConversations() {
@@ -179,4 +187,58 @@ export function watchAgents(): () => void {
     if (granted) sendNotification({ title: payload.title, body: t(notice) });
   });
   return () => void stop.then((f) => f());
+}
+
+/**
+ * "Topic done": the conversation is archived (its process stopped). With `fresh`, an empty one with its role and
+ * settings takes its place, which the first message starts; without, the next message starts one, as for a first.
+ * Undo, in the toast, puts it back.
+ */
+export async function newTopic(session: AgentSession, fresh = true) {
+  try {
+    const next = fresh ? await invoke<AgentSession>("agent_new_topic", { id: session.id }) : undefined;
+    if (next) upsert(next);
+    else upsert(await invoke<AgentSession>("agent_archive", { id: session.id, archived: true }));
+    if (next && agents.selected === session.id) agents.selected = next.id;
+    toast(t("topicArchived"), { undo: () => void reopen(session.id, next) });
+  } catch (e) {
+    app.error = String(e);
+  }
+}
+
+/** The shown conversations' "topic done", which asks first during a turn: ⌘K reaches it. */
+export const topicEnders = new Map<number, () => void>();
+
+/**
+ * An archived conversation back in the list, as the current one. `instead` makes way for it (the project's standing
+ * conversation with its role by default): deleted when nothing was said in it yet, else archived.
+ */
+export async function reopen(id: number, instead?: AgentSession): Promise<boolean> {
+  const old = agents.sessions.find((a) => a.id === id);
+  if (!old) return false;
+  const other = instead ?? (pinned(old) && old.role ? standingOf(old.project, old.role) : undefined);
+  try {
+    upsert(await invoke<AgentSession>("agent_archive", { id, archived: false }));
+    if (other && other.id !== id) {
+      await invoke("agent_delete", { ids: [other.id] }).then(
+        () => forget([other.id]),
+        async () => upsert(await invoke<AgentSession>("agent_archive", { id: other.id, archived: true })),
+      );
+    }
+    agents.selected = id;
+    return true;
+  } catch (e) {
+    app.error = String(e);
+    return false;
+  }
+}
+
+/** Deletes archived conversations, their threads and stored events with them. */
+export async function deleteConversations(ids: number[]) {
+  await invoke("agent_delete", { ids });
+  forget(ids);
+}
+
+function forget(ids: number[]) {
+  agents.sessions = agents.sessions.filter((a) => !ids.includes(a.id));
 }

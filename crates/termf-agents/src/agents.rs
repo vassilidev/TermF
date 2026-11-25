@@ -372,6 +372,50 @@ impl Agents {
         Ok(())
     }
 
+    /// Archives a conversation whose topic is done, its process stopped first (its turn interrupted), or puts it
+    /// back. An archived conversation takes no message.
+    pub fn archive(&self, id: i64, archived: bool) -> Result<AgentSession> {
+        if archived {
+            self.stop(id)?;
+        }
+        self.inner.store()?.set_archived(id, archived)?;
+        let session = self.session(id)?;
+        (self.inner.sink)(Update::Session(session.clone()));
+        Ok(session)
+    }
+
+    /// The topic is done: the conversation is archived, and a new one with the same settings and nothing said yet
+    /// takes its place; its first message starts it.
+    pub fn new_topic(&self, id: i64) -> Result<AgentSession> {
+        let old = self.archive(id, true)?;
+        let fresh = self
+            .inner
+            .store()?
+            .create(&old.runtime, &uuid()?, &old.spec)?;
+        (self.inner.sink)(Update::Session(fresh.clone()));
+        Ok(fresh)
+    }
+
+    /// Deletes an archived conversation, or one where nothing was said yet: its stored events and its folder too.
+    pub fn delete(&self, id: i64) -> Result<()> {
+        let inner = &self.inner;
+        let store = inner.store()?;
+        let mut live = inner.live.lock().unwrap();
+        ensure!(
+            store.session(id)?.archived || store.empty(id)?,
+            "only an archived conversation can be deleted: archive it first"
+        );
+        ensure!(
+            live.get(&id)
+                .is_none_or(|e| e.process.is_none() && e.tile.is_none() && !e.busy)
+                && store.pid(id)?.is_none(),
+            "this conversation still runs: stop it first"
+        );
+        store.delete(id)?;
+        live.remove(&id);
+        Ok(())
+    }
+
     /// Ends the session's process, after interrupting its turn if one is under way.
     pub fn stop(&self, id: i64) -> Result<AgentSession> {
         let inner = &self.inner;
@@ -772,7 +816,12 @@ impl Inner {
         images: &[Image],
     ) -> Result<()> {
         ensure!(!entry.busy, BUSY);
-        match store.session(id)?.state {
+        let session = store.session(id)?;
+        ensure!(
+            !session.archived,
+            "this conversation is archived: reopen it first"
+        );
+        match session.state {
             State::Working | State::Waiting => {
                 bail!("the agent is working: wait for the end of its turn, or interrupt it")
             }

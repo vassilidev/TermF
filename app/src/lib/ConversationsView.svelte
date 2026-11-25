@@ -8,13 +8,17 @@
   import Conversation from "$lib/Conversation.svelte";
   import GitProposal from "$lib/GitProposal.svelte";
   import Square from "@lucide/svelte/icons/square";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import Banner from "$lib/ui/Banner.svelte";
+  import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import SelectionBar from "$lib/ui/SelectionBar.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import {
     agents,
+    archives,
     conversation,
+    deleteConversations,
     ctoOf,
     expertOf,
     listed,
@@ -48,6 +52,9 @@
   const sessions = $derived(groups.flatMap(([, list]) => list));
   const groupName = (key: string) => (key === "" ? t("aigStanding") : key === "~" ? t("aigOthers") : key);
   const current = $derived(conversation());
+  const older = $derived(archives());
+  let purging = $state(false);
+  let purgeError = $state("");
   // Before the list is read, neither the form nor "no conversation" would be true yet.
   const creating = $derived(agents.creating || (agents.read && !current));
   const repos = $derived([...scopeRepos()].sort((a, b) => a.name.localeCompare(b.name)));
@@ -265,7 +272,38 @@
       {:else}
         {#if agents.read}<li class="none muted">{t("chatEmpty")}</li>{:else}<li><Skeleton shape="list" rows={6} /></li>{/if}
       {/each}
+      {#if older.length}
+        <li class="archives">
+          <details open={!!current?.archived}>
+            <summary>{t("topicArchives")} · {older.length}</summary>
+            <ul>
+              {#each older as session (session.id)}
+                <li class="row" class:current={session === current && !creating}>
+                  <span class="slot" aria-hidden="true"></span>
+                  <button class="pick" aria-current={session === current && !creating} onclick={() => select(session.id)}>
+                    <span class="name"><span class="title">{session.title}</span></span>
+                    <span class="desc">{runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · {ago(session.updated)}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+            <button class="btn sm quiet purge" onclick={() => ((purgeError = ""), (purging = true))}>
+              <Trash2 size={13} aria-hidden="true" />{t("topicDeleteAll")}
+            </button>
+            {#if purgeError}<p class="purge-error" role="alert">{purgeError}</p>{/if}
+          </details>
+        </li>
+      {/if}
     </ul>
+    <ConfirmDialog
+      bind:open={purging}
+      title={t("topicDeleteAllTitle", { count: older.length })}
+      confirm={t("topicDeleteAll")}
+      danger
+      onconfirm={() => deleteConversations(older.map((s) => s.id)).catch((e) => (purgeError = String(e)))}
+    >
+      <p>{t("topicDeleteAllText")}</p>
+    </ConfirmDialog>
 
     <section class="detail" class:talk={!creating}>
       {#if creating}
@@ -421,6 +459,36 @@
 
   .none {
     padding: 8px 10px;
+    font-size: var(--text-sm);
+  }
+
+  .archives {
+    margin-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .archives summary {
+    padding: 10px 10px 4px;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .archives ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .purge {
+    margin: 6px 10px;
+    color: var(--danger);
+  }
+
+  .purge-error {
+    margin: 0 10px 8px;
+    color: var(--danger);
     font-size: var(--text-sm);
   }
 

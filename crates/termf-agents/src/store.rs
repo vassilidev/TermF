@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS agent_events (
 CREATE INDEX IF NOT EXISTS agent_events_by_session ON agent_events(session, id);
 ";
 
-const COLUMNS: &str = "id, runtime, session_id, spec, state, cost, context, created, updated";
+const COLUMNS: &str =
+    "id, runtime, session_id, spec, state, cost, context, created, updated, archived";
 
 pub(crate) struct Store {
     conn: Connection,
@@ -58,6 +59,25 @@ impl Store {
         let file = data_dir.join("termf.db");
         let conn = termf_core::db::open(&file)?;
         conn.execute_batch(SCHEMA)?;
+        // Added after the table: an older database reads as nothing archived.
+        let has = || -> rusqlite::Result<bool> {
+            conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('agent_sessions') WHERE name = 'archived'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n > 0)
+        };
+        // The app and the CLI may both add it: the one that loses finds it there.
+        if !has()?
+            && let Err(e) = conn.execute(
+                "ALTER TABLE agent_sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+                [],
+            )
+            && !has()?
+        {
+            return Err(e.into());
+        }
         Ok(Self {
             conn,
             data_dir: data_dir.into(),
@@ -119,6 +139,39 @@ impl Store {
             params![session.id, session.session_id, session.state.as_str(), session.cost, context, session.updated],
         )?;
         Ok(())
+    }
+
+    pub(crate) fn set_archived(&self, id: i64, archived: bool) -> Result<()> {
+        self.conn.execute(
+            "UPDATE agent_sessions SET archived = ?2 WHERE id = ?1",
+            params![id, archived],
+        )?;
+        Ok(())
+    }
+
+    /// Nothing was ever said in it.
+    pub(crate) fn empty(&self, id: i64) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM agent_events WHERE session = ?1 LIMIT 1",
+                [id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_none())
+    }
+
+    /// A session, its stored events and its folder (`events.jsonl`, what its processes were given).
+    pub(crate) fn delete(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM agent_events WHERE session = ?1", [id])?;
+        self.conn
+            .execute("DELETE FROM agent_sessions WHERE id = ?1", [id])?;
+        match fs::remove_dir_all(self.dir(id)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        }
     }
 
     pub(crate) fn set_spec(&self, id: i64, spec: &SessionSpec) -> Result<()> {
@@ -260,5 +313,6 @@ fn read(row: &Row) -> rusqlite::Result<AgentSession> {
         tile: None,
         created: row.get(7)?,
         updated: row.get(8)?,
+        archived: row.get(9)?,
     })
 }
