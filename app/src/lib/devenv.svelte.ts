@@ -35,7 +35,8 @@ export async function loadEnv(): Promise<Manifest | null> {
     devenv.error = String(e);
     return null;
   }
-  if (devenv.manifest.entries.length && !devenv.scanned && !devenv.scanning) void scan();
+  // Its error shows on the screen (`devenv.error`).
+  if (devenv.manifest.entries.length && !devenv.scanned && !devenv.scanning) scan().catch(() => {});
   return devenv.manifest;
 }
 
