@@ -73,6 +73,53 @@ fn finds_ticket_keys_cited_in_commits() {
 }
 
 #[test]
+fn finds_the_jira_sites_commits_link() {
+    let log = "APP-3 login\n\nSee https://acme.atlassian.net/browse/APP-3\nAPI-9 (https://ACME.atlassian.net/browse/API-9)\nhttps://other-co.atlassian.net/x\n.atlassian.net alone";
+    assert_eq!(
+        jira_sites(log),
+        ["acme.atlassian.net", "other-co.atlassian.net"]
+    );
+    assert!(jira_sites("no link here").is_empty());
+}
+
+#[test]
+fn reads_a_repository_s_tracker_hints_from_git() {
+    let dir = temp("hints");
+    let gitconfig = dir.with_extension("gitconfig");
+    fs::write(&gitconfig, "").unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", &gitconfig)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "alex@acme.dev"]);
+    git(&["config", "user.name", "alex"]);
+    for message in [
+        "APP-1 first",
+        "APP-2 second\n\nhttps://acme.atlassian.net/browse/APP-2",
+    ] {
+        git(&["commit", "-q", "--allow-empty", "-m", message]);
+    }
+    let hints = tracker_hints(&dir);
+    assert_eq!(hints.keys, ["APP"]);
+    assert_eq!(hints.sites, ["acme.atlassian.net"]);
+    assert_eq!(hints.email.as_deref(), Some("alex@acme.dev"));
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_file(&gitconfig);
+}
+
+#[test]
 fn finds_the_commands_a_repository_declares() {
     let dir = temp("scripts");
     put(

@@ -3,18 +3,20 @@ import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { Approved, forAgent, refused, type Args, type Spec } from "$lib/actions-logic";
 import { ask } from "$lib/ask.svelte";
-import { ciActions } from "$lib/ci-actions";
+import { ciActions, ciHere } from "$lib/ci-actions";
 import { conversationActions } from "$lib/conversation-actions";
 import { designActions } from "$lib/design-actions";
 import { gitActions } from "$lib/git-actions";
 import { t } from "$lib/i18n";
-import { libraryActions } from "$lib/library-actions";
-import { opsActions } from "$lib/ops-actions";
-import { schedulerActions } from "$lib/scheduler-actions";
+import { libraryActions, pluginActions } from "$lib/library-actions";
+import { opsActions, opsHere } from "$lib/ops-actions";
+import { projectActions } from "$lib/project-actions";
+import { schedulerActions, schedulerHere } from "$lib/scheduler-actions";
 import { settingsActions } from "$lib/settings-actions";
 import { setupActions } from "$lib/setup-actions";
-import { ticketActions } from "$lib/tickets-actions";
+import { ticketActions, ticketsHere } from "$lib/tickets-actions";
 import { toast } from "$lib/ui/toast.svelte";
+import { vaultActions, vaultAnywhere, vaultHere } from "$lib/vault-actions";
 
 type Key = Parameters<typeof t>[0];
 
@@ -31,6 +33,8 @@ export type Action = Spec & {
   describe: (args: Args, project: string) => string;
   /** What it makes lose, for one that destroys or replaces. */
   loses?: (args: Args, project: string) => string;
+  /** What it waits for (no vault yet, no connection…), naming the action that settles it; null when ready. */
+  needs?: (args: Args, project: string) => Promise<string | null>;
   /** Runs it, updates the screen and says so in a toast; what the agent reads back, never a secret. `session`: the
    * conversation that asked. */
   run: (args: Args, secrets: Record<string, string>, project: string, session: number) => Promise<unknown>;
@@ -47,8 +51,23 @@ const SCREENS: Record<string, Action[]> = {
   scheduler: schedulerActions,
   newProject: setupActions,
   design: designActions,
+  vault: vaultActions,
+  vaultAll: vaultActions,
+  project: [...projectActions, ...ticketActions],
+  claude: pluginActions,
 };
-const GLOBAL: Action[] = [...conversationActions];
+const GLOBAL: Action[] = [...vaultAnywhere, ...conversationActions];
+
+/** What a screen holds, by name only, for the agent to act on: never a value. */
+const HERE: Record<string, (project: string) => Promise<unknown>> = {
+  ops: opsHere,
+  tickets: ticketsHere,
+  project: ticketsHere,
+  ci: ciHere,
+  scheduler: schedulerHere,
+  vault: vaultHere,
+  vaultAll: vaultHere,
+};
 
 /** A call of `termf mcp`, as the app gives it; `action` null: the list. */
 export type Call = {
@@ -125,14 +144,26 @@ export function askFirst(call: Call, message: string) {
   return reply(call.id, null, message);
 }
 
+/** What the action waits for, or why that could not be read; null when it may go to the user. */
+export async function prerequisite(action: Action, args: Args, project: string): Promise<string | null> {
+  try {
+    return (await action.needs?.(args, project)) ?? null;
+  } catch (e) {
+    return String(e);
+  }
+}
+
 async function answer(call: Call) {
   const here = available(call.session);
   if (call.action === null) {
-    return reply(call.id, { screen: screenOf(call.session), actions: here.map(forAgent) }, null);
+    const screen = screenOf(call.session);
+    const holds = screen ? HERE[screen] : undefined;
+    const shown = holds ? await holds(call.project).catch((e) => `unread: ${String(e)}`) : undefined;
+    return reply(call.id, { screen, ...(shown === undefined ? {} : { here: shown }), actions: here.map(forAgent) }, null);
   }
   const action = here.find((a) => a.id === call.action);
   if (!action) return reply(call.id, null, `No action ${call.action} here: actions lists those you may do from the user's screen.`);
-  const why = refused(action, call.args, call.hints);
+  const why = refused(action, call.args, call.hints) ?? (await prerequisite(action, call.args, call.project));
   if (why) return reply(call.id, null, why);
   const secrets = approved.take(call.session, action.id, call.args);
   if (secrets) return perform(call, secrets);

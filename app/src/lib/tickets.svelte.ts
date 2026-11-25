@@ -83,6 +83,21 @@ export type DeliveryPreview = {
 export type Delivery = { run: Run; warning: string | null };
 export type Resumed = { run: Run; warning: string | null };
 export type Cleanup = { run: Run; cleaned: boolean; error: string | null };
+/** A Jira project, or a GitHub repository (`owner/name` as both). */
+export type TrackerProject = { key: string; name: string };
+export type BrowseFilter = { projects: string[]; status: "open" | "done" | "all"; assignee: "me" | "none" | "all"; text: string; sprint: boolean };
+export type BrowsePage = { tickets: TicketSummary[]; next: string | null };
+/** A ticket in full, as its tracker gives it: anyone may have written it. */
+export type TicketDetail = TicketRef & {
+  title: string;
+  body: string;
+  state: string;
+  author: string | null;
+  labels: string[];
+  assignees: string[];
+  comments: { author: string | null; created: string; body: string }[];
+  links: string[];
+};
 
 export const tickets = $state({
   /** Loaded once first shown, then kept mounted, like the Library view. */
@@ -91,7 +106,7 @@ export const tickets = $state({
   get scope(): string {
     return app.project ?? "";
   },
-  tab: "inbox" as "inbox" | "runs",
+  tab: "inbox" as "inbox" | "browse" | "runs",
   /** null while the first load of the scope runs. */
   inbox: null as TicketSummary[] | null,
   inboxError: "",
@@ -99,6 +114,10 @@ export const tickets = $state({
   inboxErrors: [] as SourceError[],
   /** Whether the current project has a ticket source; null for every project, or while unknown. */
   configured: null as boolean | null,
+  /** The current project's sources, by id. */
+  sources: [] as string[],
+  /** The project whose Tickets settings open the Jira assistant, asked by an agent. */
+  connectJira: "",
   loading: false,
   runs: [] as Run[],
   /** The runs were read once, or failed to be. */
@@ -141,13 +160,14 @@ export async function loadInbox() {
     const [inbox, configured] = await Promise.all([
       invoke<Inbox>("tickets_inbox", { project }),
       project
-        ? invoke<{ configured: boolean }[]>("tickets_configured", { project }).catch(() => [])
+        ? invoke<{ configured: boolean; sources: string[] }[]>("tickets_configured", { project }).catch(() => [])
         : Promise.resolve([]),
     ]);
     if (request === inboxRequest) {
       tickets.inbox = inbox.tickets;
       tickets.inboxErrors = inbox.errors;
       tickets.configured = configured[0]?.configured ?? null;
+      tickets.sources = configured[0]?.sources ?? [];
     }
   } catch (e) {
     if (request === inboxRequest) tickets.inboxError = String(e);

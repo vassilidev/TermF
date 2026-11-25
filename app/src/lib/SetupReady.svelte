@@ -153,7 +153,7 @@
   const ticketsSaved = $derived(!!sources && !sources.trackers.implicit);
   const trackers = $derived.by<Trackers | null>(() => {
     if ((!github.length && !gitlab) || ticketsSaved) return null;
-    const none: Trackers = sources?.trackers ?? { github: null, jira: null, mcp: {}, implicit: false };
+    const none: Trackers = sources?.trackers ?? { github: null, jira: [], mcp: {}, implicit: false };
     const proposed = github.length ? githubIssues({ ...none, implicit: true }) : { ...none, implicit: false };
     return gitlab ? { ...proposed, gitlab: { host: gitlab.host, repo: null, mine: true, comment: false } } : proposed;
   });

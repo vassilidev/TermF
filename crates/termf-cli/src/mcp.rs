@@ -65,13 +65,15 @@ environment of the project's agents from their next start. Never ask the user to
 never print, write or log one.";
 
 const SCREEN_INSTRUCTIONS: &str = "\
-You act in TermF yourself: `actions` lists what you may do from the screen the user talks to you from (add or test \
-a connection, connect a ticket source, rerun a workflow…), each with its arguments. When the user wants something \
+You act in TermF yourself: `actions` lists what you may do from the screen the user talks to you from (add, change, \
+test or delete a connection, connect a ticket source, rerun a workflow…), each with its arguments, and what the \
+screen holds (`here`, names only). When the user wants something \
 done in TermF, call `do_action` rather than giving them values to type or buttons to click: read and check first, \
 then propose it in one sentence and call it. The user approves each one in TermF, which shows exactly what it does. \
 TermF asks the user itself for the fields `actions` lists under `askedToUser` (passwords, tokens) and keeps them: \
 never ask the user for them, never pass them; say in `hints` where the user finds each one (DB_PASSWORD in the \
-server's .env). You get its result, or why it failed; never say it is done before it returns.";
+server's .env). You get its result, or why it failed; never say it is done before it returns. When it names an \
+action to propose first (no vault yet: vault.create), propose that one, then the first again.";
 
 fn tools() -> Value {
     let none = json!({ "type": "object", "properties": {}, "additionalProperties": false });
@@ -397,7 +399,7 @@ fn tools() -> Value {
         read(
             "actions",
             "TermF's actions here",
-            "What you may do in TermF from the screen the user talks to you from, and anywhere: each action's id, what it does, its `arguments` (a JSON schema) and `askedToUser`, the fields TermF asks the user for itself.",
+            "What you may do in TermF from the screen the user talks to you from, and anywhere: each action's id, what it does, its `arguments` (a JSON schema) and `askedToUser`, the fields TermF asks the user for itself; and `here`, what the screen holds by name (connections, tasks, the vault's secrets: never a value).",
             none.clone()
         ),
         act(

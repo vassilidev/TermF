@@ -6,7 +6,7 @@ use std::fs;
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
-use toml_edit::{Array, DocumentMut, Item, Table, value};
+use toml_edit::{Array, ArrayOfTables, DocumentMut, Item, Table, value};
 
 use crate::{TicketSummary, Tickets, azure, github, gitlab, jira, linear, mcp};
 
@@ -15,8 +15,9 @@ use crate::{TicketSummary, Tickets, azure, github, gitlab, jira, linear, mcp};
 pub struct Trackers {
     #[serde(default)]
     pub github: Option<GithubTracker>,
-    #[serde(default)]
-    pub jira: Option<JiraTracker>,
+    /// Its Jira sites.
+    #[serde(default, deserialize_with = "jira_sites")]
+    pub jira: Vec<JiraTracker>,
     #[serde(default)]
     pub linear: Option<LinearTracker>,
     #[serde(default)]
@@ -96,25 +97,95 @@ impl GithubTracker {
     }
 }
 
-/// `[trackers.jira]`: Jira Cloud. The API token is in the system's keychain, never in the file.
+/// `[[trackers.jira]]`: one Jira Cloud site and the spaces (Jira's projects) read there. The API token is in the
+/// system's keychain, by site and e-mail, never in the file.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct JiraTracker {
     /// `acme.atlassian.net`.
     pub site: String,
     /// The Atlassian account the API token belongs to.
     pub email: String,
-    /// The inbox's JQL; none: [`jira::DEFAULT_JQL`].
+    /// The inbox's JQL, an advanced choice; none: the user's open tickets in `spaces`.
     #[serde(default)]
     pub jql: Option<String>,
-    /// The Jira project key (`ACME`) a pasted key must have to go to this project; none: any key.
-    #[serde(default)]
-    pub project: Option<String>,
+    /// The spaces' keys (`APP`, `API`): what is read, and the prefixes a pasted key goes here by; none: every
+    /// space. `project = "APP, API"`, as a single site was written before, reads the same.
+    #[serde(default, alias = "project", deserialize_with = "space_keys")]
+    pub spaces: Vec<String>,
     /// Link the pull request to the ticket once a run is delivered.
     #[serde(default)]
     pub comment: bool,
     /// The status a delivered run moves its ticket to; none: left alone.
     #[serde(default)]
     pub transition: Option<String>,
+}
+
+/// The spaces as a list, or as the text `APP, API` the file had before sites became several.
+fn space_keys<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Keys {
+        Text(Option<String>),
+        List(Vec<String>),
+    }
+    let keys = match Keys::deserialize(d)? {
+        Keys::Text(text) => text
+            .unwrap_or_default()
+            .split(',')
+            .map(str::to_owned)
+            .collect(),
+        Keys::List(list) => list,
+    };
+    Ok(keys
+        .iter()
+        .map(|k| k.trim().to_ascii_uppercase())
+        .filter(|k| !k.is_empty())
+        .collect())
+}
+
+/// One `[trackers.jira]` table, as a project's file had it, or the `[[trackers.jira]]` of several sites.
+fn jira_sites<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<JiraTracker>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Sites {
+        One(JiraTracker),
+        Many(Vec<JiraTracker>),
+        Nothing,
+    }
+    Ok(match Sites::deserialize(d)? {
+        Sites::One(site) => vec![site],
+        Sites::Many(sites) => sites,
+        Sites::Nothing => Vec::new(),
+    })
+}
+
+impl JiraTracker {
+    /// The spaces read, as keys.
+    pub(crate) fn keys(&self) -> Vec<&str> {
+        self.spaces.iter().map(String::as_str).collect()
+    }
+
+    /// The inbox's JQL: the advanced one when given, else the user's open tickets in the site's spaces.
+    pub(crate) fn inbox_jql(&self) -> String {
+        if let Some(jql) = self.jql.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
+            return jql.to_owned();
+        }
+        let spaces: Vec<&str> = self
+            .keys()
+            .into_iter()
+            .filter(|k| jira::project_key(k))
+            .collect();
+        match spaces.as_slice() {
+            [] => jira::DEFAULT_JQL.to_owned(),
+            keys => format!("project in ({}) AND {}", keys.join(", "), jira::DEFAULT_JQL),
+        }
+    }
+
+    /// Whether a pasted key with this prefix goes to this source: none listed takes any.
+    pub(crate) fn takes(&self, prefix: &str) -> bool {
+        let keys = self.keys();
+        keys.is_empty() || keys.iter().any(|k| k.eq_ignore_ascii_case(prefix))
+    }
 }
 
 /// `[trackers.linear]`: Linear. The personal API key is in the system's keychain, never in the file.
@@ -221,8 +292,8 @@ fn yes() -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct Sources {
     pub trackers: Trackers,
-    /// Whether the keychain holds an API token for `[trackers.jira]`'s site and e-mail.
-    pub jira_token: bool,
+    /// Whether the keychain holds an API token for each Jira site's e-mail, in the order of `trackers.jira`.
+    pub jira_tokens: Vec<bool>,
     /// The `owner/name` of the project's GitHub repositories, which GitHub Issues reads.
     pub github_repos: Vec<String>,
     /// The read-only tools TermF knows for each MCP source's server, used when the source lists none.
@@ -251,13 +322,15 @@ pub struct Configured {
     pub sources: Vec<String>,
 }
 
-/// A source of the inbox: `github`, `githubProject`, `gitlab`, `jira`, `linear`, `azure` or `mcp:<name>`.
+/// A source of the inbox: `github`, `githubProject`, `gitlab`, `jira:<site's host>` (`jira`: the first site),
+/// `linear`, `azure` or `mcp:<name>`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Source {
     GithubIssues,
     GithubProject,
     Gitlab,
-    Jira,
+    /// A Jira site by its host; empty: the project's first.
+    Jira(String),
     Linear,
     Azure,
     Mcp(String),
@@ -268,12 +341,13 @@ impl Source {
         Ok(match id {
             "github" => Source::GithubIssues,
             "githubProject" => Source::GithubProject,
-            "jira" => Source::Jira,
+            "jira" => Source::Jira(String::new()),
             "gitlab" => Source::Gitlab,
             "linear" => Source::Linear,
             "azure" => Source::Azure,
-            _ => match id.strip_prefix("mcp:") {
-                Some(name) if !name.is_empty() => Source::Mcp(name.to_owned()),
+            _ => match (id.strip_prefix("mcp:"), id.strip_prefix("jira:")) {
+                (Some(name), _) if !name.is_empty() => Source::Mcp(name.to_owned()),
+                (_, Some(host)) if !host.is_empty() => Source::Jira(host.to_ascii_lowercase()),
                 _ => bail!("unknown ticket source {id}"),
             },
         })
@@ -283,7 +357,8 @@ impl Source {
         match self {
             Source::GithubIssues => "github".into(),
             Source::GithubProject => "githubProject".into(),
-            Source::Jira => "jira".into(),
+            Source::Jira(host) if host.is_empty() => "jira".into(),
+            Source::Jira(host) => format!("jira:{host}"),
             Source::Gitlab => "gitlab".into(),
             Source::Linear => "linear".into(),
             Source::Azure => "azure".into(),
@@ -295,7 +370,8 @@ impl Source {
         match self {
             Source::GithubIssues => "GitHub Issues".into(),
             Source::GithubProject => "GitHub Projects".into(),
-            Source::Jira => "Jira".into(),
+            Source::Jira(host) if host.is_empty() => "Jira".into(),
+            Source::Jira(host) => format!("Jira {host}"),
             Source::Gitlab => "GitLab".into(),
             Source::Linear => "Linear".into(),
             Source::Azure => "Azure DevOps".into(),
@@ -305,6 +381,16 @@ impl Source {
 }
 
 impl Trackers {
+    /// The Jira site at `host`; an empty host: the first.
+    pub(crate) fn jira_site(&self, host: &str) -> Option<&JiraTracker> {
+        if host.is_empty() {
+            return self.jira.first();
+        }
+        self.jira
+            .iter()
+            .find(|j| jira::host(&j.site).is_ok_and(|h| h.eq_ignore_ascii_case(host)))
+    }
+
     /// What a project without `[trackers]` reads.
     fn implicit() -> Self {
         Self {
@@ -337,8 +423,13 @@ impl Trackers {
         if self.gitlab.is_some() {
             sources.push(Source::Gitlab);
         }
-        if self.jira.is_some() {
-            sources.push(Source::Jira);
+        // A single site keeps the id `jira` it always had.
+        for site in &self.jira {
+            let host = match self.jira.len() {
+                1 => String::new(),
+                _ => jira::host(&site.site).unwrap_or_else(|_| site.site.clone()),
+            };
+            sources.push(Source::Jira(host));
         }
         if self.linear.is_some() {
             sources.push(Source::Linear);
@@ -351,7 +442,7 @@ impl Trackers {
     }
 
     /// Refuses what no source could use, before it reaches the file.
-    fn check(&self) -> Result<()> {
+    pub(crate) fn check(&self) -> Result<()> {
         if let Some(github) = &self.github {
             if let Some(repo) = github.repo() {
                 github::split(&format!("{repo}#1"))
@@ -361,13 +452,26 @@ impl Trackers {
                 github::Board::parse(board)?;
             }
         }
-        if let Some(jira) = &self.jira {
+        let mut hosts = Vec::new();
+        for jira in &self.jira {
             jira::base(&jira.site)?;
             ensure!(
                 jira.email.contains('@'),
                 "Jira: {:?} is not an e-mail address",
                 jira.email
             );
+            for key in &jira.spaces {
+                ensure!(
+                    jira::project_key(key),
+                    "Jira: {key:?} is not a space key, such as ACME"
+                );
+            }
+            let host = jira::host(&jira.site)?;
+            ensure!(
+                !hosts.contains(&host),
+                "Jira: {host} is twice in the sources"
+            );
+            hosts.push(host);
         }
         if let Some(linear) = &self.linear {
             linear::workspace(&linear.workspace)?;
@@ -463,20 +567,22 @@ pub fn write_trackers(doc: &mut DocumentMut, trackers: &Trackers) -> Result<()> 
             text(t, "transition", g.transition.as_deref());
         }
     }
-    match &trackers.jira {
-        None => {
-            root.remove("jira");
-        }
-        Some(j) => {
-            let t = table(root, "jira")?;
-            text(t, "site", Some(&j.site));
-            text(t, "email", Some(&j.email));
+    // One table per site; a single site's older `[trackers.jira]` becomes the first of them.
+    root.remove("jira");
+    if !trackers.jira.is_empty() {
+        let mut sites = ArrayOfTables::new();
+        for j in &trackers.jira {
+            let mut t = Table::new();
+            text(&mut t, "site", Some(&j.site));
+            text(&mut t, "email", Some(&j.email));
+            list(&mut t, "spaces", &j.spaces);
             let jql = j.jql.as_deref().filter(|q| q.trim() != jira::DEFAULT_JQL);
-            text(t, "jql", jql);
-            text(t, "project", j.project.as_deref());
-            flag(t, "comment", j.comment, false);
-            text(t, "transition", j.transition.as_deref());
+            text(&mut t, "jql", jql);
+            flag(&mut t, "comment", j.comment, false);
+            text(&mut t, "transition", j.transition.as_deref());
+            sites.push(t);
         }
+        root.insert("jira", Item::ArrayOfTables(sites));
     }
     match &trackers.linear {
         None => {
@@ -553,10 +659,14 @@ impl Tickets {
 
     pub fn sources(&self, project: &str) -> Result<Sources> {
         let trackers = self.trackers(project)?;
-        let jira_token = trackers.jira.as_ref().is_some_and(|j| {
-            self.jira_token(&j.site, &j.email)
-                .is_ok_and(|t| t.is_some())
-        });
+        let jira_tokens = trackers
+            .jira
+            .iter()
+            .map(|j| {
+                self.jira_token(&j.site, &j.email)
+                    .is_ok_and(|t| t.is_some())
+            })
+            .collect();
         let mcp_tools = trackers
             .mcp
             .iter()
@@ -584,7 +694,7 @@ impl Tickets {
         Ok(Sources {
             gitlab_repos: info.gitlab_slugs(),
             trackers,
-            jira_token,
+            jira_tokens,
             github_repos,
             mcp_tools,
             tokens,
