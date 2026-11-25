@@ -645,7 +645,8 @@
   }
 
   function stepOf(item: Tool, now: boolean): Step {
-    const state = item.result === null ? (now ? "now" : undefined) : item.result.isError ? "fail" : "ok";
+    const asked = item.result !== null && questionIn(item.result.output) !== null;
+    const state = item.result === null ? (now ? "now" : undefined) : asked ? undefined : item.result.isError ? "fail" : "ok";
     if (termfTools[item.name]) return { verb: toolName(item.name), object: about(item.name, item.input) || undefined, state };
     const p = actPhrase(item.name, item.input);
     const verb = t(p.key as Parameters<typeof t>[0], { ...p.vars, target: "" }).replace(/\s+/g, " ").trim();
@@ -813,7 +814,9 @@
 {/snippet}
 
 {#snippet tool(item: Tool, now: boolean)}
-  {@const failed = item.result?.isError}
+  <!-- A call the user asked a question about did not run, and did not fail either. -->
+  {@const asked = !!item.result && questionIn(item.result.output) !== null}
+  {@const failed = item.result?.isError && !asked}
   <details class="tool" class:failed>
     <summary>
       <span class="call">
@@ -826,6 +829,8 @@
           {/if}
         {:else if failed}
           <CircleX size={14} aria-label={t("chatToolFailed")} />
+        {:else if asked}
+          <ShieldQuestionMark size={14} aria-hidden="true" />
         {:else}
           <Check size={14} aria-hidden="true" />
         {/if}
@@ -838,7 +843,7 @@
         {#if item.result === null && now}<span class="state">{t("chatToolRunning")}</span>{/if}
         {#if item.children.length}<span class="badge">{t("chatSubagent", { count: item.children.length })}</span>{/if}
       </span>
-      {#if failed && item.result && questionIn(item.result.output) === null}<span class="mono why-failed">{firstLine(item.result.output)}</span>{/if}
+      {#if failed && item.result}<span class="mono why-failed">{firstLine(item.result.output)}</span>{/if}
     </summary>
     <div class="body">
       <p class="label">{t("chatInput")}</p>
