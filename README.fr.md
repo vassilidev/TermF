@@ -34,7 +34,7 @@ irm https://vassilidev.github.io/TermF/install.ps1 | iex          # Windows (Pow
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/shots/home-dark.webp">
-  <img alt="L'Accueil d'un projet dans TermF : la conversation avec le CTO, un plan qui attend ta validation et une carte pour lancer l'équipe, et à droite ce qui t'attend, les agents au travail et les runs" src="site/shots/home-light.webp">
+  <img alt="L'Accueil d'un projet dans TermF : deux choses attendent une réponse, les agents en direct avec ce que fait chacun, les runs et les tickets à traiter, et en bas la barre pour demander au CTO" src="site/shots/home-light.webp">
 </picture>
 
 ## Ce que c'est
@@ -77,8 +77,8 @@ Au premier lancement, l'Accueil liste les outils qui manquent à TermF, avec la 
 
 <table>
   <tr>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/setup-dark-800.webp"><img alt="Nouveau projet : ce que TermF propose après avoir lu les dépôts, l'équipe d'agents, les sources de tickets, la préparation des worktrees, la CI/CD et les skills" src="site/shots/setup-light-800.webp"></picture></td>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/greenfield-dark-800.webp"><img alt="Nouveau projet, Partir de zéro : l'idée en quelques phrases, trois exemples, et ce que fait ensuite l'équipe" src="site/shots/greenfield-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/setup-dark-800.webp"><img alt="Nouveau projet, étape 5 sur 5, Ton équipe et tes outils : l'équipe d'agents, les sources de tickets, la préparation des worktrees, la vérification avant livraison et la CI, chacun gardé par défaut avec Régler" src="site/shots/setup-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/greenfield-dark-800.webp"><img alt="Nouveau projet, Partir de zéro : l'idée en quelques phrases, trois exemples, et ce que fait ensuite l'équipe : cadrage, recherche, ta décision, le squelette" src="site/shots/greenfield-light-800.webp"></picture></td>
   </tr>
   <tr>
     <td align="center"><sub>Depuis tes dépôts : la proposition</sub></td>
@@ -93,6 +93,8 @@ Chaque fonctionnalité est documentée sur le site, avec ce qui marche par défa
 ### Le CTO et l'équipe
 
 - **La conversation du CTO.** Une conversation permanente par projet. Chaque action du CTO (lancer un run, valider une étape, arrêter) est une carte que tu approuves. `@front` écrit à un agent au travail, `@expert` à l'expert du projet.
+- **Demander depuis n'importe quel écran.** <kbd>⌘I</kbd> ouvre un panneau à côté de la vue, avec l'agent qui lui va (le lead sur un run, devops sur la CI/CD, le DBA dans le studio de bases, l'expert dans Git) et ce que tu regardes en contexte. Rien ne change sans ton accord.
+- **Moins de demandes, mêmes garde-fous.** Dans un run, les commandes qui ne font que lire et les contrôles, tests et lint du projet passent sans te demander. Le CTO peut ajouter un rôle dont un ticket a besoin, et la pull request raconte ce qui a été fait et vérifié.
 - **Le tri, à la taille du ticket.** Le CTO choisit comment l'équipe prend un ticket : les étapes, les agents, le budget, jamais plus qu'il n'en faut. Un changement trivial a un développeur et les contrôles du projet, un petit ticket un développeur et une revue courte ; seul un ticket gros, flou ou sensible a l'équipe complète, et attend ton accord sur son parcours et son plan.
 - **Des questions avec réponses proposées.** Les questions ouvertes arrivent dans un seul formulaire, chacune avec sa raison et une réponse proposée : tu ne changes que ce qui ne va pas.
 - **29 rôles.** Chaque rôle est un fichier Markdown que tu peux surcharger par projet, squad ou dépôt (modèle, effort, permissions, skills, chemins interdits).
@@ -105,19 +107,20 @@ Chaque fonctionnalité est documentée sur le site, avec ce qui marche par défa
 
 ### Projets, tickets et runs
 
-- **Les projets et leur création.** Choisis des dépôts ; TermF détecte stacks, commandes, CI et tickets, et propose le reste.
+- **Les projets et leur création.** Un seul assistant guidé : choisis des dépôts ; TermF détecte stacks, commandes, CI et tickets, pose quelques questions avec une réponse proposée, et propose le reste.
 - **Un projet de zéro.** Pars d'une idée : TermF crée le dépôt (et, si tu veux, son dépôt GitHub), puis le workflow `kickoff` la cadre, un chercheur et un analyste de la concurrence regardent ce qui existe, et tu tranches avant que le squelette soit construit.
-- **L'Accueil du projet.** La conversation du CTO, ce qui t'attend, les agents au travail et les runs, sur un seul écran.
+- **« Aujourd'hui », sur l'Accueil du projet.** Où en sont les choses en une phrase, ce qui t'attend d'abord, les agents au travail en mots simples, les runs et les tickets à traiter.
 - **Sources de tickets.** GitHub Issues, GitHub Projects, GitLab (livré en merge request), Jira Cloud, Linear, Azure DevOps ou n'importe quel serveur MCP ; plusieurs par projet.
-- **La page Run.** Une page par ticket, du lancement au merge : étapes, plan, questions, budget, journal.
+- **La page Run.** Une page par ticket, du lancement au merge : étapes, une voie par agent avec ta réponse sur place, les fichiers modifiés, budget, journal.
 - **Des runs sur plusieurs dépôts.** Un ticket qui touche l'API et le front reçoit une pull request dans chaque dépôt, liées entre elles.
 - **Workflows et règles.** Les workflows sont des fichiers ; des règles comme « ne faire que ce que demande le ticket » ou « aucun texte non demandé » vont du conseil au blocage.
 - **Livraison en deux temps.** Un aperçu exact de ce qui sera envoyé, puis ta confirmation ; les agents ne peuvent jamais pousser.
 - **Git dans le projet.** Graphe des branches, branches et worktrees, indexer par fichier, bloc ou ligne, commit, stash, merge, rebase avec conflits, tags, historique et blame.
+- **Le nettoyage Git.** Les branches et les worktrees qui peuvent partir, avec ce que chacun ferait perdre. Ce qui ne perd rien part tout de suite, avec Annuler, et un expert git t'aide à trier le reste.
 
 <table>
   <tr>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/run-dark-800.webp"><img alt="La page d'un run : les étapes du cadrage à la livraison, les questions du plan avec leurs réponses proposées, le budget et le journal" src="site/shots/run-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/run-dark-800.webp"><img alt="La page d'un run : les questions du plan dans la voie de l'agent qui les pose, chacune avec sa raison et une réponse proposée déjà choisie, et la prochaine étape à droite" src="site/shots/run-light-800.webp"></picture></td>
     <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/git-dark-800.webp"><img alt="La vue Git : branches locales et distantes, worktrees et stashs, et le graphe des commits de toutes les branches" src="site/shots/git-light-800.webp"></picture></td>
   </tr>
   <tr>
@@ -131,21 +134,21 @@ Chaque fonctionnalité est documentée sur le site, avec ce qui marche par défa
 - **Onglets et splits**, comme dans Ghostty, pour Claude Code, Codex, Gemini ou un shell, avec l'état de chaque session et le remplissage de son contexte.
 - **Remise à zéro du contexte avec passation.** Quand le contexte d'une session se remplit, TermF lui fait écrire une passation, le vide et reprend.
 - **Remote Control** : reprends une session Claude Code depuis ton téléphone, avec son lien et son QR code, par session, par projet ou par rôle ; une icône dans la barre des menus et un badge sur le dock montrent ce qui t'attend.
-- **Deux panneaux, l'aide et une visite guidée** ; chaque raccourci se change.
+- **Deux panneaux, l'aide et un guide au premier lancement** ; chaque raccourci se change.
 - **Fichiers, terminal rapide et « rester éveillé »** : un explorateur avec recherche floue et un éditeur, un terminal sur <kbd>Ctrl+`</kbd>, et un interrupteur qui garde la machine éveillée pendant que les agents travaillent.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/shots/terminals-dark-800.webp">
-  <img alt="Terminaux : des onglets, et deux sessions Claude Code côte à côte au-dessus d'un shell" src="site/shots/terminals-light-800.webp" width="800">
+  <img alt="Les terminaux de TermF : des onglets, et une disposition en trois panneaux, une session Claude Code à côté d'un shell et une seconde session Claude Code au travail" src="site/shots/terminals-light-800.webp" width="800">
 </picture>
 
 ### Worktrees, bibliothèque et skills
 
 - **Des worktrees prêts à tourner.** Chaque run travaille dans son propre worktree git, avec ses dépendances, ses fichiers `.env`, une base clonée et ses propres ports.
-- **La bibliothèque.** Rôles, règles, skills, workflows et commandes en couches (livré, global, projet, dépôt).
+- **La bibliothèque.** Rôles, règles, skills, workflows et commandes en couches (livré, global, projet, dépôt). La recherche d'abord, ce qui est vraiment actif dans ce projet et pourquoi, et un interrupteur par élément, avec Annuler.
 - **38 skills par stack**, activées selon ce que TermF trouve dans tes dépôts, plus des skills pour `git`, `gh`, `curl`, `jq`, `make` et d'autres pour tous les agents.
 - **Serveurs de langage** : quand le serveur de langage de ta stack est installé (rust-analyzer, TypeScript, pyright, gopls…), les agents reçoivent ses diagnostics pendant qu'ils modifient le code ; les skills et rôles clés livrés ont leurs évals.
-- **Des conventions en mots simples**, proposées depuis ton code et relues une par une, et une **veille** qui cherche sur le web de meilleures pratiques.
+- **Des conventions en mots simples**, proposées depuis ton code et relues une par une, et une **veille** qui cherche sur le web de meilleures pratiques. Ce qu'elles proposent arrive dans un onglet « À faire », une action par ligne.
 
 ### Claude Code, autres agents et planificateur
 
@@ -157,14 +160,14 @@ Chaque fonctionnalité est documentée sur le site, avec ce qui marche par défa
 
 ### CI/CD, design et revue visuelle
 
-- **CI/CD** : les exécutions GitHub Actions et leurs journaux dans l'app, avec la première erreur repérée, relancer et annuler, et un échec renvoyé à l'agent qui l'a causé.
-- **La vue Design system** : tes tokens et composants lus dans le code, avec chaque incohérence (valeurs en dur, couleurs presque identiques, contrastes sous WCAG AA, thème sombre incomplet), et une charte exportée en PDF.
+- **CI/CD** : les exécutions GitHub Actions et leurs journaux dans l'app, avec le graphe des jobs en direct, la première erreur repérée, relancer et annuler, et un échec renvoyé à l'agent qui l'a causé ; les webhooks, et les déploiements par la ligne de commande de Laravel Forge, Vercel, Netlify, Fly.io ou Railway.
+- **La vue Design system** : tes tokens et composants lus dans le code, avec chaque incohérence (valeurs en dur, couleurs presque identiques, contrastes sous WCAG AA, thème sombre incomplet), et une charte exportée en PDF. Elle charge les vraies polices du projet, avec un spécimen et les composants redessinés depuis ses tokens.
 - **La revue visuelle** : captures avant / après de chaque écran modifié, côte à côte, avec un curseur, un calque ou une heatmap, des épingles, et un mode swipe pour les passer en revue.
 
 <table>
   <tr>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/review-dark-800.webp"><img alt="La page de revue visuelle : le curseur avant / après sur un écran modifié, une épingle, le commentaire pour l'agent et les boutons de décision" src="site/shots/review-light-800.webp"></picture></td>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/design-dark-800.webp"><img alt="La vue Design system : les tokens par famille et les incohérences trouvées" src="site/shots/design-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/review-dark-800.webp"><img alt="La page de revue visuelle en revue rapide : un écran modifié de la page des factures, pourquoi il a changé, le texte qui a changé, et les boutons pour refuser, demander un changement ou approuver" src="site/shots/review-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/design-dark-800.webp"><img alt="La vue Design system : les composants du dépôt dessinés avec ses propres tokens, chacun avec ses variantes, son fichier et ses usages, à côté des familles de tokens et des incohérences" src="site/shots/design-light-800.webp"></picture></td>
   </tr>
   <tr>
     <td align="center"><sub>La revue visuelle</sub></td>
@@ -177,17 +180,18 @@ Chaque fonctionnalité est documentée sur le site, avec ce qui marche par défa
 - **SSH et clés** dans tous les formats courants, avec l'agent et `~/.ssh/config`.
 - **Le coffre** : identifiants avec codes 2FA, notes sécurisées et secrets par projet, chiffrés ; une clé de sécurité (FIDO2) comme second facteur, Touch ID ou Windows Hello ; import depuis Bitwarden, 1Password, les navigateurs et KeePassXC. Les agents ne voient jamais une valeur sans ton accord.
 - **La synchro chiffrée** des réglages, des projets, du coffre et, si tu le choisis, des clés SSH, par git, un dossier, S3 ou WebDAV.
-- **Serveurs, bases et journaux (Ops)** : SSH, Postgres, MySQL, Kubernetes et services de journaux, avec des recettes que tu lances, ou qu'un agent demande à lancer par une carte d'approbation, sortie masquée ; une console SQL en lecture seule, les journaux en direct, et le `.env` de prod comparé au tien.
+- **Serveurs, bases et journaux (Ops)** : SSH, Postgres, MySQL, Kubernetes et services de journaux, avec des recettes que tu lances, ou qu'un agent demande à lancer par une carte d'approbation, sortie masquée ; les journaux en direct, et le `.env` de prod comparé au tien.
+- **Un studio de bases** : n'importe quelle base ajoutée par URL, depuis les fichiers de ton projet ou derrière SSH, son schéma, des requêtes sauvegardées et des exports, et le DBA pour écrire, expliquer ou optimiser une requête, toujours en lecture seule.
 - **Un environnement minimal pour les agents** : ils ne reçoivent que les variables dont ils ont besoin ; une clé d'API du coffre seulement quand ils la demandent et que tu la donnes.
 
 <table>
   <tr>
     <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/vault-dark-800.webp"><img alt="Le coffre : identifiants, notes et secrets du projet, avec un identifiant GitHub ouvert sur son code 2FA" src="site/shots/vault-light-800.webp"></picture></td>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/sql-dark-800.webp"><img alt="La console SQL d'Ops : une requête en lecture seule sur un Postgres de prod, vérifiée avant de partir, son résultat avec les e-mails masqués" src="site/shots/sql-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/sql-dark-800.webp"><img alt="Le studio de bases : le schéma d'un Postgres de prod, une requête vérifiée en lecture, son résultat avec les e-mails masqués, et la réponse du DBA" src="site/shots/sql-light-800.webp"></picture></td>
   </tr>
   <tr>
     <td align="center"><sub>Le coffre</sub></td>
-    <td align="center"><sub>Ops : la console SQL en lecture seule</sub></td>
+    <td align="center"><sub>Le studio de bases</sub></td>
   </tr>
 </table>
 
@@ -195,6 +199,7 @@ Chaque fonctionnalité est documentée sur le site, avec ce qui marche par défa
 
 - **Une commande pour installer**, et des **mises à jour automatiques**, signées, sur un canal stable ou bêta.
 - **Une app native** : un `.dmg` mis en page, des installeurs Windows en anglais et en français, `.deb`, `.rpm` et AppImage, un menu macOS natif, une fenêtre qui retient sa place.
+- **Un espace de travail aux normes** : une navigation que tu redimensionnes ou replies en icônes, des splits en un raccourci, des menus au clic droit, et chaque écran marche dans une fenêtre étroite.
 
 ## L'équipe
 
@@ -213,7 +218,7 @@ Ce que fait chacun, quand il est appelé et ce qu'il ne fait jamais : [la page d
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/shots/team-dark-800.webp">
-  <img alt="Les réglages d'équipe d'un projet : deux squads avec leur lead, leurs membres, dépôts et chemins, et le tableau des rôles avec leur modèle" src="site/shots/team-light-800.webp" width="800">
+  <img alt="L'onglet Équipe de la Configuration d'un projet : deux squads, billing et web, l'effectif, et les rôles avec leur modèle et leur couche" src="site/shots/team-light-800.webp" width="800">
 </picture>
 
 ## Équipe ou session seule ?
