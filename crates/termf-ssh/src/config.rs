@@ -316,7 +316,7 @@ fn declares(line: &str, alias: &str) -> Option<Vec<String>> {
     }
 }
 
-/// Put above each block TermF adds, so that the sync carries those blocks and never one written by hand.
+/// Put above each block TermF adds; deleting the block takes it too.
 pub const MARK: &str = "# Written by TermF";
 
 /// `text` with the block of `entry.alias` added or updated. Only the five options of `HostEntry` change:
@@ -429,71 +429,6 @@ pub fn upsert(text: &str, entry: &HostEntry) -> Result<String> {
         }
     }
     Ok(join(text, &lines))
-}
-
-/// The blocks of `text` that TermF added (marked), with the options the UI sets; the first value of each wins.
-pub fn marked(text: &str) -> Vec<HostEntry> {
-    let lines: Vec<&str> = text.lines().collect();
-    let mut found = Vec::new();
-    for i in 0..lines.len() {
-        let Some(alias) = marked_alias(&lines, i) else {
-            continue;
-        };
-        let mut entry = HostEntry {
-            alias,
-            ..Default::default()
-        };
-        for line in &lines[i + 1..] {
-            let Some((keyword, args)) = directive(line) else {
-                continue;
-            };
-            if keyword == "host" || keyword == "match" {
-                break;
-            }
-            let Some(value) = args.into_iter().next() else {
-                continue;
-            };
-            match keyword.as_str() {
-                "hostname" => _ = entry.host_name.get_or_insert(value),
-                "user" => _ = entry.user.get_or_insert(value),
-                "port" => entry.port = entry.port.or(value.parse().ok()),
-                "identityfile" => _ = entry.identity_file.get_or_insert(value),
-                "identitiesonly" => {
-                    _ = entry
-                        .identities_only
-                        .get_or_insert(value.eq_ignore_ascii_case("yes"))
-                }
-                _ => {}
-            }
-        }
-        found.push(entry);
-    }
-    found
-}
-
-/// The alias of the `Host` line at `i` when TermF's mark is right above it.
-fn marked_alias(lines: &[&str], i: usize) -> Option<String> {
-    let (keyword, mut patterns) = directive(lines[i])?;
-    (keyword == "host" && patterns.len() == 1 && i > 0 && lines[i - 1].trim() == MARK)
-        .then(|| patterns.remove(0))
-}
-
-/// Whether `alias` has a block TermF did not add, which the sync leaves alone.
-pub fn hand_written(text: &str, alias: &str) -> bool {
-    let lines: Vec<&str> = text.lines().collect();
-    (0..lines.len())
-        .any(|i| declares(lines[i], alias).is_some() && marked_alias(&lines, i).is_none())
-}
-
-/// `text` without the marked block of `alias`: its mark, its lines and the blank line that followed it.
-pub fn remove_marked(text: &str, alias: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    match (0..lines.len())
-        .find(|&i| marked_alias(&lines, i).is_some_and(|a| a.eq_ignore_ascii_case(alias)))
-    {
-        Some(start) => cut(text, &lines, start - 1, start),
-        None => text.to_owned(),
-    }
 }
 
 /// `text` without the block that declares `alias` alone, its TermF mark with it, as the Hosts tab deletes it.
@@ -642,7 +577,7 @@ pub use termf_core::diff;
 
 /// Replaces `file` atomically, readable by the user only. A symlinked config (dotfiles) is written
 /// through, so the link stays.
-pub fn write(file: &Path, text: &str) -> Result<()> {
+pub fn write(file: &Path, text: impl AsRef<[u8]>) -> Result<()> {
     let file = fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
     let name = file
         .file_name()
@@ -664,7 +599,7 @@ pub fn write(file: &Path, text: &str) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         out.set_permissions(fs::Permissions::from_mode(0o600))?;
     }
-    out.write_all(text.as_bytes())?;
+    out.write_all(text.as_ref())?;
     out.sync_all()?;
     fs::rename(&tmp, &file).with_context(|| format!("cannot write {}", file.display()))
 }

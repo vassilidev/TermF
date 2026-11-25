@@ -286,7 +286,7 @@ termf ssh trash <key>
 
 ```sh
 # through git or a folder
-termf sync setup --git <url> | --folder <path> [--name <device>] [--scopes config,projects,conventions,vault]
+termf sync setup --git <url> | --folder <path> [--name <device>] [--scopes config,projects,conventions,vault,ssh-keys,dev-config]
 
 # through S3 (curl 8.3 or newer) or WebDAV
 termf sync setup --s3 <endpoint> --bucket <name> [--region <region>] [--prefix <path>] | --webdav <url>

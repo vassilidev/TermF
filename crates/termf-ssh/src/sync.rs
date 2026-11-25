@@ -1,5 +1,5 @@
-//! What the encrypted sync carries of `~/.ssh` when asked to (§5.4): the key pairs, and the Host blocks TermF
-//! added to `~/.ssh/config`. A file already there is never replaced.
+//! What the encrypted sync carries of `~/.ssh` when asked to (§5.4): the key pairs, and `~/.ssh/config` whole.
+//! A key already there is never replaced.
 
 use std::fs;
 use std::io::Write;
@@ -8,7 +8,7 @@ use std::path::Path;
 use anyhow::{Context, Result, ensure};
 use zeroize::Zeroizing;
 
-use crate::config::{self, HostEntry};
+use crate::config;
 use crate::{NOT_KEYS, Ssh, create_private_dir, file_name, read_private};
 
 pub struct Pair {
@@ -26,18 +26,6 @@ pub fn valid_name(name: &str) -> bool {
         && !name.contains(['/', '\\', ':'])
         && !name.chars().any(char::is_control)
         && !NOT_KEYS.contains(&name)
-}
-
-/// An `IdentityFile` another machine's block may set here: a file under `~/.ssh`, in a subfolder or not.
-pub fn synced_identity(path: &str) -> bool {
-    path.strip_prefix("~/.ssh/").is_some_and(|rest| {
-        !rest.is_empty()
-            && !rest.contains('\\')
-            && !rest.chars().any(char::is_control)
-            && rest
-                .split('/')
-                .all(|part| !part.is_empty() && part != "." && part != "..")
-    })
 }
 
 impl Ssh {
@@ -103,52 +91,26 @@ impl Ssh {
         Ok(())
     }
 
-    /// `~/.ssh/config`, empty when there is none. Unreadable (not UTF-8, no access) is an error, never empty:
-    /// the sync would take its blocks as deleted.
-    fn config_text(&self) -> Result<String> {
-        match fs::read_to_string(self.config()) {
-            Ok(text) => Ok(text),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+    /// `~/.ssh/config` as it is, `None` when there is none. Unreadable is an error, never `None`: the sync would
+    /// take it as deleted.
+    pub fn config_file(&self) -> Result<Option<Vec<u8>>> {
+        match fs::read(self.config()) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e).context("cannot read ~/.ssh/config"),
         }
     }
 
-    /// The blocks of `~/.ssh/config` TermF added.
-    pub fn marked_hosts(&self) -> Result<Vec<HostEntry>> {
-        Ok(config::marked(&self.config_text()?))
-    }
-
-    /// Whether `alias` has a block written by hand, which the sync never touches.
-    pub fn hand_written(&self, alias: &str) -> Result<bool> {
-        Ok(config::hand_written(&self.config_text()?, alias))
-    }
-
-    /// Makes TermF's blocks those of `hosts`: added, updated, or removed when gone. A block written by hand
-    /// for the same alias is left as it is, and a key path outside `~/.ssh` is not written (`synced_identity`).
-    pub fn apply_hosts(&self, hosts: &[HostEntry]) -> Result<()> {
-        let before = self.config_text()?;
-        let mut after = before.clone();
-        for old in config::marked(&before) {
-            if !hosts
-                .iter()
-                .any(|h| h.alias.eq_ignore_ascii_case(&old.alias))
-            {
-                after = config::remove_marked(&after, &old.alias);
-            }
-        }
-        for host in hosts {
-            if config::hand_written(&after, &host.alias) {
-                continue;
-            }
-            let mut host = host.clone();
-            host.identity_file = host.identity_file.filter(|f| synced_identity(f));
-            after = config::upsert(&after, &host)?;
-        }
-        if after != before {
-            create_private_dir(&self.dir)?;
-            config::write(&self.config(), &after)?;
-        }
-        Ok(())
+    /// Replaces `~/.ssh/config` whole, as the Hosts tab writes it, or deletes it.
+    pub fn set_config_file(&self, bytes: Option<&[u8]>) -> Result<()> {
+        let Some(bytes) = bytes else {
+            return match fs::remove_file(self.config()) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+                _ => Ok(()),
+            };
+        };
+        create_private_dir(&self.dir)?;
+        config::write(&self.config(), bytes)
     }
 }
 

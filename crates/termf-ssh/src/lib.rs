@@ -21,7 +21,7 @@ use zeroize::Zeroizing;
 
 pub use config::{Host, HostEntry, MARK};
 pub use keys::{Algo, Check, CheckKind, Format, Generated, KeyFile, Locked, Spec, Usage};
-pub use sync::{Pair, synced_identity, valid_name};
+pub use sync::{Pair, valid_name};
 pub use tools::{
     ASKPASS_ENV, Agent, AgentKey, HostTest, Remote, RepoKeys, askpass, clipboard_clear, test_host,
 };

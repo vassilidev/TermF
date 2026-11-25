@@ -23,6 +23,7 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
 pub mod crypto;
+mod dev;
 mod http;
 mod local;
 mod merge;
@@ -66,19 +67,23 @@ pub enum Scope {
     Conventions,
     /// The vault's sealed file: `<data>/vault/vault.json`, never `quick.json` (this machine's Touch ID).
     Vault,
-    /// Only ever on explicit request: the key pairs of `~/.ssh` and the Host blocks TermF added (`ssh.rs`).
+    /// Only ever on explicit request: the key pairs of `~/.ssh` and `~/.ssh/config` (`ssh.rs`).
     SshKeys,
+    /// Only on request: Claude Code's user config and auto memory, the MCP servers of `~/.claude.json`, the
+    /// global git config (`dev.rs`).
+    DevConfig,
 }
 
 impl Scope {
-    pub const AVAILABLE: [Scope; 5] = [
+    pub const AVAILABLE: [Scope; 6] = [
         Scope::Config,
         Scope::Projects,
         Scope::Conventions,
         Scope::Vault,
         Scope::SshKeys,
+        Scope::DevConfig,
     ];
-    /// What a setup syncs unless told otherwise: the vault and the SSH keys only when asked.
+    /// What a setup syncs unless told otherwise: the vault, the SSH keys and the dev config only when asked.
     pub const DEFAULT: [Scope; 3] = [Scope::Config, Scope::Projects, Scope::Conventions];
 }
 
@@ -455,8 +460,8 @@ pub struct Engine {
     git_env: Vec<(String, String)>,
     /// `<data>/vault`, for the vault scope.
     vault_dir: Option<PathBuf>,
-    /// `~/.ssh`, for the SSH keys scope.
-    ssh: Option<termf_ssh::Ssh>,
+    /// The home folder, for the SSH keys and dev config scopes.
+    home: Option<PathBuf>,
     /// An S3 or WebDAV remote's credentials for this process: a cache of the keychain, or its only copy.
     credentials: Mutex<Option<(String, Credentials)>>,
 }
@@ -469,7 +474,7 @@ impl Engine {
             memory: Mutex::new(None),
             git_env: Vec::new(),
             vault_dir: None,
-            ssh: None,
+            home: None,
             credentials: Mutex::new(None),
         }
     }
@@ -480,10 +485,16 @@ impl Engine {
         self
     }
 
-    /// The SSH folder of the SSH keys scope: without it, that scope syncs nothing.
-    pub fn with_ssh(mut self, ssh: termf_ssh::Ssh) -> Self {
-        self.ssh = Some(ssh);
+    /// The home folder of `~/.ssh`, `~/.claude` and `~/.gitconfig`: without it, the SSH keys and dev config
+    /// scopes sync nothing.
+    pub fn with_home(mut self, home: PathBuf) -> Self {
+        self.home = Some(home);
         self
+    }
+
+    fn ssh(&self) -> Option<(termf_ssh::Ssh, &Path)> {
+        let home = self.home.as_deref()?;
+        Some((termf_ssh::Ssh::new(home.to_path_buf()), home))
     }
 
     /// Git's environment, so the tests of a crate built on this one never read the user's git config.
@@ -875,17 +886,25 @@ impl Engine {
                 local::save_mapping(&self.config_dir, &mapping)?;
             }
             let ssh = self
-                .ssh
-                .as_ref()
+                .ssh()
                 .filter(|_| state.scopes.contains(&Scope::SshKeys));
-            if let Some(ssh) = ssh {
-                match ssh::read_hosts(ssh, base.get(ssh::HOSTS)) {
-                    Ok(entry) => _ = mine.insert(ssh::HOSTS.into(), entry),
+            if let Some((ssh, home)) = &ssh {
+                match ssh::read_config(ssh, home) {
+                    Ok(entry) => mine.extend(entry.map(|e| (ssh::CONFIG.into(), e))),
                     Err(e) => skipped.push(Skipped {
-                        path: ssh::HOSTS.into(),
+                        path: ssh::CONFIG.into(),
                         error: format!("{e:#}"),
                     }),
                 }
+            }
+            let home = self
+                .home
+                .as_deref()
+                .filter(|_| state.scopes.contains(&Scope::DevConfig));
+            if let Some(home) = home {
+                let (entries, unread) = dev::read(home, &self.git_env);
+                mine.extend(entries);
+                skipped.extend(unread);
             }
             let paths: BTreeSet<&String> = mine
                 .keys()
@@ -895,10 +914,17 @@ impl Engine {
             let paths: Vec<String> = paths
                 .into_iter()
                 .filter(|p| {
-                    (local::valid(p) || (*p == ssh::HOSTS && ssh.is_some()))
-                        && state.scopes.contains(&local::scope_of(p))
+                    let ours = if dev::is_dev(p) {
+                        home.is_some_and(|h| dev::valid(p) && dev::placed(h, p, &self.git_env))
+                    } else {
+                        local::valid(p) || (*p == ssh::CONFIG && ssh.is_some())
+                    };
+                    ours && state.scopes.contains(&local::scope_of(p))
                         && !termf_library::archive::through_link(&self.config_dir, p)
-                        && !skipped.iter().any(|s| s.path == **p)
+                        && !skipped.iter().any(|s| {
+                            p.strip_prefix(&s.path)
+                                .is_some_and(|r| r.is_empty() || r.starts_with('/'))
+                        })
                 })
                 .cloned()
                 .collect();
@@ -965,7 +991,7 @@ impl Engine {
             {
                 outgoing.push(record);
             }
-            if let Some(ssh) = ssh {
+            if let Some((ssh, _)) = &ssh {
                 // Unreadable keys skip the keys this time: never taken as deleted.
                 match ssh::sync_keys(ssh, &theirs, &mut base, &mut pulled, &state.device_id) {
                     Ok(keys) => {
@@ -1047,7 +1073,7 @@ impl Engine {
     /// Settles a conflict, then syncs: the version kept becomes this machine's change on top of the remote's.
     pub fn resolve(&self, path: &str, resolution: Resolution) -> Result<Report> {
         ensure!(
-            local::valid(path) || path == ssh::HOSTS || ssh::is_key(path),
+            local::valid(path) || path == ssh::CONFIG || ssh::is_key(path) || dev::valid(path),
             "invalid path {path}"
         );
         let (lock, mut state) = self.locked()?;
@@ -1062,8 +1088,8 @@ impl Engine {
         let mapping = local::load_mapping(&self.config_dir)?;
         let mut base = self.load_base()?;
         if ssh::is_key(path) {
-            let ssh = self.ssh.as_ref().context("no SSH folder on this machine")?;
-            ssh::resolve(ssh, path, &theirs, &resolution, &mut base)?;
+            let (ssh, _) = self.ssh().context("no SSH folder on this machine")?;
+            ssh::resolve(&ssh, path, &theirs, &resolution, &mut base)?;
         } else {
             match resolution {
                 Resolution::Local => {}
@@ -1082,16 +1108,23 @@ impl Engine {
         self.sync_locked(&mut state, true, &lock)
     }
 
-    /// A file of the config folder, or the Host blocks TermF added to `~/.ssh/config`.
+    /// A file of the config folder, `~/.ssh/config`, or one of the dev config scope.
     fn write_local(
         &self,
         path: &str,
         entry: Option<&Entry>,
         mapping: &local::Mapping,
     ) -> Result<()> {
-        if path == ssh::HOSTS {
-            let ssh = self.ssh.as_ref().context("no SSH folder on this machine")?;
-            return ssh::write_hosts(ssh, entry);
+        if path == ssh::CONFIG {
+            let (ssh, home) = self.ssh().context("no SSH folder on this machine")?;
+            return ssh::write_config(&ssh, home, entry);
+        }
+        if dev::is_dev(path) {
+            let home = self
+                .home
+                .as_deref()
+                .context("no home folder on this machine")?;
+            return dev::write(home, path, entry, &self.git_env);
         }
         local::write(&self.config_dir, path, entry, mapping)
     }

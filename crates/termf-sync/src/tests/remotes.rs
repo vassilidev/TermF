@@ -347,8 +347,8 @@ fn ssh_machine(sandbox: &Sandbox, name: &str) -> (Machine, termf_ssh::Ssh) {
     let mut m = sandbox.machine(name);
     let home = sandbox.root.join(format!("{name}-home"));
     fs::create_dir_all(home.join(".ssh")).unwrap();
-    let ssh = termf_ssh::Ssh::new(home);
-    m.engine.ssh = Some(ssh.clone());
+    let ssh = termf_ssh::Ssh::new(home.clone());
+    m.engine.home = Some(home);
     (m, ssh)
 }
 
@@ -481,7 +481,7 @@ fn ssh_keys_travel_sealed_and_never_replace_a_key() {
     );
 
     // A host block TermF removed on a goes on b too.
-    a_ssh.apply_hosts(&[]).unwrap();
+    a_ssh.host_delete("acme-prod").unwrap();
     a.push();
     b.push();
     let config = fs::read_to_string(b_ssh.dir().join("config")).unwrap_or_default();
@@ -509,24 +509,34 @@ fn unreadable_ssh_files_are_skipped_not_deleted_elsewhere() {
     let b_config = b_ssh.dir().join("config");
     assert!(fs::read_to_string(&b_config).unwrap().contains("acme-prod"));
 
-    // Latin-1 in ~/.ssh/config: not valid UTF-8.
-    fs::write(
-        a_ssh.dir().join("config"),
-        [block.as_bytes(), b"# caf\xe9\n"].concat(),
-    )
-    .unwrap();
-    let report = a.push();
-    assert!(
-        report.skipped.iter().any(|s| s.path == "ssh/hosts.toml"),
-        "{:?}",
-        report.skipped
-    );
+    // Latin-1 in ~/.ssh/config: not UTF-8, it travels as it is.
+    let latin1 = [block.as_bytes(), b"# caf\xe9\n"].concat();
+    fs::write(a_ssh.dir().join("config"), &latin1).unwrap();
+    a.push();
     b.push();
-    assert!(fs::read_to_string(&b_config).unwrap().contains("acme-prod"));
+    assert_eq!(fs::read(&b_config).unwrap(), latin1);
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        let config = a_ssh.dir().join("config");
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read(&config).is_err() {
+            let report = a.push();
+            assert!(
+                report.skipped.iter().any(|s| s.path == "ssh/config"),
+                "{:?}",
+                report.skipped
+            );
+            b.push();
+            assert_eq!(
+                fs::read(&b_config).unwrap(),
+                latin1,
+                "never taken as deleted"
+            );
+        }
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+
         let key = a_ssh.dir().join("id_work");
         fs::set_permissions(&key, fs::Permissions::from_mode(0o000)).unwrap();
         let unreadable = fs::read(&key).is_err();
@@ -549,34 +559,58 @@ fn unreadable_ssh_files_are_skipped_not_deleted_elsewhere() {
     }
 }
 
-/// A key path another machine's block has that cannot be written here stays as synced, so it is never sent
-/// back without it; one in a folder of ~/.ssh is written.
+/// `~/.ssh/config` travels whole, blocks written by hand too, its paths into the home folder made this machine's.
 #[test]
-fn identity_files_survive_a_round_trip() {
-    let sandbox = Sandbox::new("ssh-identity");
+fn the_whole_ssh_config_travels() {
+    let sandbox = Sandbox::new("ssh-config");
     let remote = sandbox.folder();
     let (a, a_ssh) = ssh_machine(&sandbox, "a");
     let (b, b_ssh) = ssh_machine(&sandbox, "b");
-    let mark = termf_ssh::MARK;
+    let home = |m: &Machine| m.engine.home.clone().unwrap().display().to_string();
     let config = format!(
-        "{mark}\nHost deploy-box\n  HostName box.acme.test\n  IdentityFile ~/.ssh/work/id_ed25519\n\n\
-         {mark}\nHost legacy\n  HostName old.acme.test\n  IdentityFile /opt/keys/legacy\n"
+        "Include ~/.ssh/config.d/*\n\nHost *.acme.test\n  User deploy\n  IdentityFile {}/.ssh/work/id_ed25519\n\n\
+         Host legacy\n  HostName old.acme.test\n  IdentityFile /opt/keys/legacy\n",
+        home(&a)
     );
     fs::write(a_ssh.dir().join("config"), &config).unwrap();
     a.setup(&remote);
     b.setup(&remote);
-    let on_b = fs::read_to_string(b_ssh.dir().join("config")).unwrap();
-    assert!(
-        on_b.contains("IdentityFile ~/.ssh/work/id_ed25519") && !on_b.contains("/opt/keys"),
-        "{on_b}"
-    );
+    let b_config = b_ssh.dir().join("config");
+    let on_b = fs::read_to_string(&b_config).unwrap();
+    assert_eq!(on_b, config.replace(&home(&a), &home(&b)));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&b_config).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
     assert!(b.push().pushed.is_empty(), "nothing sent back");
+
+    fs::write(
+        &b_config,
+        format!("{on_b}\nHost box\n  HostName box.acme.test\n"),
+    )
+    .unwrap();
+    b.push();
     a.push();
-    assert_eq!(
-        fs::read_to_string(a_ssh.dir().join("config")).unwrap(),
-        config
+    let on_a = fs::read_to_string(a_ssh.dir().join("config")).unwrap();
+    assert!(
+        on_a.contains("Host box") && on_a.contains(&home(&a)),
+        "{on_a}"
     );
-    assert!(a.engine.status().unwrap().conflicts.is_empty());
+
+    // Changed on both sides: side by side, and each keeps its own until the user chooses.
+    fs::write(a_ssh.dir().join("config"), "Host a\n").unwrap();
+    fs::write(&b_config, "Host b\n").unwrap();
+    a.push();
+    let report = b.push();
+    assert!(
+        report.conflicts.iter().any(|c| c.path == "ssh/config"),
+        "{report:?}"
+    );
+    assert_eq!(fs::read_to_string(&b_config).unwrap(), "Host b\n");
+    b.engine.resolve("ssh/config", Resolution::Remote).unwrap();
+    assert_eq!(fs::read_to_string(&b_config).unwrap(), "Host a\n");
 }
 
 #[test]

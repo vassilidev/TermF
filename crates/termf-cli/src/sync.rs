@@ -13,8 +13,9 @@ pub fn run(args: &[&str]) -> Result<()> {
         Box::new(OsKeyStore::SYNC),
     )
     .with_vault(termf_core::default_data_dir()?.join("vault"));
-    if let Ok(ssh) = termf_ssh::Ssh::current() {
-        engine = engine.with_ssh(ssh);
+    let home = termf_core::expand_tilde("~");
+    if home.is_absolute() {
+        engine = engine.with_home(home);
     }
     match args {
         ["setup", options @ ..] => setup(&engine, options)?,
@@ -194,15 +195,29 @@ fn unlocked<T>(engine: &Engine, f: impl Fn(&Engine) -> Result<T>) -> Result<T> {
     }
 }
 
+/// Each scope as the command line names it.
+const SCOPES: [(Scope, &str); 6] = [
+    (Scope::Config, "config"),
+    (Scope::Projects, "projects"),
+    (Scope::Conventions, "conventions"),
+    (Scope::Vault, "vault"),
+    (Scope::SshKeys, "ssh-keys"),
+    (Scope::DevConfig, "dev-config"),
+];
+
 fn scopes(list: &str) -> Result<Vec<Scope>> {
     list.split(',')
         .map(|s| match s.trim() {
-            "config" => Ok(Scope::Config),
-            "projects" => Ok(Scope::Projects),
-            "conventions" => Ok(Scope::Conventions),
-            "vault" => Ok(Scope::Vault),
-            "ssh-keys" | "sshKeys" => Ok(Scope::SshKeys),
-            other => bail!("unknown scope {other} (config, projects, conventions, vault)"),
+            "sshKeys" => Ok(Scope::SshKeys),
+            "devConfig" => Ok(Scope::DevConfig),
+            name => SCOPES
+                .iter()
+                .find(|(_, n)| *n == name)
+                .map(|(scope, _)| *scope)
+                .with_context(|| {
+                    let names: Vec<&str> = SCOPES.iter().map(|(_, n)| *n).collect();
+                    format!("unknown scope {name} ({})", names.join(", "))
+                }),
         })
         .collect()
 }
@@ -219,10 +234,10 @@ fn status(engine: &Engine) -> Result<()> {
         other @ RemoteSpec::S3 { .. } => println!("remote      s3 {}", other.label()),
         RemoteSpec::Webdav { url, .. } => println!("remote      webdav {url}"),
     }
-    let scopes: Vec<String> = status
-        .scopes
+    let scopes: Vec<&str> = SCOPES
         .iter()
-        .map(|s| format!("{s:?}").to_lowercase())
+        .filter(|(scope, _)| status.scopes.contains(scope))
+        .map(|(_, name)| *name)
         .collect();
     println!("syncs       {}", scopes.join(", "));
     println!("device      {}", status.device_name.unwrap_or_default());

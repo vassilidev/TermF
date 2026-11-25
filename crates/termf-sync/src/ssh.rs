@@ -1,5 +1,5 @@
 //! The SSH keys scope, only on explicit request: each key pair of `~/.ssh` travels as one record, sealed by the
-//! sync's data key like every file, and the Host blocks TermF added to `~/.ssh/config` as `ssh/hosts.toml`.
+//! sync's data key like every file, and `~/.ssh/config` whole as `ssh/config`, merged as any other file.
 //! A private key is never written in clear outside `~/.ssh`: the merge base keeps a digest of each pair, and a
 //! conflict shows public keys only. A key here is never replaced by another machine's: a different pair under
 //! the same name is a conflict, a deletion elsewhere is not applied.
@@ -8,68 +8,27 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result, bail, ensure};
 use sha2::{Digest, Sha256};
-use termf_ssh::{HostEntry, Pair, Ssh};
+use termf_ssh::{Pair, Ssh};
 use zeroize::Zeroizing;
 
+use crate::dev::{localize, portable};
 use crate::record::{self, Entry, Record};
 use crate::{Conflict, Resolution};
 
-pub const HOSTS: &str = "ssh/hosts.toml";
+pub const CONFIG: &str = "ssh/config";
 const KEYS: &str = "ssh/keys/";
 
-#[derive(serde::Serialize, serde::Deserialize, Default)]
-struct Hosts {
-    #[serde(default)]
-    hosts: BTreeMap<String, HostEntry>,
-}
-
-/// `ssh/hosts.toml` as this machine has it. What the sync could not write here keeps the version last synced,
-/// so it is neither sent back changed nor deleted: an alias written by hand here, and a key path outside
-/// `~/.ssh` (`synced_identity`).
-pub fn read_hosts(ssh: &Ssh, base: Option<&Record>) -> Result<Entry> {
-    let mut hosts = Hosts::default();
-    for host in ssh.marked_hosts()? {
-        hosts.hosts.insert(host.alias.clone(), host);
-    }
-    let synced: Hosts = base
-        .and_then(|r| r.entry.as_ref())
-        .and_then(|e| toml::from_str(std::str::from_utf8(&e.bytes).ok()?).ok())
-        .unwrap_or_default();
-    for (alias, host) in synced.hosts {
-        match hosts.hosts.get_mut(&alias) {
-            Some(mine) => {
-                if mine.identity_file.is_none()
-                    && host
-                        .identity_file
-                        .as_deref()
-                        .is_some_and(|f| !termf_ssh::synced_identity(f))
-                {
-                    mine.identity_file = host.identity_file;
-                }
-            }
-            None if ssh.hand_written(&alias)? => _ = hosts.hosts.insert(alias, host),
-            None => {}
-        }
-    }
-    Ok(Entry {
-        bytes: toml::to_string(&hosts)?.into_bytes(),
+/// `ssh/config` as this machine has it, the home folder's paths made portable.
+pub fn read_config(ssh: &Ssh, home: &std::path::Path) -> Result<Option<Entry>> {
+    Ok(ssh.config_file()?.map(|bytes| Entry {
+        bytes: portable(home, bytes),
         exec: false,
-    })
+    }))
 }
 
-pub fn write_hosts(ssh: &Ssh, entry: Option<&Entry>) -> Result<()> {
-    let hosts: Hosts = match entry {
-        Some(e) => {
-            toml::from_str(std::str::from_utf8(&e.bytes)?).context("invalid ssh/hosts.toml")?
-        }
-        None => Hosts::default(),
-    };
-    let list: Vec<HostEntry> = hosts
-        .hosts
-        .into_iter()
-        .map(|(alias, host)| HostEntry { alias, ..host })
-        .collect();
-    ssh.apply_hosts(&list)
+pub fn write_config(ssh: &Ssh, home: &std::path::Path, entry: Option<&Entry>) -> Result<()> {
+    let bytes = entry.map(|e| localize(home, e.bytes.clone()));
+    ssh.set_config_file(bytes.as_deref())
 }
 
 pub fn is_key(path: &str) -> bool {

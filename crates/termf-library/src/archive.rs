@@ -21,6 +21,15 @@ const INCLUDED: &[&str] = &[
     "projects",
     "library",
 ];
+/// What the sync carries: an export's, and the scout's drafts, refusals and journal.
+const SYNCED: &[&str] = &[
+    "termf.toml",
+    "layouts.toml",
+    "schedules.toml",
+    "projects",
+    "library",
+    "scout",
+];
 /// Far above any real config: an archive that would fill the disk is refused.
 const MAX_SIZE: u64 = 64 << 20;
 /// Hidden, so never exported; removed once the import is done.
@@ -418,17 +427,39 @@ pub fn local_files(config_dir: &Path, item: Option<&str>) -> Result<(Files, Vec<
 
 /// The same files, not made portable.
 pub fn raw_files(config_dir: &Path, item: Option<&str>) -> Result<(Files, Vec<String>)> {
+    let tops = item.map_or(INCLUDED.to_vec(), |item| vec![item]);
+    files_in(config_dir, &tops, INCLUDED)
+}
+
+/// The files the sync carries, not made portable: an export's, and the scout's.
+pub fn synced_files(config_dir: &Path) -> Result<(Files, Vec<String>)> {
+    files_in(config_dir, SYNCED, SYNCED)
+}
+
+fn files_in(config_dir: &Path, tops: &[&str], kept: &[&str]) -> Result<(Files, Vec<String>)> {
     let mut files = Files::new();
     let mut links = Vec::new();
-    for top in item.map_or(INCLUDED.to_vec(), |item| vec![item]) {
-        walk(config_dir, &config_dir.join(top), &mut files, &mut links)?;
+    for top in tops {
+        walk(
+            config_dir,
+            &config_dir.join(top),
+            kept,
+            &mut files,
+            &mut links,
+        )?;
     }
     links.sort();
     Ok((files, links))
 }
 
 /// Links are not followed: nothing outside the config folder gets in.
-fn walk(config_dir: &Path, path: &Path, files: &mut Files, links: &mut Vec<String>) -> Result<()> {
+fn walk(
+    config_dir: &Path,
+    path: &Path,
+    kept: &[&str],
+    files: &mut Files,
+    links: &mut Vec<String>,
+) -> Result<()> {
     let Ok(meta) = fs::symlink_metadata(path) else {
         return Ok(());
     };
@@ -438,7 +469,7 @@ fn walk(config_dir: &Path, path: &Path, files: &mut Files, links: &mut Vec<Strin
         .map(|c| c.as_os_str().to_string_lossy())
         .collect::<Vec<_>>()
         .join("/");
-    if !allowed(&rel) {
+    if !under(kept, &rel) {
         return Ok(());
     }
     if meta.is_symlink() {
@@ -447,7 +478,7 @@ fn walk(config_dir: &Path, path: &Path, files: &mut Files, links: &mut Vec<Strin
         let mut entries: Vec<_> = fs::read_dir(path)?.collect::<Result<_, _>>()?;
         entries.sort_by_key(|e| e.file_name());
         for entry in entries {
-            walk(config_dir, &entry.path(), files, links)?;
+            walk(config_dir, &entry.path(), kept, files, links)?;
         }
     } else if meta.is_file() {
         files.insert(rel, fs::read(path)?);
@@ -456,13 +487,22 @@ fn walk(config_dir: &Path, path: &Path, files: &mut Files, links: &mut Vec<Strin
 }
 
 pub fn allowed(path: &str) -> bool {
-    INCLUDED.contains(&path.split('/').next().unwrap_or_default())
+    under(INCLUDED, path)
+}
+
+/// A path the sync carries: one an export holds, or the scout's.
+pub fn synced(path: &str) -> bool {
+    under(SYNCED, path)
+}
+
+fn under(tops: &[&str], path: &str) -> bool {
+    tops.contains(&path.split('/').next().unwrap_or_default())
         && path.split('/').all(|name| !private(name))
 }
 
 /// Hidden files (`.env`, `.git`…), keys and leftovers of an interrupted write never leave the machine,
 /// whatever folder they were dropped in.
-fn private(name: &str) -> bool {
+pub fn private(name: &str) -> bool {
     name.is_empty()
         || name.starts_with('.')
         || [".tmp", ".pem", ".key", ".p12", ".pfx", ".age"]

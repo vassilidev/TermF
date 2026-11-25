@@ -3,7 +3,7 @@
 //! web search and fetch only: the items are in its prompt, it reads no file and writes nothing. Its answer is
 //! untrusted: validated here, then reviewed entry by entry before anything is written.
 //!
-//! `<config>/scout/`, neither exported nor synced, holds the results under review (`global.toml`,
+//! `<config>/scout/`, synced with the config but never exported, holds the results under review (`global.toml`,
 //! `projects/<id>.toml`), the refused proposals never to make again (`rejected.toml`) and `journal.jsonl`.
 
 use std::collections::BTreeSet;
