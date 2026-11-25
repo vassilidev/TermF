@@ -3671,11 +3671,14 @@ const fr = {
   sync2Credentials:
     "Ces identifiants restent dans le trousseau du système de cette machine, jamais dans un fichier synchronisé ni sur une ligne de commande.",
   sync2ScopeSsh: "Clés SSH",
-  sync2ScopeSshHelp: "les paires de clés de ~/.ssh et les hôtes ajoutés par TermF",
+  sync2ScopeSshHelp: "les paires de clés de ~/.ssh et tout ~/.ssh/config",
   sync2SshWarnTitle: "Synchroniser tes clés SSH privées ?",
   sync2SshWarn:
-    "Tes clés privées partent sur le remote, chiffrées par la clé de la synchro : qui a le mot de passe de synchro peut les lire. Une clé protégée par une phrase de passe le reste. Une clé de même nom mais différente n'est jamais remplacée : tu choisis laquelle garder.",
+    "Tes clés privées et tout ton ~/.ssh/config partent sur le remote, chiffrés par la clé de la synchro : qui a le mot de passe de synchro peut les lire. Une clé protégée par une phrase de passe le reste. Une clé de même nom mais différente n'est jamais remplacée : tu choisis laquelle garder. Si ~/.ssh/config change sur deux machines, tu choisis aussi, côte à côte.",
   sync2SshConfirm: "Synchroniser mes clés SSH",
+  syncDevScope: "Config de dev",
+  syncDevScopeHelp:
+    "~/.claude : CLAUDE.md, settings.json (plugins activés et marketplaces compris), keybindings.json, skills, agents, commandes, styles, hooks et la mémoire auto des projets présents ici ; les serveurs MCP de ~/.claude.json ; ~/.gitconfig et son fichier d'exclusions. Jamais les identifiants, les conversations, les caches ni les copies des plugins.",
   sync2KeyConflict:
     "Deux clés différentes portent ce nom. Garder l'autre met la tienne dans la corbeille ~/.ssh/.termf-trash ; garder la tienne la laisse ici sans l'envoyer aux autres machines.",
   sync2Forget: "Oublier…",
@@ -9392,11 +9395,14 @@ const en: Record<Key, string> = {
   sync2Credentials:
     "These credentials stay in this machine's system keychain, never in a synced file nor on a command line.",
   sync2ScopeSsh: "SSH keys",
-  sync2ScopeSshHelp: "the key pairs of ~/.ssh and the hosts TermF added",
+  sync2ScopeSshHelp: "the key pairs of ~/.ssh and all of ~/.ssh/config",
   sync2SshWarnTitle: "Sync your private SSH keys?",
   sync2SshWarn:
-    "Your private keys go to the remote, encrypted by the sync's key: whoever has the sync password can read them. A key protected by a passphrase stays protected. A different key with the same name is never replaced: you choose which one to keep.",
+    "Your private keys and all of your ~/.ssh/config go to the remote, encrypted by the sync's key: whoever has the sync password can read them. A key protected by a passphrase stays protected. A different key with the same name is never replaced: you choose which one to keep. If ~/.ssh/config changes on two machines, you choose there too, side by side.",
   sync2SshConfirm: "Sync my SSH keys",
+  syncDevScope: "Dev config",
+  syncDevScopeHelp:
+    "~/.claude: CLAUDE.md, settings.json (enabled plugins and marketplaces included), keybindings.json, skills, agents, commands, styles, hooks and the auto memory of the projects found here; the MCP servers of ~/.claude.json; ~/.gitconfig and its excludes file. Never the credentials, the conversations, the caches nor the plugins' copies.",
   sync2KeyConflict:
     "Two different keys have this name. Keeping the other one moves yours to the ~/.ssh/.termf-trash folder; keeping yours leaves it here without sending it to the other machines.",
   sync2Forget: "Forget…",
