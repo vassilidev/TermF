@@ -170,8 +170,12 @@ export function loadRoles(project: string | null) {
   if (ask.rolesOf === project) return;
   ask.rolesOf = project;
   invoke<LibraryItem[]>("library_list", { kind: "role", project }).then(
-    (items) => void (ask.roles = items.filter((i) => i.active || i.layer === "shipped").map((i) => i.name)),
-    () => void (ask.roles = []),
+    (items) => {
+      ask.roles = items.filter((i) => i.active || i.layer === "shipped").map((i) => i.name);
+    },
+    () => {
+      ask.roles = [];
+    },
   );
 }
 

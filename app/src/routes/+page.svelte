@@ -82,6 +82,23 @@
     handle.addEventListener("pointercancel", end);
   }
 
+  /** A text cut short by an ellipsis shows whole on hover, unless a title on it or around it already does. */
+  function showCut(e: MouseEvent) {
+    let el = e.target instanceof HTMLElement ? e.target : null;
+    for (let i = 0; el && i < 3 && getComputedStyle(el).textOverflow !== "ellipsis"; i++) el = el.parentElement;
+    if (!el || getComputedStyle(el).textOverflow !== "ellipsis") return;
+    const ours = el.dataset.cut !== undefined && el.title === el.dataset.cut;
+    const text = el.textContent?.trim() ?? "";
+    if ((el.title && !ours) || el.parentElement?.closest("[title]")?.getAttribute("title")?.includes(text)) return;
+    if (el.scrollWidth > el.clientWidth + 1 && text) {
+      el.title = text;
+      el.dataset.cut = text;
+    } else if (ours) {
+      el.removeAttribute("title");
+      delete el.dataset.cut;
+    }
+  }
+
   function resizeKey(e: KeyboardEvent) {
     const to = { ArrowLeft: panes.size - 0.05, ArrowRight: panes.size + 0.05, Home: MIN, End: MAX }[e.key];
     if (to === undefined) return;
@@ -90,7 +107,7 @@
   }
 </script>
 
-<svelte:window onkeydowncapture={onShortcut} />
+<svelte:window onkeydowncapture={onShortcut} onmouseover={showCut} />
 
 <!-- A setup takes the whole window: the navigation steps aside until it is left. -->
 <div class="app" class:focus={ui.view === "newProject" && panes.other === null} style:--nav-width="{navColumn()}px">

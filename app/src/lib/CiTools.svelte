@@ -23,7 +23,7 @@
   let saving = $state(false);
 
   $effect(() => {
-    if (deploys.tools === null) invoke<ToolInfo[]>("deploy_tools").then((found) => (deploys.tools = found), () => (deploys.tools = []));
+    if (deploys.tools === null) invoke<ToolInfo[]>("deploy_tools").then((found) => { deploys.tools = found; }, () => { deploys.tools = []; });
   });
 
   const info = (tool: Tool) => deploys.tools?.find((x) => x.tool === tool);
@@ -81,7 +81,10 @@
       toast(t("cvTargetDeleted", { target: target.name }), {
         undo: () =>
           void invoke<Target[]>("deploy_target_save", { project, target, previous: null }).then(
-            (list) => ((deploys.targets = list), void loadDeploys(project, true)),
+            (list) => {
+              deploys.targets = list;
+              void loadDeploys(project, true);
+            },
             (e) => toast(String(e), { kind: "error" }),
           ),
       });
@@ -168,7 +171,7 @@
         <h3 id="target-form-title">{f.previous ? t("cvTargetEdit", { target: f.previous }) : t("cvConnectTool")}</h3>
         <div class="field-row">
           <span class="label">{t("cvFieldTool")}</span>
-          <Segments label={t("cvFieldTool")} options={toolOptions} selected={f.tool} onselect={(id) => (f.tool = id as Tool)} />
+          <Segments label={t("cvFieldTool")} options={toolOptions} selected={f.tool} onselect={(id) => { f.tool = id as Tool; }} />
         </div>
         {#if !info(f.tool)?.path}<p class="notice warn small">{t("cvToolMissing", { tool: deployLabel[f.tool], command: info(f.tool)?.install ?? "" })}</p>{/if}
         <div class="grid2">
@@ -189,7 +192,7 @@
         {#if f.token?.trim()}
           <div class="field-row">
             <span class="label">{t("cvFieldEnv")}</span>
-            <Segments label={t("cvFieldEnv")} options={envOptions} selected={f.env} onselect={(id) => (f.env = id)} />
+            <Segments label={t("cvFieldEnv")} options={envOptions} selected={f.env} onselect={(id) => { f.env = id; }} />
           </div>
         {/if}
         {#if error}<p class="notice error small">{error}</p>{/if}

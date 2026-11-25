@@ -462,21 +462,21 @@
         label={t("obTeamSize")}
         options={sizes}
         selected={String(proposal.choices.size ?? 2)}
-        onselect={(v) => (draft.choices = { ...draft.choices, size: Number(v) })}
+        onselect={(v) => { draft.choices = { ...draft.choices, size: Number(v) }; }}
       /></span>
       {#if proposal.splittable}
         <span class="control"><span aria-hidden="true">{t("obTeamSplit")}</span><Segments
           label={t("obTeamSplit")}
           options={[{ id: "one", label: t("obTeamOneSquad") }, { id: "split", label: t("obTeamPerPart") }]}
           selected={proposal.choices.split ? "split" : "one"}
-          onselect={(v) => (draft.choices = { ...draft.choices, split: v === "split" })}
+          onselect={(v) => { draft.choices = { ...draft.choices, split: v === "split" }; }}
         /></span>
       {/if}
       <span class="control"><span aria-hidden="true">{t("obTeamModels")}</span><Segments
         label={t("obTeamModels")}
         options={models}
         selected={proposal.choices.model ?? ""}
-        onselect={(v) => (draft.choices = { ...draft.choices, model: v })}
+        onselect={(v) => { draft.choices = { ...draft.choices, model: v }; }}
       /></span>
     </div>
     <ul class="roles">
@@ -531,7 +531,7 @@
 
 {#snippet ciDetails()}
   <p class="note">{t("obCiWorkflows", { list: workflows.join(" · ") })}</p>
-  <span class="control"><span aria-hidden="true">{t("ciNotify")}</span><Segments label={t("ciNotify")} options={notifies} selected={notify} onselect={(v) => (draft.notify = v as Notify)} /></span>
+  <span class="control"><span aria-hidden="true">{t("ciNotify")}</span><Segments label={t("ciNotify")} options={notifies} selected={notify} onselect={(v) => { draft.notify = v as Notify; }} /></span>
 {/snippet}
 
 {#snippet skillsDetails()}

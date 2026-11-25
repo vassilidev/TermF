@@ -90,7 +90,7 @@
   }
 
   $effect(() => {
-    if (conn && ops.sql.connection !== conn.name) untrack(() => (ops.sql.connection = conn.name));
+    if (conn && ops.sql.connection !== conn.name) untrack(() => { ops.sql.connection = conn.name; });
   });
 
   // The schema of the database shown, once per session; a locked vault asks for its password, then reads it.

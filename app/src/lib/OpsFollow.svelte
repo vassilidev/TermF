@@ -17,9 +17,9 @@
   const recipe = $derived(recipes.find((r) => r.name === ops.live.recipe) ?? recipes[0]);
   const fitting = $derived(recipe ? ops.connections.filter((c) => runsOn(recipe, c)) : []);
   $effect(() => {
-    if (recipe && ops.live.recipe !== recipe.name) untrack(() => (ops.live.recipe = recipe.name));
+    if (recipe && ops.live.recipe !== recipe.name) untrack(() => { ops.live.recipe = recipe.name; });
     if (fitting.length && !fitting.some((c) => c.name === ops.live.connection)) {
-      untrack(() => (ops.live.connection = fitting[0].name));
+      untrack(() => { ops.live.connection = fitting[0].name; });
     }
   });
 
@@ -120,7 +120,7 @@
             <Pause size={13} aria-hidden="true" />{t("opssqlLivePause")}
           </button>
         {/if}
-        <button class="btn sm" onclick={() => ((ops.live.lines = []), (ops.live.held = []))}>
+        <button class="btn sm" onclick={() => { ops.live.lines = []; ops.live.held = []; }}>
           <Eraser size={13} aria-hidden="true" />{t("opssqlLiveClear")}
         </button>
         <span class="end muted count">

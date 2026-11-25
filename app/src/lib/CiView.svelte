@@ -556,7 +556,7 @@
         <div class="split">
           <div class="list">
             <input class="field filter" placeholder={t("cvFilter")} aria-label={t("cvFilter")} spellcheck="false" bind:value={filter} />
-            <List label={t("cvBranches")} items={shownGroups} key={(g) => g.branch} selected={branch} onselect={(g) => (ci.branch = g.branch)}>
+            <List label={t("cvBranches")} items={shownGroups} key={(g) => g.branch} selected={branch} onselect={(g) => { ci.branch = g.branch; }}>
               {#snippet row(g)}
                 {@const last = g.runs[0]}
                 <div class="branch">

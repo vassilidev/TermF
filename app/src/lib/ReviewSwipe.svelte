@@ -34,7 +34,10 @@
   let { review, version, ondetail }: { review: Review; version: Version; ondetail: () => void } = $props();
 
   const key = $derived(`${review.id}/${version.n}`);
-  const memory = () => (decks[key] ??= { skipped: [], history: [] });
+  const memory = () => {
+    decks[key] ??= { skipped: [], history: [] };
+    return decks[key];
+  };
   const cards = $derived(deck(version, decks[key]?.skipped ?? []));
   const card = $derived<Screen | undefined>(cards[0]);
   const history = $derived(decks[key]?.history ?? []);

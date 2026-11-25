@@ -460,7 +460,7 @@
       { id: "runs", label: t("ticketsTabRuns"), count: runs.length },
     ]}
     selected={tickets.tab}
-    onselect={(tab) => (tickets.tab = tab as typeof tickets.tab)}
+    onselect={(tab) => { tickets.tab = tab as typeof tickets.tab; }}
   >
     {#if tickets.error || tickets.done || pending?.from === "paste" || pending?.from === "browse"}
       <div class="banners">
