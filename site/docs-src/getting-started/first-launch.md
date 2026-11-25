@@ -42,6 +42,6 @@ You can use TermF as a terminal for Claude Code before creating any project:
 See [Terminals and sessions](terminals.md).
 
 > [!NOTE]
-> TermF is in early development. The builds are not signed by Apple or Microsoft yet (see [Installation](installation.md#open-it-the-first-time)). Every feature is driven in the real app by end-to-end tests on macOS with a fake Claude Code, but little has been tried by hand on real projects yet, and Windows and Linux are built and tested in CI, not yet by hand.
+> TermF is in early development. The macOS app is signed and notarized by Apple; the Windows build is not signed yet (see [Installation](installation.md#open-it-the-first-time)). Every feature is driven in the real app by end-to-end tests on macOS with a fake Claude Code, but little has been tried by hand on real projects yet, and Windows and Linux are built and tested in CI, not yet by hand.
 
 Next: [create a project](create-a-project.md).

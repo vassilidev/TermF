@@ -25,7 +25,7 @@ curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh
 ```
 
 > [!NOTE]
-> The builds are not signed by Apple or Microsoft yet: a file downloaded with a browser still asks for one extra step on first launch. Installing an update has not been done for real yet: checking its signature, downloading it and restarting follow Tauri's documentation. A copy older than 0.2.0 has no updater: install 0.2.0 once by hand or with the script.
+> The Windows build is not signed by Microsoft yet: downloaded with a browser, it still asks for one extra step on first launch. Installing an update has not been done for real yet: checking its signature, downloading it and restarting follow Tauri's documentation. A copy older than 0.2.0 has no updater: install 0.2.0 once by hand or with the script.
 >
 > **Tried so far.** The script ran in CI on the three systems against a local stand-in for GitHub's API, including a real AppImage install and the refusal of an altered file; an update offered with its notes is driven in the real app on macOS by an end-to-end test, against a local server.
 
