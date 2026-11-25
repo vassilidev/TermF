@@ -1,24 +1,22 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import Bookmark from "@lucide/svelte/icons/bookmark";
   import Check from "@lucide/svelte/icons/check";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
   import Play from "@lucide/svelte/icons/play";
   import ShieldX from "@lucide/svelte/icons/shield-x";
   import SquarePen from "@lucide/svelte/icons/square-pen";
   import SquareArrowOutUpRight from "@lucide/svelte/icons/square-arrow-out-up-right";
-  import Wrench from "@lucide/svelte/icons/wrench";
+  import Conversation from "$lib/Conversation.svelte";
   import { agents, showConversation, upsert, type AgentSession } from "$lib/agents.svelte";
-  import type { StoredEvent } from "$lib/conversation-logic";
   import { lang, t } from "$lib/i18n";
-  import { blocks, type Span } from "$lib/markdown-logic";
-  import { asked, openBlock, prose, sqlBlock, type Connection } from "$lib/ops-logic";
+  import { asked, sqlBlock, type Connection } from "$lib/ops-logic";
   import { ops } from "$lib/ops.svelte";
 
-  /** The SQL console's DBA: a conversation with the `dba` role about one database, its answers streamed, each query
-   * checked by the console before it can run. */
+  /** The SQL console's DBA: a conversation with the `dba` role about one database, in the same conversation as
+   * everywhere else, each query checked by the console before it can run. */
   let {
     project,
     conn,
@@ -39,67 +37,32 @@
   } = $props();
 
   const key = $derived(`${project}/${conn.name}`);
-  const session = $derived(ops.studio.dba[key] ?? null);
-  const phase = $derived(agents.sessions.find((s) => s.id === session)?.state);
-  let events = $state<StoredEvent[]>([]);
-  let streaming = $state("");
+  const session = $derived(agents.sessions.find((s) => s.id === ops.studio.dba[key]));
   let sending = $state(false);
   let error = $state("");
-  let text = $state("");
+  let draft = $state("");
+  const working = $derived(sending || session?.state === "working" || session?.state === "waiting");
 
-  $effect(() => {
-    const id = session;
-    events = [];
-    streaming = "";
-    if (id === null) return;
-    const off = listen<StoredEvent>("agent-event", ({ payload }) => {
-      if (payload.session !== id) return;
-      if (payload.kind === "delta") {
-        streaming += payload.text;
-        return;
-      }
-      if (payload.kind === "text" || payload.kind === "turn_end") streaming = "";
-      if (!events.some((e) => e.id === payload.id)) events = [...events, payload];
+  // Asked once per query: the answers are drawn again as the conversation streams.
+  const verdicts = new Map<string, Promise<string | null>>();
+  function verdict(sql: string) {
+    if (!verdicts.has(sql)) verdicts.set(sql, check(sql));
+    return verdicts.get(sql)!;
+  }
+
+  /** Through `ops_ask`: the first question starts the conversation, with the schema. */
+  async function post(kind: "write" | "explain" | "optimize", what: string) {
+    const s = await invoke<AgentSession>("ops_ask", {
+      project,
+      connection: conn.name,
+      session: session?.id ?? null,
+      kind,
+      text: what.trim(),
+      lang,
     });
-    // Listening first, then reading what is stored: nothing falls in between.
-    off
-      .then(() => invoke<StoredEvent[]>("agent_events", { id }))
-      .then((stored) => {
-        const known = new Set(stored.map((e) => e.id));
-        events = [...stored, ...events.filter((e) => !known.has(e.id))].sort((a, b) => a.id - b.id);
-      })
-      .catch(() => {});
-    return () => void off.then((stop) => stop());
-  });
-
-  type Line =
-    | { who: "user"; kind: "write" | "explain" | "optimize"; text: string }
-    | { who: "dba"; text: string; sql: string | null }
-    | { who: "tool"; text: string }
-    | { who: "error"; text: string };
-  const lines = $derived(
-    events.flatMap((e): Line[] => {
-      if (e.kind === "user") return [{ who: "user", ...asked(e.text) }];
-      if (e.kind === "text" && !e.parent) return [{ who: "dba", text: e.text, sql: sqlBlock(e.text) }];
-      if (e.kind === "tool_use" && !e.parent) return [{ who: "tool", text: e.name.replace(/^mcp__termf__/, "") }];
-      if (e.kind === "turn_end" && e.outcome !== "done") return [{ who: "error", text: e.error ?? e.outcome }];
-      if (e.kind === "error") return [{ who: "error", text: e.message }];
-      return [];
-    }),
-  );
-  const working = $derived(sending || phase === "working" || phase === "waiting");
-  const lastSql = $derived.by(() => {
-    for (const l of [...lines].reverse()) if (l.who === "dba" && l.sql) return l.sql;
-    return null;
-  });
-
-  // The console's verdict on the last query the DBA gave.
-  let verdict = $state<{ sql: string; refused: string | null } | null>(null);
-  $effect(() => {
-    const sql = lastSql;
-    if (!sql || verdict?.sql === sql) return;
-    check(sql).then((refused) => (verdict = { sql, refused }));
-  });
+    upsert(s);
+    ops.studio.dba[key] = s.id;
+  }
 
   /** Asks the DBA: a query from words, or what the editor holds explained or made faster. */
   export async function ask(kind: "write" | "explain" | "optimize", what: string) {
@@ -108,17 +71,8 @@
     sending = true;
     error = "";
     try {
-      const s = await invoke<AgentSession>("ops_ask", {
-        project,
-        connection: conn.name,
-        session,
-        kind,
-        text: what.trim(),
-        lang,
-      });
-      upsert(s);
-      ops.studio.dba[key] = s.id;
-      if (kind === "write") text = "";
+      await post(kind, what);
+      if (kind === "write") draft = "";
     } catch (e) {
       if (!askVault(e, () => ask(kind, what))) error = String(e);
     } finally {
@@ -126,9 +80,13 @@
     }
   }
 
+  function quote(text: string) {
+    const said = asked(text);
+    return said.kind === "write" ? said.text : t(said.kind === "explain" ? "opsdbExplainAsk" : "opsdbOptimizeAsk");
+  }
+
   function fresh() {
     delete ops.studio.dba[key];
-    verdict = null;
     error = "";
   }
 
@@ -137,11 +95,24 @@
   );
 </script>
 
-{#snippet inline(spans: Span[])}
-  {#each spans as s, i (i)}
-    {#if s.kind === "code"}<code>{s.text}</code>{:else if s.kind === "strong"}<strong>{@render inline(s.spans)}</strong
-      >{:else}{s.text}{/if}
-  {/each}
+{#snippet query(text: string)}
+  {@const sql = sqlBlock(text)}
+  {#if sql}
+    {#await verdict(sql) then refused}
+      <div class="query">
+        {#if refused}
+          <p class="verdict refused"><ShieldX size={13} aria-hidden="true" />{t("opsdbAskRefused", { reason: refused })}</p>
+        {:else}
+          <p class="verdict ok"><Check size={13} aria-hidden="true" />{t("opsdbAskChecked")}</p>
+        {/if}
+        <div class="actions">
+          <button class="btn sm" onclick={() => onuse(sql)}><SquarePen size={13} aria-hidden="true" />{t("opsdbAskUse")}</button>
+          <button class="btn sm primary" disabled={!!refused} onclick={() => onrun(sql)}><Play size={13} aria-hidden="true" />{t("opsdbRun")}</button>
+          <button class="btn sm" onclick={() => onsave(sql)}><Bookmark size={13} aria-hidden="true" />{t("opsdbSave")}</button>
+        </div>
+      </div>
+    {/await}
+  {/if}
 {/snippet}
 
 <section class="dba" aria-label={t("opsdbAsk")}>
@@ -150,9 +121,10 @@
       {t("opsdbAskSees", { name: conn.name })}
       {conn.ai_access === "none" || !conn.ai_access ? t("opsdbAskNoData") : t("opsdbAskData", { access })}
     </p>
-    {#if session !== null}
+    {#if session}
+      {@const id = session.id}
       <div class="head-actions">
-        <button class="icon-btn" title={t("opsdbAskOpen")} aria-label={t("opsdbAskOpen")} onclick={() => showConversation(session)}>
+        <button class="icon-btn" title={t("opsdbAskOpen")} aria-label={t("opsdbAskOpen")} onclick={() => showConversation(id)}>
           <SquareArrowOutUpRight size={14} aria-hidden="true" />
         </button>
         <button class="icon-btn" title={t("opsdbAskNew")} aria-label={t("opsdbAskNew")} disabled={working} onclick={fresh}>
@@ -162,102 +134,54 @@
     {/if}
   </header>
 
-  <div class="thread" aria-live="polite">
-    {#if !lines.length && !working}
-      <p class="intro">{t("opsdbAskIntro")}</p>
-    {/if}
-    {#each lines as line, i (i)}
-      {#if line.who === "user"}
-        <div class="you">
-          {#if line.kind === "write"}<p>{line.text}</p>{:else}<p class="muted">
-              {t(line.kind === "explain" ? "opsdbExplainAsk" : "opsdbOptimizeAsk")}
-            </p>{/if}
-        </div>
-      {:else if line.who === "tool"}
-        <p class="tool muted"><Wrench size={12} aria-hidden="true" />{t("opsdbAskTool", { tool: line.text })}</p>
-      {:else if line.who === "error"}
-        <p class="notice error">{t("opsdbAskError", { error: line.text })}</p>
-      {:else}
-        <div class="answer">
-          {#if line.sql}
-            <div class="sql">
-              <pre>{line.sql}</pre>
-              {#if verdict?.sql === line.sql}
-                {#if verdict.refused}
-                  <p class="verdict refused"><ShieldX size={13} aria-hidden="true" />{t("opsdbAskRefused", { reason: verdict.refused })}</p>
-                {:else}
-                  <p class="verdict ok"><Check size={13} aria-hidden="true" />{t("opsdbAskChecked")}</p>
-                {/if}
-              {/if}
-              <div class="actions">
-                <button class="btn sm" onclick={() => onuse(line.sql ?? "")}><SquarePen size={13} aria-hidden="true" />{t("opsdbAskUse")}</button>
-                <button
-                  class="btn sm primary"
-                  disabled={verdict?.sql === line.sql && !!verdict.refused}
-                  onclick={() => onrun(line.sql ?? "")}><Play size={13} aria-hidden="true" />{t("opsdbRun")}</button
-                >
-                <button class="btn sm" onclick={() => onsave(line.sql ?? "")}><Bookmark size={13} aria-hidden="true" />{t("opsdbSave")}</button>
-              </div>
-            </div>
-          {/if}
-          {#each blocks(prose(line.text)) as b, j (j)}
-            {#if b.kind === "paragraph"}<p>{@render inline(b.spans)}</p>{:else if b.kind === "list"}
-              <ul>
-                {#each b.items as item, k (k)}<li>{@render inline(item)}</li>{/each}
-              </ul>
-            {/if}
-          {/each}
-        </div>
-      {/if}
-    {/each}
-    {#if working}
-      <div class="answer live">
-        {#if streaming}
-          {@const partial = sqlBlock(streaming) ?? openBlock(streaming)}
-          {#if partial}<pre class="partial">{partial}</pre>{/if}
-          <p class="stream">{prose(streaming)}<span class="caret" aria-hidden="true"></span></p>
-        {:else}
-          <div class="thinking" role="status">
-            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-            <span class="muted">{t(lines.length ? "opsdbAskWriting" : "opsdbAskThinking")}</span>
-          </div>
-        {/if}
-      </div>
-    {/if}
-    {#if error}<p class="notice error" role="alert">{error}</p>{/if}
-  </div>
+  {#if error}<p class="notice error" role="alert">{error}</p>{/if}
 
-  <form
-    class="composer"
-    onsubmit={(e) => {
-      e.preventDefault();
-      ask("write", text);
-    }}
-  >
-    <textarea
-      class="field"
-      rows="3"
-      bind:value={text}
-      placeholder={lines.length ? t("opsdbAskFollow") : t("opsdbAskPlaceholder")}
-      aria-label={t("opsdbAsk")}
-      onkeydown={(e) => {
-        if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-          e.preventDefault();
-          ask("write", text);
-        }
+  {#if session}
+    {#key session.id}
+      <Conversation
+        {session}
+        bare
+        placeholder={t("opsdbAskFollow")}
+        outgoing={(text) => post("write", text).then(() => null)}
+        after={query}
+        {quote}
+      />
+    {/key}
+  {:else}
+    <div class="thread">
+      <p class="intro">{t("opsdbAskIntro")}</p>
+    </div>
+    <form
+      class="composer"
+      onsubmit={(e) => {
+        e.preventDefault();
+        ask("write", draft);
       }}
-    ></textarea>
-    <button class="btn sm primary send" disabled={working || !text.trim()}>
-      <ArrowUp size={14} aria-hidden="true" />{t("opsdbAskSend")}
-    </button>
-  </form>
+    >
+      <textarea
+        class="field"
+        rows="2"
+        bind:value={draft}
+        placeholder={t("opsdbAskPlaceholder")}
+        aria-label={t("opsdbAsk")}
+        onkeydown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+            e.preventDefault();
+            e.currentTarget.form?.requestSubmit();
+          }
+        }}
+      ></textarea>
+      <button type="submit" class="icon-send" aria-label={t("chatSend")} title={t("chatSend")} disabled={working || !draft.trim()}>
+        {#if sending}<LoaderCircle size={16} aria-hidden="true" class="spin" />{:else}<ArrowUp size={16} aria-hidden="true" />{/if}
+      </button>
+    </form>
+  {/if}
 </section>
 
 <style>
   .dba {
     display: flex;
     flex-direction: column;
-    gap: 10px;
     min-height: 0;
     height: 100%;
   }
@@ -266,6 +190,7 @@
     display: flex;
     align-items: flex-start;
     gap: 8px;
+    padding: 0 12px 10px;
   }
 
   header p {
@@ -297,15 +222,14 @@
     color: var(--text);
   }
 
+  .notice {
+    margin: 0 12px 10px;
+  }
+
   .thread {
-    display: flex;
     flex: 1;
-    flex-direction: column;
-    gap: 12px;
     min-height: 0;
-    overflow-y: auto;
-    font-size: var(--text-sm);
-    line-height: 1.55;
+    padding: 6px 12px;
   }
 
   .intro {
@@ -314,67 +238,14 @@
     border: 1px dashed var(--border-strong);
     border-radius: var(--radius-lg);
     color: var(--muted);
-  }
-
-  .you {
-    align-self: flex-end;
-    max-width: 88%;
-    padding: 8px 11px;
-    border-radius: var(--radius-lg) var(--radius-lg) 4px var(--radius-lg);
-    background: var(--accent-soft);
-  }
-
-  .you p,
-  .answer p {
-    margin: 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-
-  .answer {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .answer ul {
-    margin: 0;
-    padding-left: 18px;
-  }
-
-  .answer code {
-    padding: 0 3px;
-    border-radius: 3px;
-    background: var(--hover);
-    font-family: var(--font-mono);
-    font-size: 0.92em;
-  }
-
-  .sql {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--panel);
-  }
-
-  pre {
-    margin: 0;
-    padding: 2px 4px;
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     line-height: 1.55;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
   }
 
-  .partial {
-    padding: 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--panel);
+  .query {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
 
   .verdict {
@@ -404,90 +275,52 @@
     gap: 6px;
   }
 
-  .tool {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    margin: 0;
-    font-size: var(--text-xs);
-  }
-
-  .stream {
-    color: var(--text);
-  }
-
-  .caret {
-    display: inline-block;
-    width: 7px;
-    height: 1em;
-    margin-left: 2px;
-    vertical-align: text-bottom;
-    background: var(--accent);
-    animation: blink 1s steps(2, start) infinite;
-  }
-
-  .thinking {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: var(--text-xs);
-  }
-
-  .dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--accent);
-    animation: pulse 1.2s ease-in-out infinite;
-  }
-
-  .dot:nth-child(2) {
-    animation-delay: 0.15s;
-  }
-
-  .dot:nth-child(3) {
-    margin-right: 4px;
-    animation-delay: 0.3s;
-  }
-
-  @keyframes pulse {
-    0%,
-    100% {
-      opacity: 0.25;
-    }
-    50% {
-      opacity: 1;
-    }
-  }
-
-  @keyframes blink {
-    to {
-      visibility: hidden;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .dot,
-    .caret {
-      animation: none;
-    }
-  }
-
+  /* The field of the conversation's composer, until the conversation starts. */
   .composer {
     position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
   }
 
-  textarea {
-    resize: none;
-    font: inherit;
-    font-size: var(--text-sm);
+  .composer textarea {
+    width: 100%;
+    min-height: 58px;
+    max-height: 200px;
+    padding: 8px 48px 8px 12px;
+    border-radius: var(--radius-lg);
     line-height: 1.5;
+    resize: vertical;
   }
 
-  .send {
-    align-self: flex-end;
+  .icon-send {
+    position: absolute;
+    right: 20px;
+    bottom: 20px;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: var(--accent-text);
+    cursor: pointer;
+    transition: background-color var(--dur-fast) ease-out;
+  }
+
+  .icon-send:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+
+  .icon-send:disabled {
+    background: var(--hover);
+    color: var(--muted);
+    cursor: default;
+  }
+
+  .icon-send:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 </style>

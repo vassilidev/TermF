@@ -80,7 +80,8 @@
    * `bare`: in the ⌘I panel, with no header; the agent's actions fold into one line, a permission is a proposal
    * (Apply, Modify, Ignore) and an applied file change can be undone. `chips` goes above the field; `outgoing` turns
    * what is typed into what is sent, null when it went elsewhere. `fences` draws a fenced block of the given language
-   * its own way (a proposal the agent wrote), instead of as code.
+   * its own way (a proposal the agent wrote), instead of as code. `after` goes under each of the agent's texts;
+   * `quote` says how the user's messages read (by default, without the panel's context).
    */
   let {
     session,
@@ -95,6 +96,8 @@
     outgoing,
     placeholder,
     fences,
+    after,
+    quote = question,
   }: {
     session: AgentSession;
     embedded?: boolean;
@@ -108,6 +111,8 @@
     outgoing?: (text: string) => Promise<string | null>;
     placeholder?: string;
     fences?: Record<string, Snippet<[string]>>;
+    after?: Snippet<[string]>;
+    quote?: (text: string) => string;
   } = $props();
 
   let events = $state.raw<StoredEvent[]>([]);
@@ -595,6 +600,7 @@
 {#snippet entry(item: Item, now: boolean)}
   {#if item.type === "text"}
     <div class="text">{@render rich(item.text)}</div>
+    {@render after?.(item.text)}
   {:else if item.type === "tool"}
     {@render tool(item, now)}
   {:else if item.type === "permission"}
@@ -907,7 +913,7 @@
     {/if}
     {#each drawn as turn (turn.key)}
       {@const now = turning && turn === turns.at(-1) && !turn.end}
-      {#if turn.user !== null}<p class="user">{question(turn.user)}</p>{/if}
+      {#if turn.user !== null}<p class="user">{quote(turn.user)}</p>{/if}
       {#if bare}
         {@const list = groups(turn.items)}
         {#each list as g, gi (g.key)}

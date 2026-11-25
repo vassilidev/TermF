@@ -970,11 +970,13 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* The conversation's thread and field go to the pane's edges, as in the ⌘I panel. */
   .pane-dba {
     display: flex;
     flex: 1;
     flex-direction: column;
     min-height: 0;
+    margin: 0 -12px -16px;
   }
 
   .pane-dba[hidden] {
