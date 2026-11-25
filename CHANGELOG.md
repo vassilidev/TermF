@@ -92,7 +92,10 @@ charts and the whole schema, and Ops adds Redis, Nginx, Laravel, server health a
   buttons.
 - ⌘I and Ops with no project yet offer *New project* instead of pointing at an empty navigation.
 - The swipe review shows your first answer at once.
-- The end-to-end tests pass on Linux again, the narrow window and the terminal selection included.
+- Run › *Say something to the team* uses the shared chat, with its queue and cards: no hand-made chat is left.
+- The deletes and edits that were missing: an SSH host (the card shows the lines removed from `~/.ssh/config`), a
+  Forge account, a webhook, a copy in the Library.
+- In a narrow window, lists stack above their detail instead of crushing it: contents, the SQL studio, tickets.
 
 ### The website and the README
 - **The launch film v6**: 49 seconds instead of 76, on what is new, in light and dark.
