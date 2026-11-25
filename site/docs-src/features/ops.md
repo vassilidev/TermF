@@ -43,36 +43,9 @@ termf ops recipes | run <recipe>
 >
 > **Tried so far.** Covered by automated tests, including command injection attempts against a real shell; adding an SSH connection is driven in the real app on macOS by an end-to-end test.
 
-## The read-only SQL console {#sql-console}
+## The database studio {#sql-console}
 
-The SQL console runs one query at a time on a Postgres or MySQL connection of the project, and refuses anything that is not a read before it is sent: TermF parses the query in the database's own dialect, then runs it in a read-only transaction with a time limit.
-
-![The SQL console of Ops: a read-only query on a production Postgres, checked before it runs, its result sorted with emails masked, and the recent queries](shot:sql "A read-only query, checked as you type, emails masked. Sample data.")
-
-### Run a query
-
-1. Open **Ops**, then **SQL**, and pick a Postgres or MySQL connection.
-2. Write the query. As you type, TermF shows the exact query that will run, or why it is refused, in plain words.
-3. Run it with <kbd>⌘↵</kbd>. The table sorts by any column; copy it, or export it to CSV.
-4. An agent can ask for the same through the `sql-readonly` recipe: the card shows you the query before it runs, and personal data comes back masked.
-
-### Rules
-
-- One statement: `SELECT`, `WITH`, `EXPLAIN` of a query, `SHOW` and `DESCRIBE` only. A write, `SELECT … INTO`, a lock or a function that acts beyond reading is refused, even inside a subquery.
-- A read-only transaction, 15 seconds and 500 rows at most.
-- A warning when the connection's user could write: give the console a read-only user.
-- Every query is logged in the project's Ops history.
-- The project's own recipes can take a `sql` parameter, for a query you run often.
-
-```sh
-# the same query from a terminal
-termf ops run sql-readonly --connection <name> --query <sql>
-```
-
-> [!NOTE]
-> Never run against a real database: the tests use fake `psql` and `mysql`. The remaining risk is a query the parser reads differently from the server; the read-only transaction is the next line of defense.
->
-> **Tried so far.** Covered by automated tests, including the known tricks to slip a write past a parser; the console was checked with a simulated backend.
+The **SQL** tab of Ops is a database studio for the project's Postgres, MySQL, MariaDB, SQLite and ClickHouse databases, always read-only: the schema, an editor that completes names, the DBA, saved queries and exports. See [Database studio](database-studio.md).
 
 ## Live logs and the production .env {#live-logs}
 

@@ -3,15 +3,24 @@ title: CI/CD
 order: 6
 ---
 
-The CI/CD view shows a repository's GitHub Actions runs and logs inside the app, and sends a failure back to the agent that caused it.
+The CI/CD view shows a repository's GitHub Actions runs as a graph of their jobs, opens a failure on its first error, and keeps the deployments and webhooks of the project in the same place.
 
-![CI/CD: the runs of a repository, and a failed job's log stopped on its first error](shot:ci "A failed run, its log opened on the first error. Sample data.")
+![CI/CD: the branches and pull requests, the latest runs of a branch, the graph of a failed run's jobs and the first error of its log, with Why?](shot:ci "A failed run, its jobs and its first error. Sample data.")
 
-## Read the runs
+## Read the runs {#runs}
 
-1. Open **CI/CD** in the project. Runs, jobs and steps come from the GitHub CLI, by repository, branch or pull request.
-2. Open a job: its log is cleaned and opens on its errors.
-3. **Run again** (every job, or the failed ones only), **Cancel**, or start a workflow with its inputs.
+1. Open **CI/CD** in the project, and pick a branch or a pull request in **Branches and PRs**. Each shows its last ten runs as squares.
+2. The latest runs of the branch line up at the top, oldest first, with how many failed in a row. Click one to open it.
+3. The **Job graph** draws the jobs with their dependencies and their durations, live while the run goes on. Click a job to see its steps and its log.
+4. **First error** opens on the lines around the first error of a failed job, with their numbers. **Full log** shows the rest; **Why?** asks the DevOps engineer, with the run and the line attached (see [Ask from any screen](ask-panel.md)).
+5. **Rerun failed jobs**, **Rerun all**, cancel the run, or **Start a workflow** with its inputs.
+
+A repository without a workflow offers **Set up CI with the team**, which hands the work to the DevOps engineer.
+
+## Deployments and webhooks {#deploy}
+
+- **Deployments** lists the deployments of the project's targets on Vercel, Netlify, Fly, Railway or Laravel Forge, through their own command-line tools, with their logs. Each deployment says which pull request and TermF run it comes from. Redeploy one after you approve it. Set the targets up in **Tools**; their tokens stay in the [vault](vault.md).
+- **Webhooks** lists the repository's webhooks and their latest deliveries. Send a delivery again, add a webhook or delete one, each after you confirm. GitHub shows webhooks to the repository's admins only.
 
 ## A failure in a run
 

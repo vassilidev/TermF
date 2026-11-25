@@ -5,7 +5,7 @@ order: 2
 
 Terminals keep every Claude Code session and shell in one window, in tabs and free splits, each showing whether it is working, waiting for you or done.
 
-![Terminals in TermF: tabs, and two Claude Code sessions side by side above a shell, one of them waiting for an answer](shot:terminals "Tabs and splits, with each session's state. Sample data.")
+![Terminals in TermF: tabs, and a layout of three panes, a Claude Code session beside a shell and a second Claude Code session at work](shot:terminals "Tabs and splits, with each session's state. Sample data.")
 
 ## Tabs and splits {#terminals}
 

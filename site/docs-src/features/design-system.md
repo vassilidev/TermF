@@ -9,7 +9,7 @@ The Design system view reads a repository's design system from its code, without
 
 Its tokens, its components and their variants, and what drifted: colours typed by hand, sizes off the scale, a dark theme half done. A **Brand guidelines** tab shows the logos and the guidelines, and exports them to PDF.
 
-![The Design system view: tokens by family and the inconsistencies found, contrast, hard-coded values, sizes off the scale](shot:design "Tokens and inconsistencies of a repository. Sample data.")
+![The Design system view: the repository's components drawn with its own tokens, each with its variants, its file and where it is used, beside the token families and the inconsistencies](shot:design "The components of a repository, with their variants. Sample data.")
 
 - **Tokens**: CSS custom properties, Tailwind, SCSS and W3C design tokens, in both themes.
 - **Components**: Svelte, Vue, Astro and JSX, with their variants and stories.

@@ -5,11 +5,11 @@ order: 4
 
 You give work to the team by writing to the CTO on the project's Home; this page walks through a first task, from the request to the pull request.
 
-![TermF's project Home: the conversation with the CTO, with a plan waiting for approval, and on the right what waits for you and the agents at work](shot:home "The project's Home: the CTO's conversation and what waits for you. Sample data.")
+![TermF's project Home: two things wait for an answer, the agents live with what each is doing, the runs, and the bar to ask the CTO at the bottom](shot:home "The project's Home: what waits for you, and the CTO one bar away. Sample data.")
 
 ## 1. Ask
 
-On the project's Home, write to the CTO, or press <kbd>⌘⇧H</kbd> from anywhere:
+On the project's Home, write to the CTO in the bar at the bottom, or press <kbd>⌘⇧H</kbd> from anywhere:
 
 ```text
 Start the team on #57

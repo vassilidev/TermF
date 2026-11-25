@@ -7,17 +7,17 @@ A project starts either from repositories you already have, which TermF reads to
 
 ## From your repositories {#projects}
 
-Creating a project is a full-screen setup, one step per screen. Nothing is written before you click **Create**, and Escape drops everything.
+Creating a project is a full-screen setup, one step per screen, and the navigation steps aside until you are done. Nothing is written before the last step. Your answers are kept: **Finish later** (Escape) closes the setup, and you pick up where you stopped.
 
-![New project: what TermF proposes after reading the repositories, the agents' team, ticket sources, worktree setup, CI/CD and skills](shot:setup "Creating a project: the proposal, one block at a time. Sample data.")
+![New project, step 5 of 5, Your team and your tools: the agents' team, ticket sources, worktree setup, the checks before delivery and CI, each kept by default with Adjust](shot:setup "Creating a project: your team and your tools, all proposed. Sample data.")
 
-1. Press **+** next to Projects, or <kbd>⌘O</kbd>. The repositories of your machine come first, as cards sorted by activity, with their remote, branch, uncommitted changes and stack. Search or filter, and pick one or several.
-2. The name comes from them (one repository, its name; several, their GitHub owner or their common folder). Change it if you like.
-3. As you pick, TermF shows what it detects in each: stack and versions, dev, build, test and lint commands, CI, ticket sources, monorepo parts, database, tests and infrastructure.
-4. It proposes the team, the ticket sources, the worktree recipe, CI and the stack's skills. Accept each one, or set it aside to customise later.
-5. The summary shows the exact project file before anything is written. **Create** opens the project's Home, with the CTO ready.
+1. Press **+** next to Projects, or <kbd>⌘O</kbd>, then **From my repositories**.
+2. **Your repositories**: search the repositories of your machine and pick one or several. The project's name comes from them; change it if you like.
+3. **What TermF understood**: two or three sentences per repository, its stack, its tests and its CI, read without changing anything. Claude Code reads the code at the same time, live; **See the details** shows everything found.
+4. **A few questions**: what the code cannot settle, one card at a time. Each comes with a proposed answer and what in your repositories backs it, and **Why we ask**. Keep it, change it, **Skip this question**, or ask the CTO what it advises.
+5. **Your team and your tools**: the team, ticket sources, worktree setup, the checks before delivery, CI, skills, MCP servers, databases, conventions and trust. Everything is kept by default; **Adjust** opens a line. **Create the project** opens its Home.
 
-After creation, Claude Code reads the repositories read-only in the background and proposes conventions, through the setup assistant. You can run the setup assistant again from the project's **Configuration**, and add repositories later with the same cards.
+After creation, what is still being read, the proposed rules and the expert's memory follow on the Home. You can run the same setup again on an existing project from its **Configuration**: what is already in place is left alone.
 
 ### Trust in Claude Code
 
@@ -39,9 +39,9 @@ Start from a few sentences of your idea. TermF creates the folder, its first com
 
 ![New project, Start from scratch: the idea in a few sentences, three examples, and what the team does next, framing, research, your decision, the skeleton](shot:greenfield "Starting a project from an idea. Sample data.")
 
-1. Press **+** next to Projects, then **Start from scratch**. Write your idea, or click one of the three examples.
+1. Press **+** next to Projects, then **Start from scratch**. In **Your idea**, write it in a few sentences, or click one of the three examples.
 2. TermF proposes a name from the idea and a folder beside your other repositories. Tick **Also create the repository on GitHub** if you want one (private by default).
-3. The summary shows the folder, the exact files of the first commit and every command, in order. Nothing runs before **Create**.
+3. **Check and create** shows the folder, the exact files of the first commit and every command, in order. Nothing runs before **Create the project**.
 4. The project opens on the CTO, which proposes the `kickoff` workflow: framing, then the researcher and the competitive analyst side by side, then a decision note with its options, trade-offs and sources.
 5. Approve the recommendation or ask for another option. The architect and the lead then plan the skeleton, its tooling, a first test, CI and the README.
 
