@@ -23,7 +23,7 @@
   import UserRound from "@lucide/svelte/icons/user-round";
   import Action from "$lib/Action.svelte";
   import ActionAsk from "$lib/ActionAsk.svelte";
-  import { agentActions, approve, perform, refuse, type Call } from "$lib/actions.svelte";
+  import { actionOf, agentActions, approve, perform, refuse, type Call } from "$lib/actions.svelte";
   import StreamSteps, { type Step } from "$lib/ui/StreamSteps.svelte";
   import { toast } from "$lib/ui/toast.svelte";
   import { afterChange, changeOf, diffOf, question, within } from "$lib/ask-logic";
@@ -243,7 +243,11 @@
   };
   const toolName = (name: string) => (termfTools[name] ? t(termfTools[name]) : name);
   const asks = (tool: string) =>
-    termfTools[tool] ? t("ctoAsks", { action: t(termfTools[tool]) }) : t("chatPermission", { tool });
+    tool === DO_ACTION
+      ? t("actCardTitle", { who })
+      : termfTools[tool]
+        ? t("ctoAsks", { action: t(termfTools[tool]) })
+        : t("chatPermission", { tool });
 
   function said(n: NoticeFields): string {
     const vars = { run: n.run ?? "", step: n.step ? stepTitle(n.step) : "", role: n.role ?? "" };
@@ -471,7 +475,7 @@
 
   function stepOf(item: Tool, now: boolean): Step {
     const state = item.result === null ? (now ? "now" : undefined) : item.result.isError ? "fail" : "ok";
-    if (termfTools[item.name]) return { verb: toolName(item.name), object: phrase(item.input) || undefined, state };
+    if (termfTools[item.name]) return { verb: toolName(item.name), object: about(item.name, item.input) || undefined, state };
     const p = actPhrase(item.name, item.input);
     const verb = t(p.key as Parameters<typeof t>[0], { ...p.vars, target: "" }).replace(/\s+/g, " ").trim();
     return { verb, object: p.target || undefined, state };
@@ -511,6 +515,12 @@
       return value;
     });
     return said.join(" · ") || summary(input);
+  }
+
+  /** What a TermF tool is about: a screen's action by its name, else its fields. */
+  function about(tool: string, input: unknown): string {
+    const action = tool === DO_ACTION ? actionOf(session.id, (input as { action?: unknown } | null)?.action) : undefined;
+    return action ? t(action.label) : phrase(input);
   }
 
   function asked(input: unknown, id: string): string {
@@ -628,7 +638,7 @@
         {/if}
         {#if termfTools[item.name]}
           <b>{toolName(item.name)}</b>
-          <span class="sum">{phrase(item.input)}</span>
+          <span class="sum">{about(item.name, item.input)}</span>
         {:else}
           <span class="sum said"><Action act={{ kind: "tool", name: item.name, input: item.input }} /></span>
         {/if}
