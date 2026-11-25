@@ -24,6 +24,7 @@
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import { askAI, askedProject, provide } from "$lib/ask.svelte";
   import { t } from "$lib/i18n";
   import {
     cost,
@@ -49,6 +50,17 @@
     app.sessions.filter((s) => s.running).flatMap((session) => liveLoops(session.loops, loopClock.now).map((loop) => ({ session, loop }))),
   );
   const current = $derived(tasks.find((e) => e.id === schedule.selected) ?? tasks[0]);
+
+  // The task shown goes with a question: its planning, folder, prompt and last result.
+  $effect(() => {
+    const task = current;
+    return provide("scheduler", {
+      repo: task?.dir,
+      chips: task
+        ? [{ id: "scheduled-task", kind: "object", label: task.name, text: `cron ${task.cron} in ${task.dir} (${task.mode}), last: ${task.last?.status ?? "never"}\n${task.prompt}` }]
+        : [],
+    });
+  });
   const editing = $derived(
     schedule.editing === null ? undefined : schedule.editing === "" ? null : tasks.find((e) => e.id === schedule.editing),
   );
@@ -283,11 +295,14 @@
       </div>
     {:else if !tasks.length && editing === undefined}
       <div class="pane">
-        <EmptyState icon={CalendarClock} title={t("schedulerEmpty")} text={t("schedulerEmptyHelp")}>
-          <button class="btn primary" onclick={() => ((schedule.draft = null), (schedule.editing = ""))}>
-            <Plus size={14} aria-hidden="true" />{t("schedulerNew")}
-          </button>
-        </EmptyState>
+        <EmptyState
+          icon={CalendarClock}
+          title={t("schedulerEmpty")}
+          text={t("schedulerEmptyHelp")}
+          action={{ label: t("schedulerNew"), icon: Plus, run: () => ((schedule.draft = null), (schedule.editing = "")) }}
+          onask={askedProject() !== null ? () => void askAI({ role: "cto", draft: t("restSchedulerAskDraft") }) : undefined}
+          askLabel={t("ctoTalk")}
+        />
       </div>
     {:else}
       <div class="split">

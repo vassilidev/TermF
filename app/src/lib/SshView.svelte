@@ -30,6 +30,7 @@
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
+  import { askAI, provide } from "$lib/ask.svelte";
   import { ago, t } from "$lib/i18n";
   import { shortPath } from "$lib/state.svelte";
   import { act, algorithm, readable, refresh, ssh, type Host, type HostTest, type RepoKeys, type SshKey } from "$lib/ssh.svelte";
@@ -39,6 +40,21 @@
   const current = $derived(keys.find((k) => k.path === ssh.selected) ?? keys[0]);
   const tooOpen = $derived(keys.filter((k) => k.tooOpen));
   const trash = $derived(inventory ? `${shortPath(inventory.dir)}/.termf-trash` : "");
+  const emptyHere = $derived(
+    !!inventory &&
+      !ssh.panel &&
+      ((ssh.tab === "keys" && !keys.length) || (ssh.tab === "hosts" && !inventory.hosts.length) || (ssh.tab === "agent" && !inventory.agent.error && !inventory.agent.keys.length)),
+  );
+
+  // The key shown goes with a question: its public side only, never the private file's content.
+  $effect(() => {
+    const key = current;
+    return provide("ssh", {
+      chips: key ? [{ id: "ssh-key", kind: "object", label: key.name, text: [key.algorithm, key.fingerprint, shortPath(key.path)].filter(Boolean).join(" · ") }] : [],
+    });
+  });
+
+  const askDevops = (draft: string) => void askAI({ role: "devops", draft });
 
   /** The inline step open under the current key's actions. */
   let asking = $state<"" | "agent" | "upload" | "trash" | "reveal" | "test">("");
@@ -195,7 +211,8 @@
       <button class="btn sm" onclick={() => { ssh.panel = { kind: "host", host: null }; }}>
         <Server size={14} aria-hidden="true" />{t("sshHostNew")}
       </button>
-      <button class="btn sm primary" onclick={() => { ssh.panel = { kind: "generate" }; }}>
+      <!-- An empty tab holds the screen's one main action. -->
+      <button class="btn sm" class:primary={!emptyHere} onclick={() => { ssh.panel = { kind: "generate" }; }}>
         <Plus size={14} aria-hidden="true" />{t("sshGenerate")}
       </button>
     {/snippet}
@@ -206,7 +223,7 @@
     label={t("viewSsh")}
     tabs={tabs.map(([id, label]) => ({ id, label: t(label), count: inventory ? count(id) : null }))}
     selected={ssh.panel ? null : ssh.tab}
-    onselect={(tab) => ((ssh.tab = tab as typeof ssh.tab), (ssh.panel = null))}
+    onselect={(tab) => ((ssh.tab = tab as typeof ssh.tab), (ssh.panel = null), (ssh.error = ""), (ssh.done = ""))}
   >
     {#if ssh.error || ssh.done || (!ssh.panel && (tooOpen.length || inventory?.problems.length))}
       <div class="banners">
@@ -252,11 +269,14 @@
       {/if}
     {:else if ssh.tab === "keys"}
       {#if !keys.length}
-        <EmptyState icon={KeyRound} title={t("sshNoKeys")} text={t("sshNoKeysHelp")}>
-          <button class="btn primary" onclick={() => { ssh.panel = { kind: "generate", usage: "ssh" }; }}>
-            <Plus size={14} aria-hidden="true" />{t("sshGenerate")}
-          </button>
-        </EmptyState>
+        <EmptyState
+          icon={KeyRound}
+          title={t("sshNoKeys")}
+          text={t("sshNoKeysHelp")}
+          action={{ label: t("sshGenerate"), icon: Plus, run: () => (ssh.panel = { kind: "generate", usage: "ssh" }) }}
+          onask={() => askDevops(t("restSshAskKeys"))}
+          askLabel={t("aigAskRole", { role: "devops" })}
+        />
       {:else}
         <div class="split">
           <ul class="list">
@@ -461,7 +481,14 @@
         {#if inventory.agent.error}
           <p class="notice"><Info size={14} aria-hidden="true" />{t("sshAgentError", { error: inventory.agent.error })}</p>
         {:else if !inventory.agent.keys.length}
-          <EmptyState icon={Plug} text={t("sshAgentEmpty")} />
+          <EmptyState
+            icon={Plug}
+            title={t("restSshAgentEmpty")}
+            text={t("restSshAgentEmptyText")}
+            action={keys.length
+              ? { label: t("restSshAgentPick"), icon: KeyRound, run: () => (ssh.tab = "keys") }
+              : { label: t("sshGenerate"), icon: Plus, run: () => (ssh.panel = { kind: "generate", usage: "ssh" }) }}
+          />
         {:else}
           <table>
             <thead>
@@ -503,11 +530,14 @@
     {:else if ssh.tab === "hosts"}
       <div class="table-pane">
         {#if !inventory.hosts.length}
-          <EmptyState icon={Server} text={t("sshHostsEmpty")}>
-            <button class="btn" onclick={() => { ssh.panel = { kind: "host", host: null }; }}>
-              <Plus size={14} aria-hidden="true" />{t("sshHostNew")}
-            </button>
-          </EmptyState>
+          <EmptyState
+            icon={Server}
+            title={t("restSshHostsEmpty")}
+            text={t("restSshHostsEmptyText")}
+            action={{ label: t("sshHostNew"), icon: Plus, run: () => (ssh.panel = { kind: "host", host: null }) }}
+            onask={() => askDevops(t("restSshAskHosts"))}
+            askLabel={t("aigAskRole", { role: "devops" })}
+          />
         {:else}
           <table>
             <thead>
@@ -564,7 +594,13 @@
     {:else}
       <div class="table-pane">
         {#if !inventory.repos.length}
-          <EmptyState icon={FolderGit2} text={t("sshReposEmpty")} />
+          <EmptyState
+            icon={FolderGit2}
+            title={t("restSshReposEmpty")}
+            text={t("restSshReposEmptyText")}
+            onask={() => askDevops(t("restSshAskRepos"))}
+            askLabel={t("aigAskRole", { role: "devops" })}
+          />
         {:else}
           <table>
             <thead>

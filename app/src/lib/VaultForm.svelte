@@ -18,12 +18,15 @@
     project: newProject,
     onsaved,
     oncancel,
+    onsecret,
   }: {
     item: ItemInfo | null;
     kind?: Kind;
     project: string | null;
     onsaved: (saved: ItemInfo) => void;
     oncancel: () => void;
+    /** A new element switched to a secret, which has its own form. */
+    onsecret?: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally (the form starts from the item, then is the user's)
@@ -143,6 +146,7 @@
     <div class="segmented" role="radiogroup" aria-label={t("vaultKind")}>
       <button type="button" role="radio" aria-checked={kind === "login"} onclick={() => (kind = "login")}>{t("vaultLogin")}</button>
       <button type="button" role="radio" aria-checked={kind === "note"} onclick={() => (kind = "note")}>{t("vaultNote")}</button>
+      {#if onsecret}<button type="button" role="radio" aria-checked="false" data-testid="vault-new-secret" onclick={onsecret}>{t("vaultSecret")}</button>{/if}
     </div>
   {/if}
 

@@ -3,6 +3,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { ui } from "$lib/state.svelte";
 import { lang, t } from "$lib/i18n";
 import { latest } from "$lib/claude-logic";
+import { toast } from "$lib/ui/toast.svelte";
 
 export type Scope = "user" | "project" | "local" | "managed";
 export type FileState = "absent" | "invalid" | "ok";
@@ -187,7 +188,6 @@ export const claudeView = $state({
   overview: null as Overview | null,
   loading: false,
   error: "",
-  done: "",
   artifacts: null as Artifacts | null,
 });
 
@@ -257,7 +257,7 @@ export async function commit() {
     o.settings = saved.settings;
     o.hooks = saved.hooks;
     const path = change.preview.path;
-    claudeView.done = "key" in change.edit ? t("claudeViewSaved", { key: change.edit.key, path }) : t("claudeMgmtSaved", { path });
+    toast("key" in change.edit ? t("claudeViewSaved", { key: change.edit.key, path }) : t("claudeMgmtSaved", { path }));
     discard();
   } catch (e) {
     change.error = String(e);
@@ -306,7 +306,7 @@ export async function openUrl(url: string) {
 export async function copyText(text: string, done: string) {
   try {
     await navigator.clipboard.writeText(text);
-    claudeView.done = done;
+    toast(done);
   } catch (e) {
     claudeView.error = String(e);
   }
@@ -468,7 +468,7 @@ export async function exportOverview(format: "md" | "json") {
   const text = format === "md" ? overviewMarkdown(o) : JSON.stringify(o, null, 2);
   try {
     await invoke("claude_export", { path, text });
-    claudeView.done = t("claudeViewExported", { path });
+    toast(t("claudeViewExported", { path }));
   } catch (e) {
     claudeView.error = String(e);
   }

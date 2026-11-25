@@ -40,12 +40,19 @@
 
   const project = $derived(currentProject());
 
-  // The ⌘I panel: the project's expert, with the file open.
+  // The ⌘I panel: the project's expert, with the file open and the lines selected in it.
   $effect(() => {
     const tab = files.active;
+    const p = files.picked;
+    const lines = p && (p.last > p.first ? `${p.first}-${p.last}` : `${p.first}`);
     return provide("files", {
       repo: files.repo || undefined,
-      chips: tab ? [{ id: "file", kind: "object", label: tab.path, text: `File ${tab.path} in ${tab.repo}` }] : [],
+      chips: tab
+        ? [
+            { id: "file", kind: "object", label: tab.path, text: `File ${tab.path} in ${tab.repo}` },
+            ...(p ? [{ id: "lines", kind: "selection" as const, label: `${tab.path}:${lines}`, text: `Lines ${lines} of ${tab.path}:\n${p.text}` }] : []),
+          ]
+        : [],
     });
   });
 

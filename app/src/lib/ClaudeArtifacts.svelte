@@ -22,6 +22,7 @@
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { focusSession } from "$lib/commands";
   import { ago, lang, t } from "$lib/i18n";
+  import { toast } from "$lib/ui/toast.svelte";
   import { projectsOf } from "$lib/nav-logic";
   import { showSettings } from "$lib/settings.svelte";
   import { app, repoName, type Session } from "$lib/state.svelte";
@@ -150,7 +151,7 @@
 
   function share(artifact: Artifact) {
     openUrl(artifact.url);
-    claudeView.done = t("claudeViewShareOpened");
+    toast(t("claudeViewShareOpened"));
   }
 
   /** TermF asks first, unless you chose yourself not to be asked. */

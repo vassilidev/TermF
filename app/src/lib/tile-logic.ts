@@ -6,6 +6,12 @@ export function tileName(title: string, tool: string): string {
   return title.endsWith(suffix) && title.length > suffix.length ? title.slice(0, -suffix.length) : title;
 }
 
+/** A terminal as context for the ⌘I panel: which session, where, and what runs in it. */
+export function sessionChip(s: { title: string; cwd: string; agent: string | null; running: boolean; status: string | null }) {
+  const state = s.running ? (s.status ?? "running") : "exited";
+  return { id: "terminal", kind: "object" as const, label: s.title, text: `Terminal session "${s.title}" in ${s.cwd}: ${s.agent ?? "a shell"}, ${state}` };
+}
+
 /** The tile that takes the keyboard once `id` closes: the next one shown, else the previous one. */
 export function neighbour(ids: number[], id: number): number | null {
   const i = ids.indexOf(id);

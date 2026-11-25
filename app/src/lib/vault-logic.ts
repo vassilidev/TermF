@@ -40,6 +40,39 @@ const fold = (s: string) =>
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
 
+/** As termf-vault's `SecretId`: letters, digits, _ . and -, 128 at most, starting with a letter or _. */
+export const secretNameOk = (name: string) => /^[A-Za-z_][\w.-]{0,127}$/.test(name);
+
+/** One line of the vault's audit log, as `vault_audit` gives it (newest first); never a value. */
+export type AuditEntry = {
+  id: number;
+  at: number;
+  actor: { kind: "human" | "agent" | "termf"; run: number | null; session: string | null };
+  action: string;
+  target: string | null;
+  scope: Scope | null;
+  project: string | null;
+  detail: string | null;
+};
+export type AuditCheck = { ok: boolean; entries: number; broken: number | null; error: string | null };
+
+/**
+ * The log and its chain's check, each on its own: one failing leaves the other shown, and the check that failed says
+ * so instead of spinning. `reason` reads an error for the user.
+ */
+export function auditOf(
+  log: PromiseSettledResult<AuditEntry[]>,
+  verify: PromiseSettledResult<AuditCheck>,
+  reason: (e: unknown) => string,
+): { entries: AuditEntry[]; check: AuditCheck | null; error: string; checkError: string } {
+  return {
+    entries: log.status === "fulfilled" ? log.value : [],
+    check: verify.status === "fulfilled" ? verify.value : null,
+    error: log.status === "rejected" ? reason(log.reason) : "",
+    checkError: verify.status === "rejected" ? reason(verify.reason) : "",
+  };
+}
+
 export const secretKey = (s: SecretInfo) => `secret:${s.scope}:${s.project ?? ""}:${s.name}`;
 
 export function entries(items: ItemInfo[], secrets: SecretInfo[]): Entry[] {

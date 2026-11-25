@@ -7,6 +7,7 @@
   import Stethoscope from "@lucide/svelte/icons/stethoscope";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import { t } from "$lib/i18n";
+  import { toast } from "$lib/ui/toast.svelte";
   import type { Session } from "$lib/state.svelte";
   import { claudeView, loadOverview, type Overview } from "$lib/claude.svelte";
   import { attempt, openTile, repoArg } from "$lib/claude-native.svelte";
@@ -24,7 +25,7 @@
   async function login() {
     const tile = await attempt(() => invoke<Session>("claude_auth_login", { method }));
     if (tile) {
-      claudeView.done = t("claudeDgLoginStarted");
+      toast(t("claudeDgLoginStarted"));
       await openTile(tile);
     }
   }

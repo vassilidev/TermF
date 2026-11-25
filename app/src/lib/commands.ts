@@ -47,7 +47,7 @@ import Workflow from "@lucide/svelte/icons/workflow";
 import { agents, conversation, showConversation, showExpert, waitingAgents } from "$lib/agents.svelte";
 import { showClaude } from "$lib/claude.svelte";
 import { goToWait, home, projectWaits, talkCto } from "$lib/home.svelte";
-import { toggleAsk } from "$lib/ask.svelte";
+import { ask, askAI, askedProject, screenRole, toggleAsk } from "$lib/ask.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { terminalReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
@@ -577,6 +577,14 @@ export function commands(): Command[] {
     action({ id: "other-panel", label: t("t6bOtherPanel"), keys: display("other_panel"), icon: ArrowLeftRight, run: otherPanel });
   }
   action({ id: "ask-ai", label: t("aigShortcut"), keys: keys.ask, icon: Sparkles, run: toggleAsk });
+  // The CTO, the expert and the screen's role in sight; the project's other roles found by typing.
+  if (askedProject() !== null) {
+    const inSight = new Set(["cto", "expert", screenRole()]);
+    for (const role of new Set([...inSight, ...ask.roles])) {
+      const label = role === "cto" ? t("restAskCto") : role === "expert" ? t("restAskExpert") : t("restAskRole", { role });
+      action({ id: `ask-role-${role}`, label, icon: Sparkles, searchOnly: !inSight.has(role), run: () => void askAI({ role }) });
+    }
+  }
   action({ id: "help", label: t("t6bHelp"), keys: keys.help, icon: CircleHelp, run: () => (ui.help = true) });
   action({ id: "intro", label: t("wsIntroAgain"), icon: Compass, run: startTour });
   action({ id: "shortcuts", label: t("shortcuts"), icon: Keyboard, run: () => showSettings("keys") });

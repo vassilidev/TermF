@@ -40,6 +40,8 @@ export const files = $state({
   version: 0,
   error: "",
   question: null as { message: string; answer: (yes: boolean) => void } | null,
+  /** The lines selected in the editor shown, for the ⌘I panel: the page itself only holds the lines in sight. */
+  picked: null as { first: number; last: number; text: string } | null,
 });
 
 export const isMac = navigator.platform.startsWith("Mac");

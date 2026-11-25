@@ -1,12 +1,14 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import Check from "@lucide/svelte/icons/check";
+  import Copy from "@lucide/svelte/icons/copy";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
   import Info from "@lucide/svelte/icons/info";
   import Link from "@lucide/svelte/icons/link";
   import X from "@lucide/svelte/icons/x";
   import VaultMergeRows from "$lib/VaultMergeRows.svelte";
   import { t } from "$lib/i18n";
+  import { toast } from "$lib/ui/toast.svelte";
   import { app, shortPath } from "$lib/state.svelte";
   import { action, busy, library, type Change, type Imported } from "$lib/library.svelte";
   import { applyImport, settings, type Transfer } from "$lib/settings.svelte";
@@ -91,6 +93,15 @@
     }
   }
 
+  async function copyPath(path: string) {
+    try {
+      await navigator.clipboard.writeText(path);
+      toast(t("restSettingsPathCopied"));
+    } catch (e) {
+      toast(String(e), { kind: "error" });
+    }
+  }
+
   function close() {
     if (panel.kind === "claude") library.panel = null;
     else settings.transfer = null;
@@ -156,6 +167,11 @@
     <p class="lead">
       <Check size={16} aria-hidden="true" class="ok" />{t("exportSummary", { count: panel.files })}
     </p>
+    <div class="archive">
+      <span class="muted">{t("restSettingsArchive")}</span>
+      <code title={panel.path}>{shortPath(panel.path)}</code>
+      <button class="btn sm quiet" onclick={() => copyPath(panel.path)}><Copy size={14} aria-hidden="true" />{t("restSettingsCopyPath")}</button>
+    </div>
     {#if panel.skippedLinks.length}
       <div class="notice">
         <Link size={14} aria-hidden="true" />
@@ -331,6 +347,22 @@
 
   .lead :global(.ok) {
     color: var(--done);
+  }
+
+  .archive {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: -4px 0 16px;
+    font-size: var(--text-sm);
+  }
+
+  .archive code {
+    min-width: 0;
+    overflow: hidden;
+    font: var(--text-sm) var(--font-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .help {

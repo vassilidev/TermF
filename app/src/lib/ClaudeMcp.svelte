@@ -11,12 +11,15 @@
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import ClaudeChange from "$lib/ClaudeChange.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
+  import { toast } from "$lib/ui/toast.svelte";
   import { t } from "$lib/i18n";
+  import { askAI } from "$lib/ask.svelte";
   import {
     blockMarkdown,
     blockTitle,
@@ -44,7 +47,7 @@
     try {
       const r = await invoke<{ message: string; mcp: Overview["mcp"] }>("claude_mcp", { repo: repo(), action });
       o.mcp = r.mcp;
-      claudeView.done = done;
+      toast(done);
       return true;
     } catch (e) {
       claudeView.error = String(e);
@@ -61,7 +64,7 @@
       const r = await invoke<{ message: string; shown: Shown | null; plugins: Plugins }>("claude_plugin", { repo: repo(), action });
       o.plugins = r.plugins;
       if (r.shown) return r.shown;
-      claudeView.done = done;
+      toast(done);
       return null;
     } catch (e) {
       claudeView.error = String(e);
@@ -142,7 +145,7 @@
     busy = "json";
     try {
       o.mcp = await invoke<Overview["mcp"]>("claude_mcp_json_save", { repo: repo(), text: json.text, hash: jsonPreview.hash });
-      claudeView.done = t("claudeMgmtSaved", { path: json.path });
+      toast(t("claudeMgmtSaved", { path: json.path }));
       json = null;
       jsonPreview = null;
     } catch (e) {
@@ -450,6 +453,9 @@
   {#if !adding && !json}
     <div class="toolbar">
       <button class="btn sm" onclick={() => (adding = true)}><Plus size={13} aria-hidden="true" />{t("claudeMgmtAddServer")}</button>
+      <button class="btn sm quiet" onclick={() => askAI({ draft: t("restClaudeFindMcpDraft") })}>
+        <Sparkles size={13} aria-hidden="true" />{t("restClaudeFindMcp")}
+      </button>
       <button class="btn sm quiet" onclick={openJson} disabled={!claudeView.repo} title={claudeView.repo ? "" : t("claudeMgmtNeedRepo")}>
         <FileJson size={13} aria-hidden="true" />{t("claudeMgmtEditMcpJson")}
       </button>

@@ -5,12 +5,15 @@
   import LibraryBig from "@lucide/svelte/icons/library-big";
   import Plus from "@lucide/svelte/icons/plus";
   import Puzzle from "@lucide/svelte/icons/puzzle";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import ClaudeChange from "$lib/ClaudeChange.svelte";
   import ClaudeFileEditor from "$lib/ClaudeFileEditor.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import { toast } from "$lib/ui/toast.svelte";
   import { t } from "$lib/i18n";
+  import { askAI } from "$lib/ask.svelte";
   import { app } from "$lib/state.svelte";
   import type { Item, Kind } from "$lib/library.svelte";
   import { change, claudeView, effective, kindLabel, propose, scopeLabel, type Folder, type Overview } from "$lib/claude.svelte";
@@ -79,6 +82,13 @@
     }
   }
 
+  /** The form's what and where, handed to the AI as a draft to read before it goes: nothing is written yet. */
+  function writeWithClaude() {
+    const base = draft.scope === "project" && claudeView.repo ? `${claudeView.repo}/.claude` : o.claudeDir;
+    const name = draft.name.trim() || "…";
+    askAI({ draft: t("restClaudeWriteDraft", { name, kind: kindLabel(draft.kind), dir: `${base}/${draft.kind}`, description: draft.description.trim() }) });
+  }
+
   async function startExport() {
     open = null;
     panel = "export";
@@ -106,7 +116,7 @@
   async function doExport() {
     try {
       const dest = await invoke<string>("claude_export_item", { ...exportArgs(), overwrite: replace });
-      claudeView.done = t("claudeDgExported", { name: picked?.name ?? "", path: dest });
+      toast(t("claudeDgExported", { name: picked?.name ?? "", path: dest }));
       exportPreview = null;
       panel = "";
       await refreshFiles();
@@ -120,7 +130,7 @@
     const { path, name } = deleting;
     const done = await attempt(() => invoke<{ trashed: string; index: string | null }>("claude_file_delete", { path, repo: repoArg() }));
     if (done) {
-      claudeView.done = t("claudeDgTrashed", { name, path: done.trashed });
+      toast(t("claudeDgTrashed", { name, path: done.trashed }));
       if (open?.path === path) open = null;
       await refreshFiles();
     }
@@ -137,6 +147,9 @@
   <span class="grow"></span>
   <button class="btn sm" aria-expanded={panel === "export"} onclick={() => (panel === "export" ? (panel = "") : startExport())}>
     <LibraryBig size={14} aria-hidden="true" />{t("claudeDgFromLibrary")}
+  </button>
+  <button class="btn sm" onclick={writeWithClaude} title={t("restClaudeWriteHelp")}>
+    <Sparkles size={14} aria-hidden="true" />{t("lib2Write")}
   </button>
   <button
     class="btn sm primary"
@@ -181,6 +194,9 @@
     <div class="buttons">
       <span class="muted hint">{t("claudeDgNewHint")}</span>
       <button type="button" class="btn sm" onclick={() => (panel = "")}>{t("cancel")}</button>
+      <button type="button" class="btn sm" onclick={writeWithClaude} title={t("restClaudeWriteHelp")}>
+        <Sparkles size={14} aria-hidden="true" />{t("lib2Write")}
+      </button>
       <button type="submit" class="btn sm primary">{t("claudeDgCreate")}</button>
     </div>
   </form>
@@ -297,7 +313,13 @@
     {/if}
   </section>
 {:else}
-  <EmptyState icon={Puzzle} text={t("claudeViewNone")} />
+  <EmptyState
+    icon={Puzzle}
+    text={t("claudeViewNone")}
+    action={{ label: t("claudeDgNew"), icon: Plus, run: () => ((open = null), (panel = "create")) }}
+    onask={writeWithClaude}
+    askLabel={t("lib2Write")}
+  />
 {/each}
 
 <ConfirmDialog

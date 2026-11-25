@@ -1,6 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+  import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Copy from "@lucide/svelte/icons/copy";
   import History from "@lucide/svelte/icons/history";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
@@ -17,8 +19,10 @@
   import OpsRequest from "$lib/OpsRequest.svelte";
   import OpsSql from "$lib/OpsSql.svelte";
   import Banner from "$lib/ui/Banner.svelte";
+  import Card from "$lib/ui/Card.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import NextStep from "$lib/ui/NextStep.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
@@ -90,17 +94,36 @@
     return { name: "", kind: "ssh", env: "prod", ai_access: "none" };
   }
 
+  /** The connections whose last test failed, with what failed (codes only: never a host, a user or a secret). */
+  let failures = $state<Record<string, string>>({});
+  /** By project and connection: the same name in another project is another server. */
+  const failKey = (name: string) => `${project?.id ?? ""}\n${name}`;
+  const failed = $derived(ops.connections.find((c) => failures[failKey(c.name)] !== undefined));
+
   async function test(c: Connection) {
     testing = true;
     checks = null;
     busyError = "";
+    const key = failKey(c.name);
     try {
       checks = await invoke<Check[]>("ops_test", { project: project?.id, connection: c, previous: c.name });
+      const bad = checks.filter((x) => !x.ok && !x.warn);
+      if (bad.length) failures[key] = bad.map((x) => `${x.code}: failed${x.hint ? ` (${x.hint})` : ""}`).join("\n");
+      else delete failures[key];
     } catch (e) {
       busyError = String(e);
+      failures[key] = "the test did not run";
     } finally {
       testing = false;
     }
+  }
+
+  function whyFailed(name: string) {
+    askAI({
+      role: "devops",
+      chips: [{ id: "ops-test", kind: "selection", label: t("restOpsTestFailedBadge"), text: `${kindLabel(ops.connections.find((c) => c.name === name)?.kind ?? "ssh")}\n${failures[failKey(name)]}` }],
+      draft: t("restOpsWhyDraft", { name }),
+    });
   }
 
   async function remove(name: string) {
@@ -135,7 +158,11 @@
 
   // Recipes: a query goes to the SQL console, a stream to the live logs.
   const listed = $derived(ops.recipes.filter(bounded));
-  const recipe = $derived(listed.find((r) => r.name === ops.recipe) ?? listed[0]);
+  const recipe = $derived(listed.find((r) => r.name === ops.recipe));
+  // The recipes that can run here first; the last run of each from the history, events apart.
+  const usable = (r: (typeof listed)[number]) => ops.connections.some((c) => runsOn(r, c));
+  const cards = $derived([...listed].sort((a, b) => Number(usable(b)) - Number(usable(a))));
+  const lastRun = (name: string) => ops.history.find((h) => h.recipe === name && h.event === null);
   const fitting = $derived(recipe ? ops.connections.filter((c) => runsOn(recipe, c)) : []);
   $effect(() => {
     if (fitting.length && !fitting.some((c) => c.name === ops.form.connection)) {
@@ -308,6 +335,11 @@
         {#each requests as r (r.id)}<OpsRequest request={r} />{/each}
       </div>
     {/if}
+    {#if failed}
+      <div class="next">
+        <NextStep text={t("restOpsTestFailed", { name: failed.name })} action={{ label: t("aigAskWhy"), run: () => whyFailed(failed.name) }} />
+      </div>
+    {/if}
     <Tabs
       id="ops"
       label={t("opsView")}
@@ -330,7 +362,9 @@
         </div>
       {/if}
 
-      {#if ops.project !== project.id && (ops.tab === "connections" || ops.tab === "recipes")}
+      {#if ops.project !== project.id && ops.tab === "recipes"}
+        <div class="pane cards-pane"><Skeleton shape="cards" rows={6} /></div>
+      {:else if ops.project !== project.id && ops.tab === "connections"}
         <div class="split"><div class="list"><Skeleton shape="list" rows={4} /></div></div>
       {:else if ops.tab === "connections"}
         {#if !ops.connections.length && ops.editing === null}
@@ -354,6 +388,9 @@
                     <span class="name mono">{c.name}</span>
                     <span class="desc">{kindLabel(c.kind)}</span>
                   </button>
+                  {#if failures[failKey(c.name)] !== undefined}
+                    <span class="failed" title={t("restOpsTestFailedBadge")}><CircleAlert size={14} aria-hidden="true" /><span class="sr-only">{t("restOpsTestFailedBadge")}</span></span>
+                  {/if}
                   <span class="badge env" class:prod={c.env === "prod"}>{c.env}</span>
                 </li>
               {/each}
@@ -423,18 +460,42 @@
           </div>
         {/if}
       {:else if ops.tab === "recipes"}
-        <div class="split">
-          <ul class="list" aria-label={t("opsTabRecipes")}>
-            {#each listed as r (r.name)}
-              <li class="row" class:current={r === recipe}>
-                <button class="pick" aria-current={r === recipe} onclick={() => openRecipe(r.name)}>
-                  <span class="name mono">{r.name}</span>
-                  <span class="desc">{said(r.description)}</span>
-                </button>
-                {#if r.mode === "write"}<span class="badge danger">{t("opsWrite")}</span>{/if}
-              </li>
-            {/each}
-          </ul>
+        {#if !recipe}
+          <div class="pane cards-pane">
+            <ul class="cards" aria-label={t("opsTabRecipes")}>
+              {#each cards as r (r.name)}
+                {@const on = ops.connections.filter((c) => runsOn(r, c))}
+                {@const required = r.params.filter((p) => p.required).map((p) => p.name)}
+                {@const last = lastRun(r.name)}
+                <li data-recipe={r.name}>
+                  <Card title={r.name}>
+                    {#snippet actions()}{#if r.mode === "write"}<span class="badge danger">{t("opsWrite")}</span>{/if}{/snippet}
+                    <p class="what">{said(r.description)}</p>
+                    <ul class="recipe-facts">
+                      <li class:muted={!on.length}>{on.length ? t("restOpsOn", { list: on.map((c) => c.name).join(", ") }) : t("opsNoConnectionFor")}</li>
+                      {#if required.length}<li>{t("restOpsNeeds", { list: required.join(", ") })}</li>{/if}
+                      <li class="last">
+                        {#if last}
+                          <span>{t("restOpsLast", { when: ago(last.at) })}</span>
+                          {#if last.exit !== null}
+                            <span class="badge" class:ok={last.exit === 0} class:danger={last.exit !== 0}>{t("opsExit", { code: last.exit })}</span>
+                          {:else if last.approval !== "user" && approvalLabels[last.approval]}
+                            <span class="badge" class:danger={last.approval === "refused" || last.approval === "expired"}>{t(approvalLabels[last.approval])}</span>
+                          {/if}
+                        {:else}
+                          <span class="muted">{t("restOpsNever")}</span>
+                        {/if}
+                      </li>
+                    </ul>
+                    <button class="btn sm" disabled={!on.length} onclick={() => openRecipe(r.name)}><Play size={13} aria-hidden="true" />{t("opsRun")}</button>
+                  </Card>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {:else}
+        <div class="pane run-pane">
+          <button class="btn sm quiet back" onclick={() => ((ops.recipe = null), (ops.proposal = null))}><ArrowLeft size={14} aria-hidden="true" />{t("restOpsAll")}</button>
           <section class="detail" aria-live="polite">
             {#if recipe}
               <header>
@@ -514,6 +575,7 @@
             {/if}
           </section>
         </div>
+        {/if}
         <ConfirmDialog
           bind:open={confirming}
           title={t("opsConfirmTitle", { recipe: recipe?.name ?? "", connection: ops.form.connection })}
@@ -539,7 +601,7 @@
       {:else}
         <div class="pane">
           {#if !ops.history.length}
-            <EmptyState icon={History} text={t("opsHistoryEmpty")} />
+            <EmptyState icon={History} text={t("opsHistoryEmpty")} action={{ label: t("restOpsSeeRecipes"), icon: Play, run: () => (ops.tab = "recipes") }} />
           {:else}
             <ul class="history">
               {#each ops.history as h (h.id)}
@@ -606,8 +668,96 @@
     overflow-y: auto;
   }
 
+  .row .failed + .badge {
+    margin-left: 0;
+  }
+
+  .row .failed {
+    display: inline-flex;
+    margin-left: auto;
+    margin-right: 6px;
+    color: var(--danger);
+  }
+
   .row .badge {
     margin-left: auto;
+  }
+
+  .next {
+    padding: 4px 20px 10px;
+    background: var(--chrome);
+  }
+
+  .cards-pane {
+    padding: 20px 24px 32px;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .cards > li,
+  .cards > li > :global(.card) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .cards > li > :global(.card) {
+    flex: 1;
+  }
+
+  .cards :global(.card .body) {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .what {
+    margin: 0;
+    color: var(--soft);
+    font-size: var(--text-sm);
+  }
+
+  .recipe-facts {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--soft);
+    font-size: var(--text-xs);
+  }
+
+  .recipe-facts .last {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .cards .btn {
+    align-self: flex-start;
+  }
+
+  .run-pane {
+    padding: 12px 28px 32px;
+  }
+
+  .run-pane > .detail {
+    max-width: 820px;
+    margin-top: 8px;
+  }
+
+  .back {
+    margin-left: -8px;
   }
 
   .badge.prod {
