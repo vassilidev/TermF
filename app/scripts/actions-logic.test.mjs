@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Approved, canon, forAgent, refused, secretsOf } from "../src/lib/actions-logic.ts";
+import { Approved, canon, forAgent, newMaster, refused, secretsOf, vaultNeeds } from "../src/lib/actions-logic.ts";
 
 const add = {
   id: "ops.add_connection",
@@ -61,4 +61,35 @@ test("what the permission card approved runs once, with what the user typed, wha
   assert.equal(approved.take(4, "ops.add_connection", { kind: "mysql", name: "acme-prod" }, 20), undefined, "taken once");
   approved.keep(4, "ci.rerun", { run: 1 }, {}, 0);
   assert.equal(approved.take(4, "ci.rerun", { run: 1 }, 2000), undefined, "too late");
+});
+
+test("a new vault's master password is typed twice in the card, never given by the agent", () => {
+  const create = {
+    id: "vault.create",
+    description: "Creates the vault.",
+    fields: {
+      password: { type: "string", secret: true, description: "The master password." },
+      confirm: { type: "string", secret: true, description: "The same, again." },
+    },
+  };
+  const listed = forAgent(create);
+  assert.deepEqual(listed.arguments.properties, {});
+  assert.deepEqual(
+    listed.askedToUser.map((f) => f.field),
+    ["password", "confirm"],
+  );
+  assert.deepEqual(secretsOf(create, {}), ["password", "confirm"]);
+  assert.match(refused(create, { password: "hunter22" }, null), /asked to the user by TermF/);
+  assert.equal(refused(create, {}, { password: "the one you keep for acme" }), null);
+  assert.deepEqual(newMaster({ password: "correct horse", confirm: "correct horse" }), { password: "correct horse" });
+  assert.deepEqual(newMaster({ password: "short", confirm: "short" }), { why: "short" });
+  assert.deepEqual(newMaster({ password: "correct horse", confirm: "correct house" }), { why: "differ" });
+  assert.deepEqual(newMaster({}), { why: "short" });
+});
+
+test("an action that needs the vault names the action that settles it", () => {
+  assert.match(vaultNeeds(null), /no vault yet: propose vault\.create first/);
+  assert.match(vaultNeeds({ initialized: false, unlocked: false }), /propose vault\.create first/);
+  assert.match(vaultNeeds({ initialized: true, unlocked: false }), /locked: propose vault\.unlock first/);
+  assert.equal(vaultNeeds({ initialized: true, unlocked: true }), null);
 });

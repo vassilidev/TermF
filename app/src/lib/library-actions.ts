@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { Args } from "$lib/actions-logic";
 import type { Action } from "$lib/actions.svelte";
 import type { Shown } from "$lib/claude.svelte";
 import { t } from "$lib/i18n";
@@ -95,4 +96,70 @@ const installPlugin: Action = {
   },
 };
 
-export const libraryActions: Action[] = [toggle, installPlugin];
+/** The folder `claude plugin` runs in: none for the user's scope, else the project's first repository, as in the Claude view. */
+const repoFor = (scope: unknown, project: string) =>
+  scope && scope !== "user" ? (app.workspace?.projects.find((p) => p.id === project)?.repos[0]?.path ?? null) : null;
+
+const pluginFields = {
+  plugin: { type: "string" as const, description: "plugin@marketplace, as the Claude view lists it." },
+  scope: { type: "string" as const, description: "Where it is installed, user by default.", enum: ["user", "project", "local"] },
+};
+
+async function plugin(op: string, a: Args, project: string) {
+  const r = await invoke<{ message: string }>("claude_plugin", { repo: repoFor(a.scope, project), action: { op, plugin: String(a.plugin), scope: a.scope ?? "user" } });
+  library.version++;
+  return r.message;
+}
+
+const setPlugin: Action = {
+  id: "library.set_plugin",
+  description: "Turns an installed Claude Code plugin on or off, as the library's plugins switch does.",
+  fields: { ...pluginFields, state: { type: "string", description: "on or off.", enum: ["on", "off"] } },
+  required: ["plugin", "state"],
+  label: "actLibPlugin",
+  describe: (a) => t(a.state === "on" ? "actLibPluginOnText" : "actLibPluginOffText", { plugin: String(a.plugin), scope: String(a.scope ?? "user") }),
+  async run(a, _secrets, project) {
+    const said = await plugin(a.state === "on" ? "enable" : "disable", a, project);
+    toast(t(a.state === "on" ? "lib2ToastOnEverywhere" : "lib2ToastOffEverywhere", { name: String(a.plugin) }));
+    return { plugin: a.plugin, state: a.state, said };
+  },
+};
+
+const uninstallPlugin: Action = {
+  id: "library.uninstall_plugin",
+  description: "Uninstalls a Claude Code plugin, as the Claude view does.",
+  fields: pluginFields,
+  required: ["plugin"],
+  label: "actLibUninstall",
+  describe: (a) => t("actLibUninstallText", { plugin: String(a.plugin), scope: String(a.scope ?? "user") }),
+  loses: () => t("actLibUninstallLoses"),
+  async run(a, _secrets, project) {
+    const said = await plugin("uninstall", a, project);
+    toast(t("claudeMgmtUninstalled", { id: String(a.plugin) }));
+    return { uninstalled: a.plugin, said };
+  },
+};
+
+const copy: Action = {
+  id: "library.copy",
+  description:
+    "Copies an item of the library into the project's own library (or the user's, with `global`) to edit it there, as the library's Copy here does: the copy then replaces the shipped version. You get its path, to edit it with your own tools.",
+  fields: {
+    kind: toggle.fields.kind,
+    name: toggle.fields.name,
+    global: { type: "boolean", description: "Into the user's library, for every project." },
+  },
+  required: ["kind", "name"],
+  label: "actLibCopy",
+  describe: (a) =>
+    t("actLibCopyText", { kind: t(kindName[a.kind as Kind] ?? "kindSkill"), name: String(a.name), where: t(a.global ? "lib2CopyWhereGlobal" : "lib2CopyWhereProject") }),
+  async run(a, _secrets, project) {
+    const path = await invoke<string>("library_copy", { kind: a.kind, name: a.name, project: a.global ? null : project });
+    library.version++;
+    toast(t("lib2Copied", { name: String(a.name), where: t(a.global ? "lib2CopyWhereGlobal" : "lib2CopyWhereProject") }));
+    return { copied: `${a.kind}/${a.name}`, path };
+  },
+};
+
+export const pluginActions: Action[] = [installPlugin, setPlugin, uninstallPlugin];
+export const libraryActions: Action[] = [toggle, copy, ...pluginActions];

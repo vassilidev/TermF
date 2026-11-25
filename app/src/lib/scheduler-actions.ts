@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Action } from "$lib/actions.svelte";
 import { t } from "$lib/i18n";
-import { refresh, schedule, type Task } from "$lib/schedule.svelte";
+import { refresh, schedule, type Task, type TaskEntry } from "$lib/schedule.svelte";
 import { app } from "$lib/state.svelte";
 import { toast } from "$lib/ui/toast.svelte";
 
@@ -56,4 +56,96 @@ const createTask: Action = {
   },
 };
 
-export const schedulerActions: Action[] = [createTask];
+async function taskOf(task: unknown): Promise<TaskEntry> {
+  if (!schedule.tasks) await refresh();
+  const found = schedule.tasks?.find((x) => x.id === task) ?? schedule.tasks?.find((x) => x.name === task);
+  if (!found) throw new Error(`No task ${String(task)}: ${schedule.tasks?.map((x) => x.name).join(", ") || "none yet"}.`);
+  return found;
+}
+
+const nameOf = (task: unknown) => schedule.tasks?.find((x) => x.id === task || x.name === task)?.name ?? String(task);
+const taskField = { type: "string" as const, description: "The task's id or name, as `here` lists it." };
+
+const editTask: Action = {
+  id: "scheduler.edit_task",
+  description:
+    "Changes a task of the scheduler, as its form and switches do: the fields given (as scheduler.create_task names them) replace its own; `enabled` false pauses it, true resumes it; `installed` has the system's scheduler also run it while TermF is closed.",
+  fields: {
+    task: taskField,
+    ...createTask.fields,
+    enabled: { type: "boolean", description: "false pauses it, true resumes it." },
+    installed: { type: "boolean", description: "Also run by the system's scheduler while TermF is closed." },
+  },
+  required: ["task"],
+  label: "actSchedulerEdit",
+  describe: (a) =>
+    `${t("actSchedulerEditText", { name: nameOf(a.task) })}\n${Object.entries(a)
+      .filter(([k, v]) => k !== "task" && v !== null && v !== undefined)
+      .map(([k, v]) => `${k} → ${String(v)}`)
+      .join("\n")}`,
+  async run(a, _secrets, project) {
+    const found = await taskOf(a.task);
+    const { id, installed, next: _n, last: _l, ...was } = found;
+    const mode = (text(a.mode) ?? was.mode) as Task["mode"];
+    const task: Task = {
+      ...was,
+      name: text(a.name) ?? was.name,
+      cron: text(a.cron) ?? was.cron,
+      prompt: mode === "scout" ? "" : typeof a.prompt === "string" ? a.prompt.trim() : was.prompt,
+      mode,
+      dir: text(a.repo) ? dirOf(project, a.repo) : was.dir,
+      model: typeof a.model === "string" ? text(a.model) : was.model,
+      budget: mode === "tile" ? null : typeof a.budget === "number" ? a.budget : was.budget,
+      enabled: typeof a.enabled === "boolean" ? a.enabled : was.enabled,
+    };
+    await invoke("schedule_save", { id, task });
+    if (typeof a.installed === "boolean" && a.installed !== installed) await invoke<boolean>("schedule_install", { id, on: a.installed });
+    await refresh();
+    schedule.selected = id;
+    toast(t("actSchedulerEdited", { name: task.name }));
+    return { task: id, name: task.name, enabled: task.enabled };
+  },
+};
+
+const deleteTask: Action = {
+  id: "scheduler.delete_task",
+  description: "Deletes a task of the scheduler, as its view does.",
+  fields: { task: taskField },
+  required: ["task"],
+  label: "actSchedulerDelete",
+  describe: (a) => t("actSchedulerDeleteText", { name: nameOf(a.task) }),
+  loses: () => t("actSchedulerDeleteLoses"),
+  async run(a) {
+    const found = await taskOf(a.task);
+    await invoke("schedule_delete", { id: found.id });
+    if (schedule.selected === found.id) schedule.selected = null;
+    await refresh();
+    toast(t("actSchedulerDeleted", { name: found.name }));
+    return { deleted: found.name };
+  },
+};
+
+const runNow: Action = {
+  id: "scheduler.run_now",
+  description: "Runs a task of the scheduler now, out of its schedule, as its Run now button does.",
+  fields: { task: taskField },
+  required: ["task"],
+  label: "actSchedulerRun",
+  describe: (a) => t("actSchedulerRunText", { name: nameOf(a.task) }),
+  async run(a) {
+    const found = await taskOf(a.task);
+    await invoke("schedule_run", { id: found.id });
+    await refresh();
+    schedule.selected = found.id;
+    toast(t("actSchedulerRan", { name: found.name }));
+    return { started: found.name, note: "Its run shows in the Scheduler's history." };
+  },
+};
+
+/** The scheduler's tasks, by id and name. */
+export async function schedulerHere() {
+  if (!schedule.tasks) await refresh();
+  return { tasks: (schedule.tasks ?? []).map((x) => ({ id: x.id, name: x.name, cron: x.cron, mode: x.mode, enabled: x.enabled, installed: x.installed })) };
+}
+
+export const schedulerActions: Action[] = [createTask, editTask, deleteTask, runNow];

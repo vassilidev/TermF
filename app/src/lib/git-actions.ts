@@ -58,4 +58,46 @@ const cleanup: Action = {
   },
 };
 
-export const gitActions: Action[] = [createBranch, cleanup];
+const ref = (v: unknown, field: string) => {
+  const name = String(v ?? "").trim();
+  if (!name || name.startsWith("-")) throw new Error(`${field}: a branch name`);
+  return name;
+};
+
+const switchBranch: Action = {
+  id: "git.switch",
+  description:
+    "Checks out a branch in the repository the Git view shows, as its Switch button does; a remote branch (origin/x) gets its local twin, made when missing.",
+  fields: { branch: { type: "string", description: "The branch's name." } },
+  required: ["branch"],
+  label: "actGitSwitch",
+  describe: (a) => t("actGitSwitchText", { branch: String(a.branch), repo: shown() }),
+  async run(a) {
+    const branch = ref(a.branch, "branch");
+    await invoke("git_switch", { repo: repoShown(), branch });
+    git.reads++;
+    toast(t("gitSwitched", { branch }));
+    return { switched: branch };
+  },
+};
+
+const renameBranch: Action = {
+  id: "git.rename_branch",
+  description: "Renames a local branch of the repository the Git view shows, as its Rename button does.",
+  fields: {
+    from: { type: "string", description: "The branch's name now." },
+    to: { type: "string", description: "Its new name." },
+  },
+  required: ["from", "to"],
+  label: "actGitRename",
+  describe: (a) => t("actGitRenameText", { from: String(a.from), to: String(a.to), repo: shown() }),
+  async run(a) {
+    const [from, to] = [ref(a.from, "from"), ref(a.to, "to")];
+    await invoke("git_branch_rename", { repo: repoShown(), from, to });
+    git.reads++;
+    toast(t("gitRenamed", { name: to }));
+    return { renamed: from, to };
+  },
+};
+
+export const gitActions: Action[] = [createBranch, switchBranch, renameBranch, cleanup];
