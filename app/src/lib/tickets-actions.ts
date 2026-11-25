@@ -54,13 +54,59 @@ function added(trackers: Trackers, a: Args): Trackers {
   }
 }
 
-/** Where a token goes in the keychain: Jira's site and e-mail, else the workspace, host or organization. */
-async function saveToken(a: Args, token: string) {
+/** The project's sources with this one's fields replaced by those given, as the project editor writes them. */
+function edited(trackers: Trackers, a: Args): Trackers {
   const kind = a.kind as Kind;
-  if (kind === "jira") return invoke("tickets_jira_token_save", { site: value(a, "site"), email: value(a, "email"), token });
-  const target = kind === "linear" ? value(a, "workspace") : kind === "azure" ? value(a, "organization") : (value(a, "host") ?? "gitlab.com");
-  return invoke("tickets_token_save", { kind, target, token });
+  const given = (keys: string[]) => Object.fromEntries(keys.filter((k) => typeof a[k] === "string").map((k) => [k, value(a, k)]));
+  const github = trackers.github;
+  if (!has(trackers, kind)) throw new Error(`${kind} is not a source of this project: add it with tickets.add_source.`);
+  const current = trackers[kind] as Record<string, unknown>;
+  switch (kind) {
+    case "github":
+      return { ...trackers, github: { ...github, ...given(["repo"]) } };
+    case "githubProject":
+      return { ...trackers, github: { ...github, ...given(["project"]) } };
+    case "jira":
+      return { ...trackers, jira: { ...current, ...given(["site", "email", "jql", "project"]) } };
+    case "gitlab":
+      return { ...trackers, gitlab: { ...current, ...given(["host", "repo"]) } };
+    case "linear":
+      return { ...trackers, linear: { ...current, ...given(["workspace", "team"]) } };
+    case "azure":
+      return { ...trackers, azure: { ...current, ...given(["organization", "project"]) } };
+  }
 }
+
+/** The project's sources without this one. */
+function removed(trackers: Trackers, kind: Kind): Trackers {
+  const github = trackers.github;
+  if (kind === "github" || kind === "githubProject") {
+    const left: Record<string, unknown> | null = github && { ...github, ...(kind === "github" ? { issues: false } : { project: null }) };
+    return { ...trackers, github: left && (left.issues || left.project !== null) ? left : null };
+  }
+  return { ...trackers, [kind]: null };
+}
+
+/** Whether the project reads this source now. */
+function has(trackers: Trackers, kind: Kind): boolean {
+  if (kind === "github") return !!trackers.github?.issues;
+  if (kind === "githubProject") return !!trackers.github?.project;
+  return !!trackers[kind];
+}
+
+/** The keychain's account of a source's token: Jira's site and e-mail, else the workspace, host or organization. */
+function account(a: Args): Record<string, unknown> {
+  const kind = a.kind as Kind;
+  if (kind === "jira") return { site: value(a, "site"), email: value(a, "email") };
+  return { kind, target: kind === "linear" ? value(a, "workspace") : kind === "azure" ? value(a, "organization") : (value(a, "host") ?? "gitlab.com") };
+}
+
+const saveToken = (a: Args, token: string) =>
+  a.kind === "jira" ? invoke("tickets_jira_token_save", { ...account(a), token }) : invoke("tickets_token_save", { ...account(a), token });
+
+const forgetToken = (a: Args) => (a.kind === "jira" ? invoke("tickets_jira_token_forget", account(a)) : invoke("tickets_token_forget", account(a)));
+
+const notSource = (kind: unknown, then: string) => `${String(kind)} is not a source of this project: ${then}`;
 
 const detail = (a: Args) =>
   Object.entries(a)
@@ -104,12 +150,70 @@ const addSource: Action = {
   },
 };
 
+const sourceFields = Object.fromEntries(Object.entries(addSource.fields).filter(([k]) => k !== "token"));
+
+const editSource: Action = {
+  id: "tickets.edit_source",
+  description:
+    "Changes one of the project's ticket sources, as its editor's Tickets section does: the fields given (as tickets.add_source names them) replace its own. With `new_token`, TermF asks the user for a new token, kept in the keychain.",
+  fields: {
+    ...sourceFields,
+    new_token: { type: "boolean", description: "Replace its token (gitlab, jira, linear, azure)." },
+    token: addSource.fields.token,
+  },
+  required: ["kind"],
+  asks: (a) => (a.new_token === true && TOKENS.includes(a.kind as Kind) ? ["token"] : []),
+  label: "actTicketsEdit",
+  labels: { token: "actTicketsToken" },
+  describe: (a) => t("actTicketsAddText", { source: t(names[a.kind as Kind] ?? "ticketsJira"), detail: detail(a) }),
+  needs: async (a, project) => (has(await sourcesOf(project), a.kind as Kind) ? null : notSource(a.kind, "propose tickets.add_source instead.")),
+  async run(a, secrets, project) {
+    const kind = a.kind as Kind;
+    const trackers = edited(await sourcesOf(project), a);
+    await invoke("tickets_sources_save", { project, trackers });
+    const token = secrets.token?.trim();
+    if (token) await saveToken({ ...(trackers[kind] as Args), kind }, token);
+    toast(t("actTicketsEdited", { source: t(names[kind]) }));
+    void loadInbox();
+    return { saved: kind, token: token ? "kept in the keychain" : undefined, next: "Test it with tickets.test_source." };
+  },
+};
+
+const removeSource: Action = {
+  id: "tickets.remove_source",
+  description:
+    "Removes one of the project's ticket sources, as its editor's Tickets section does; with `forget_token`, its token leaves the system's keychain too (other projects on the same account lose it).",
+  fields: {
+    kind: { type: "string", description: "The source.", enum: [...KINDS] },
+    forget_token: { type: "boolean", description: "Also remove its token from the keychain (gitlab, jira, linear, azure)." },
+  },
+  required: ["kind"],
+  label: "actTicketsRemove",
+  describe: (a) => {
+    const said = t("actTicketsRemoveText", { source: t(names[a.kind as Kind] ?? "ticketsJira") });
+    return a.forget_token && TOKENS.includes(a.kind as Kind) ? `${said} ${t("actTicketsForgetText")}` : said;
+  },
+  loses: () => t("actTicketsRemoveLoses"),
+  needs: async (a, project) => (has(await sourcesOf(project), a.kind as Kind) ? null : notSource(a.kind, "nothing to remove.")),
+  async run(a, _secrets, project) {
+    const kind = a.kind as Kind;
+    const before = await sourcesOf(project);
+    await invoke("tickets_sources_save", { project, trackers: removed(before, kind) });
+    const forget = a.forget_token === true && TOKENS.includes(kind);
+    if (forget) await forgetToken({ ...(before[kind] as Args), kind });
+    toast(t("actTicketsRemoved", { source: t(names[kind]) }));
+    void loadInbox();
+    return { removed: kind, token: forget ? "removed from the keychain" : undefined };
+  },
+};
+
 const testSource: Action = {
   id: "tickets.test_source",
   description: "Reads up to 5 tickets from one of the project's sources, as its editor's Test button does.",
   fields: { kind: { type: "string", description: "The source.", enum: [...KINDS] } },
   required: ["kind"],
   label: "actTicketsTest",
+  needs: async (a, project) => (has(await sourcesOf(project), a.kind as Kind) ? null : notSource(a.kind, "propose tickets.add_source first.")),
   describe: (a) => t("actTicketsTestText", { source: t(names[a.kind as Kind] ?? "ticketsJira") }),
   async run(a, _secrets, project) {
     const found = await invoke<{ key: string; title: string; state: string; url: string }[]>("tickets_source_test", {
@@ -122,4 +226,10 @@ const testSource: Action = {
   },
 };
 
-export const ticketActions: Action[] = [addSource, testSource];
+/** The project's ticket sources, by kind. */
+export async function ticketsHere(project: string) {
+  const trackers = await sourcesOf(project);
+  return { sources: KINDS.filter((k) => has(trackers, k)), mcp: Object.keys((trackers.mcp as object | undefined) ?? {}) };
+}
+
+export const ticketActions: Action[] = [addSource, editSource, removeSource, testSource];

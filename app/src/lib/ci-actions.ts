@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Action } from "$lib/actions.svelte";
-import { ci, deployLabel, deploys, loadDeploys, type Target, type Tool } from "$lib/ci.svelte";
+import { ci, deployLabel, deploys, loadDeploys, loadHooks, type Hook, type Target, type Tool } from "$lib/ci.svelte";
 import { t } from "$lib/i18n";
 import { toast } from "$lib/ui/toast.svelte";
 
@@ -110,6 +110,7 @@ const redeploy: Action = {
   },
   required: ["target", "deployment"],
   label: "actCiRedeploy",
+  needs: (_a, project) => hasTargets(project),
   describe: (a) => t("actCiRedeployText", { target: String(a.target), deployment: String(a.deployment) }),
   loses: (a) => t("actCiRedeployLoses", { target: String(a.target) }),
   async run(a, _secrets, project) {
@@ -124,4 +125,188 @@ const redeploy: Action = {
   },
 };
 
-export const ciActions: Action[] = [connectDeploy, rerun, dispatch, redeploy];
+/** The project's deploy targets, without asking each tool for its deployments as the view does. */
+async function targetsOf(project: string): Promise<Target[]> {
+  return deploys.targetsOf === project && deploys.targets ? deploys.targets : invoke<Target[]>("deploy_targets", { project });
+}
+
+async function hasTargets(project: string): Promise<string | null> {
+  return (await targetsOf(project)).length ? null : "No deploy tool is connected to this project: propose ci.connect_deploy first, then this action again.";
+}
+
+async function targetNamed(project: string, name: unknown): Promise<Target> {
+  const all = await targetsOf(project);
+  const found = all.find((x) => x.name === name);
+  if (!found) throw new Error(`No deploy target ${String(name)}: ${all.map((x) => x.name).join(", ") || "none connected"}.`);
+  return found;
+}
+
+const where = (x: Target) => [x.target, x.scope, x.service].filter(Boolean).join(" · ");
+
+const cancel: Action = {
+  id: "ci.cancel",
+  description: "Cancels a GitHub Actions run of the repository the CI/CD view shows, while it runs.",
+  fields: { run: { type: "integer", description: "The run's id, as the context gives it." } },
+  required: ["run"],
+  label: "actCiCancel",
+  describe: (a) => t("actCiCancelText", { run: String(a.run), repo: shown() }),
+  loses: () => t("actCiCancelLoses"),
+  async run(a) {
+    await invoke("ci_cancel", { repo: repoShown(), id: a.run });
+    toast(t("ciCancelDone"));
+    return { cancelled: a.run };
+  },
+};
+
+const editDeploy: Action = {
+  id: "ci.edit_deploy",
+  description:
+    "Changes a connected deploy target, as the Tools tab's form does: the fields given (as ci.connect_deploy names them) replace its own, `rename` gives it another name in TermF.",
+  fields: {
+    name: { type: "string", description: "The target's name in TermF now." },
+    rename: { type: "string", description: "Its new name in TermF." },
+    target: connectDeploy.fields.target,
+    scope: connectDeploy.fields.scope,
+    service: connectDeploy.fields.service,
+    env: connectDeploy.fields.env,
+    repo: connectDeploy.fields.repo,
+    token: connectDeploy.fields.token,
+  },
+  required: ["name"],
+  label: "actCiEditDeploy",
+  needs: (_a, project) => hasTargets(project),
+  describe: (a) =>
+    `${t("actCiEditDeployText", { name: String(a.name) })}\n${Object.entries(a)
+      .filter(([k, v]) => k !== "name" && v !== null && v !== undefined)
+      .map(([k, v]) => `${k} → ${String(v)}`)
+      .join("\n")}`,
+  async run(a, _secrets, project) {
+    const found = await targetNamed(project, a.name);
+    // A text given replaces, an empty one clears; one not given keeps.
+    const pick = (key: string, was: string | null | undefined) => (typeof a[key] === "string" ? text(a[key]) : (was ?? null));
+    const target: Target = {
+      ...found,
+      name: text(a.rename) ?? found.name,
+      target: text(a.target) ?? found.target,
+      scope: pick("scope", found.scope),
+      service: pick("service", found.service),
+      repo: pick("repo", found.repo),
+      token: pick("token", found.token),
+      env: text(a.env) ?? found.env,
+    };
+    deploys.targets = await invoke<Target[]>("deploy_target_save", { project, target, previous: found.name });
+    toast(t("cvTargetSaved", { target: target.name, tool: deployLabel[target.tool] }));
+    void loadDeploys(project, true);
+    return { saved: target.name };
+  },
+};
+
+const deleteDeploy: Action = {
+  id: "ci.delete_deploy",
+  description: "Removes a connected deploy target from TermF, as the Tools tab does: nothing changes at the deploy tool itself.",
+  fields: { name: { type: "string", description: "The target's name in TermF." } },
+  required: ["name"],
+  label: "actCiDeleteDeploy",
+  needs: (_a, project) => hasTargets(project),
+  describe: (a) => {
+    const x = deploys.targets?.find((d) => d.name === a.name);
+    return t("actCiDeleteDeployText", { name: String(a.name), tool: x ? deployLabel[x.tool] : "", target: x ? where(x) : "" });
+  },
+  loses: () => t("actCiDeleteDeployLoses"),
+  async run(a, _secrets, project) {
+    const found = await targetNamed(project, a.name);
+    deploys.targets = await invoke<Target[]>("deploy_target_delete", { project, name: found.name });
+    delete deploys.found[found.name];
+    toast(t("cvTargetDeleted", { target: found.name }));
+    return { removed: found.name };
+  },
+};
+
+/** As the Webhooks tab offers them. */
+const EVENTS: Record<string, string[]> = { push: ["push"], prs: ["push", "pull_request"], all: ["*"] };
+const host = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
+
+async function hookNamed(repo: string, id: unknown): Promise<Hook> {
+  if (deploys.hooksOf !== repo || !deploys.hooks) await loadHooks(repo);
+  const found = deploys.hooks?.find((h) => h.id === id);
+  if (!found) throw new Error(`No webhook ${String(id)} on ${shown()}: ${deploys.hooks?.map((h) => `${h.id} (${h.url})`).join(", ") || "none"}.`);
+  return found;
+}
+
+const addHook: Action = {
+  id: "ci.add_webhook",
+  description:
+    "Adds a webhook to the GitHub repository the CI/CD view shows, as its Webhooks tab does: GitHub then calls `url` on pushes (`push`), pushes and pull requests (`prs`), or every event (`all`).",
+  fields: {
+    url: { type: "string", description: "https://… the address GitHub calls (a deploy hook, a chat's webhook…)." },
+    events: { type: "string", description: "Which events, push by default.", enum: Object.keys(EVENTS) },
+  },
+  required: ["url"],
+  label: "actCiHookAdd",
+  describe: (a) => t("actCiHookAddText", { repo: shown(), url: String(a.url), events: String(a.events ?? "push") }),
+  async run(a) {
+    const repo = repoShown();
+    const url = String(a.url).trim();
+    if (!/^https?:\/\/\S+$/.test(url)) throw new Error("url: an http(s) address");
+    const made = await invoke<Hook>("ci_hook_create", { repo, url, events: EVENTS[String(a.events ?? "push")] });
+    toast(t("cvHookCreated", { host: host(made.url) }));
+    await loadHooks(repo);
+    return { created: made.id, url: made.url };
+  },
+};
+
+const deleteHook: Action = {
+  id: "ci.delete_webhook",
+  description: "Deletes a webhook of the GitHub repository the CI/CD view shows, as its Webhooks tab does.",
+  fields: { hook: { type: "integer", description: "The webhook's id, as `here` lists it." } },
+  required: ["hook"],
+  label: "actCiHookDelete",
+  describe: (a) => t("actCiHookDeleteText", { repo: shown(), url: deploys.hooks?.find((h) => h.id === a.hook)?.url ?? String(a.hook) }),
+  loses: (a) => t("actCiHookDeleteLoses", { host: host(deploys.hooks?.find((h) => h.id === a.hook)?.url ?? ""), repo: shown() }),
+  async run(a) {
+    const repo = repoShown();
+    const gone = await hookNamed(repo, a.hook);
+    await invoke("ci_hook_delete", { repo, hook: gone.id });
+    toast(t("cvHookDeleted", { host: host(gone.url) }));
+    await loadHooks(repo);
+    return { deleted: gone.id };
+  },
+};
+
+const redeliver: Action = {
+  id: "ci.redeliver",
+  description: "Sends one delivery of a webhook again, as the Webhooks tab does: GitHub calls its address with the same event.",
+  fields: {
+    hook: { type: "integer", description: "The webhook's id." },
+    delivery: { type: "integer", description: "The delivery's id, as the Webhooks tab lists it." },
+  },
+  required: ["hook", "delivery"],
+  label: "actCiRedeliver",
+  describe: (a) => t("actCiRedeliverText", { delivery: String(a.delivery), url: deploys.hooks?.find((h) => h.id === a.hook)?.url ?? String(a.hook) }),
+  async run(a) {
+    const repo = repoShown();
+    const hook = await hookNamed(repo, a.hook);
+    await invoke("ci_redeliver", { repo, hook: hook.id, delivery: a.delivery });
+    toast(t("actCiRedelivered", { delivery: String(a.delivery), host: host(hook.url) }));
+    return { redelivered: a.delivery, note: "GitHub records the new attempt in a few seconds." };
+  },
+};
+
+/** The project's deploy targets and the shown repository's webhooks, by name and id. */
+export async function ciHere(project: string) {
+  const targets = await targetsOf(project);
+  if (ci.repo && deploys.hooksOf !== ci.repo) await loadHooks(ci.repo);
+  return {
+    repo: ci.repo ? shown() : null,
+    deployTargets: targets.map((x) => ({ name: x.name, tool: x.tool, target: where(x), env: x.env })),
+    webhooks: deploys.hooksOf === ci.repo ? (deploys.hooks ?? []).map((h) => ({ id: h.id, url: h.url, events: h.events })) : [],
+  };
+}
+
+export const ciActions: Action[] = [connectDeploy, editDeploy, deleteDeploy, rerun, cancel, dispatch, redeploy, addHook, deleteHook, redeliver];

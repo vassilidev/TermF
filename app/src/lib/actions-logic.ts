@@ -98,6 +98,25 @@ export function refused(spec: Spec, args: unknown, hints: unknown): string | nul
   return null;
 }
 
+/**
+ * What an action that keeps or reads a secret of the vault waits for, as the agent reads it: the action that settles
+ * it, to propose first. Null once the vault is open.
+ */
+export function vaultNeeds(status: { initialized: boolean; unlocked: boolean } | null): string | null {
+  if (!status?.initialized)
+    return "There is no vault yet: propose vault.create first (the user picks its master password in TermF's card), then this action again.";
+  if (!status.unlocked) return "The vault is locked: propose vault.unlock first (the user types its master password in TermF's card), then this action again.";
+  return null;
+}
+
+/** The master password a new vault takes, as typed twice in the card; why not, in words the user reads. */
+export function newMaster(secrets: Record<string, string>): { password: string } | { why: "short" | "differ" } {
+  const password = secrets.password ?? "";
+  if (password.length < 8) return { why: "short" };
+  if (password !== (secrets.confirm ?? "")) return { why: "differ" };
+  return { password };
+}
+
 /** The same text whatever the order of an object's keys. */
 export function canon(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canon).join(",")}]`;
