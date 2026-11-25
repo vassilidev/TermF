@@ -49,3 +49,51 @@ export function cleanupNotice(c: Cleanup): { title: Key; body: Key; vars: Record
     vars: { key: c.run.ticket.key, title: c.run.title, error: c.error ?? "" },
   };
 }
+
+/** Where people sign up with any address: their domain says nothing of a company's Jira. */
+const MAILBOXES = ["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "icloud.com", "me.com", "proton.me", "protonmail.com"];
+
+/**
+ * The Jira site to propose: one the commits link, else the company's name in the e-mail's domain
+ * (alex@acme.io → acme.atlassian.net); `from` says which, for the hint under the field.
+ */
+export function guessSite(hints: { sites: string[]; email: string | null }): { site: string; from: "commits" | "email" | null } {
+  if (hints.sites[0]) return { site: hints.sites[0], from: "commits" };
+  const domain = hints.email?.split("@")[1]?.toLowerCase() ?? "";
+  const name = domain.split(".").slice(-2)[0] ?? "";
+  if (!domain || MAILBOXES.includes(domain) || !/^[a-z0-9-]+$/.test(name)) return { site: "", from: null };
+  return { site: `${name}.atlassian.net`, from: "email" };
+}
+
+/** The projects checked from the start: those whose keys the commits cite, else the only one. */
+export function preChecked(projects: { key: string }[], cited: string[]): string[] {
+  const found = projects.filter((p) => cited.includes(p.key)).map((p) => p.key);
+  return found.length || projects.length !== 1 ? found : [projects[0].key];
+}
+
+/** The inbox's JQL for the chosen projects: the user's open tickets there; none chosen, Jira's default. */
+export function inboxJql(keys: string[]): string | null {
+  return keys.length ? `project in (${keys.join(", ")}) AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC` : null;
+}
+
+/** What an MCP source lists, in the words Claude Code reads. */
+export function mcpPrompt(keys: string[], site: string): string {
+  const where = site ? ` on ${site}` : "";
+  return keys.length ? `The open Jira issues assigned to me in the projects ${keys.join(", ")}${where}.` : `The open Jira issues assigned to me${where}.`;
+}
+
+/** The name of a new MCP source for a server, unique among `taken`, as the sources editor makes it. */
+export function mcpName(server: string, taken: string[]): string {
+  const base =
+    server
+      .toLowerCase()
+      .replace(/^claude\.ai /, "")
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "mcp";
+  let name = base;
+  for (let n = 2; taken.includes(name); n++) name = `${base}-${n}`;
+  return name;
+}
+
+/** The sources a browse reads: Jira, GitHub Issues, and the MCP ones. */
+export const browsable = (sources: string[]) => sources.filter((s) => s === "jira" || s === "github" || s.startsWith("mcp:"));

@@ -3,7 +3,11 @@
   import CircleCheck from "@lucide/svelte/icons/circle-check";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Plus from "@lucide/svelte/icons/plus";
+  import Plug from "@lucide/svelte/icons/plug";
   import X from "@lucide/svelte/icons/x";
+  import JiraConnect, { type Connected } from "$lib/JiraConnect.svelte";
+  import { loadInbox, tickets } from "$lib/tickets.svelte";
+  import { toast } from "$lib/ui/toast.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
 
@@ -312,6 +316,25 @@
     delete trackers!.mcp[name];
     delete tests[`mcp:${name}`];
   }
+
+  let connecting = $state(false);
+  // An agent asked for the Jira assistant (`tickets.connect_jira`): it opens once the sources are read.
+  $effect(() => {
+    if (tickets.connectJira !== project || !trackers) return;
+    tickets.connectJira = "";
+    connecting = true;
+  });
+
+  /** What the Jira wizard connected, saved at once with the rest of the form. */
+  async function connected(added: Connected) {
+    const next = $state.snapshot(trackers)!;
+    if ("jira" in added) next.jira = added.jira;
+    else next.mcp = { ...next.mcp, [added.mcp.name]: added.mcp.tracker };
+    load(await invoke<Sources>("tickets_sources_save", { project, trackers: next }));
+    error = "";
+    toast(t("tjdConnected"));
+    void loadInbox();
+  }
 </script>
 
 {#snippet result(source: string)}
@@ -535,6 +558,11 @@
         />
         <span class="name">{t("ticketsJira")}</span>
       </label>
+      {#if !trackers.jira}
+        <button type="button" class="btn sm primary connect" onclick={() => (connecting = true)}>
+          <Plug size={14} aria-hidden="true" />{t("tjdConnect")}
+        </button>
+      {/if}
       {#if trackers.jira}
         {@const jira = trackers.jira}
         <div class="fields">
@@ -783,7 +811,14 @@
   {/if}
 </section>
 
+<JiraConnect bind:open={connecting} {project} taken={Object.keys(trackers?.mcp ?? {})} onconnected={connected} />
+
 <style>
+  .connect {
+    align-self: flex-start;
+    margin-top: 6px;
+  }
+
   .sources {
     display: flex;
     flex-direction: column;

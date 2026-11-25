@@ -37,7 +37,8 @@
   import { app, repoName } from "$lib/state.svelte";
   import { budgetError, type TeamRun } from "$lib/team-run-logic";
   import { team, upsertRun } from "$lib/team.svelte";
-  import { readyToClean, refusal } from "$lib/tickets-logic";
+  import { browsable, readyToClean, refusal } from "$lib/tickets-logic";
+  import TicketsBrowse from "$lib/TicketsBrowse.svelte";
   import {
     launchTicket,
     loadInbox,
@@ -78,6 +79,8 @@
   };
   const sourceName = (id: string) =>
     id in sourceNames ? t(sourceNames[id]) : t("ticketsMcpSource", { name: id.replace(/^mcp:/, "") });
+  /** The current project's sources a browse reads; none for every project at once. */
+  const browseSources = $derived(tickets.scope ? browsable(tickets.sources) : []);
   // The run of another repository of a change shows on its change's page.
   const runs = $derived(tickets.runs.filter((r) => !r.parent && (!tickets.scope || r.project === tickets.scope)));
 
@@ -245,14 +248,14 @@
   }
 
   /** A ticket whose repository is clear starts at once; otherwise the row asks which one. */
-  async function launch(ticket: TicketSummary) {
+  async function launch(ticket: TicketSummary, from = ticket.url) {
     pending = null;
     starting = ticket.url;
     startingTeam = false;
     const resolution = await resolve(ticket.url, ticket.project);
     if (resolution?.repo) return start(resolution, resolution.repo);
     starting = "";
-    if (resolution) pending = { from: ticket.url, resolution, repo: "" };
+    if (resolution) pending = { from, resolution, repo: "" };
   }
 
   /**
@@ -449,12 +452,13 @@
     label={t("viewTickets")}
     tabs={[
       { id: "inbox", label: t("ticketsTabInbox"), count: tickets.inbox?.length },
+      ...(browseSources.length ? [{ id: "browse", label: t("tjdTab") }] : []),
       { id: "runs", label: t("ticketsTabRuns"), count: runs.length },
     ]}
     selected={tickets.tab}
     onselect={(tab) => (tickets.tab = tab as typeof tickets.tab)}
   >
-    {#if tickets.error || tickets.done || pending?.from === "paste"}
+    {#if tickets.error || tickets.done || pending?.from === "paste" || pending?.from === "browse"}
       <div class="banners">
         {#if tickets.error}
           <Banner kind="error" ondismiss={() => (tickets.error = "")}>{tickets.error}</Banner>
@@ -462,7 +466,7 @@
         {#if tickets.done}
           <Banner kind="ok" ondismiss={() => (tickets.done = "")}>{tickets.done}</Banner>
         {/if}
-        {#if pending?.from === "paste"}{@render launchBox()}{/if}
+        {#if pending?.from === "paste" || pending?.from === "browse"}{@render launchBox()}{/if}
       </div>
     {/if}
 
@@ -633,6 +637,8 @@
           </ul>
         {/if}
       </div>
+    {:else if tickets.tab === "browse" && browseSources.length}
+      <TicketsBrowse project={tickets.scope} sources={browseSources} {sourceName} {starting} onlaunch={(ticket) => launch(ticket, "browse")} />
     {:else if !runs.length && !tickets.runsRead}
       <div class="pane loading"><Skeleton shape="list" rows={4} /></div>
     {:else if !runs.length}

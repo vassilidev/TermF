@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanupNotice, liveSession, readyToClean, refusal, resumable } from "../src/lib/tickets-logic.ts";
+import { browsable, cleanupNotice, guessSite, inboxJql, liveSession, mcpName, mcpPrompt, preChecked, readyToClean, refusal, resumable } from "../src/lib/tickets-logic.ts";
 
 const run = (o = {}) => ({
   status: "delivered",
@@ -71,4 +71,28 @@ test("the notification says whether the pull request was merged and what TermF d
   assert.equal(failed.body, "ticketsUiNotifyFailed");
   assert.equal(failed.vars.error, "uncommitted changes");
   assert.equal(cleanupNotice({ run: run({ prState: "closed" }), cleaned: false, error: null }).title, "ticketsUiNotifyClosed");
+});
+
+test("the Jira site is the one the commits link, else the company in the e-mail", () => {
+  assert.deepEqual(guessSite({ sites: ["acme.atlassian.net"], email: "alex@other.io" }), { site: "acme.atlassian.net", from: "commits" });
+  assert.deepEqual(guessSite({ sites: [], email: "alex@mail.acme.io" }), { site: "acme.atlassian.net", from: "email" });
+  assert.deepEqual(guessSite({ sites: [], email: "alex@gmail.com" }), { site: "", from: null });
+  assert.deepEqual(guessSite({ sites: [], email: null }), { site: "", from: null });
+});
+
+test("the projects the commits cite are checked from the start", () => {
+  const projects = [{ key: "APP" }, { key: "API" }, { key: "OPS" }];
+  assert.deepEqual(preChecked(projects, ["API", "APP", "WEB"]), ["APP", "API"]);
+  assert.deepEqual(preChecked(projects, []), []);
+  assert.deepEqual(preChecked([{ key: "APP" }], []), ["APP"]);
+});
+
+test("a Jira source reads the chosen projects, through its API or an MCP server", () => {
+  assert.equal(inboxJql(["APP", "API"]), "project in (APP, API) AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC");
+  assert.equal(inboxJql([]), null);
+  assert.equal(mcpPrompt(["APP"], "acme.atlassian.net"), "The open Jira issues assigned to me in the projects APP on acme.atlassian.net.");
+  assert.equal(mcpPrompt([], ""), "The open Jira issues assigned to me.");
+  assert.equal(mcpName("claude.ai Atlassian", ["atlassian"]), "atlassian-2");
+  assert.equal(mcpName("Atlassian", []), "atlassian");
+  assert.deepEqual(browsable(["github", "githubProject", "jira", "linear", "mcp:atlassian"]), ["github", "jira", "mcp:atlassian"]);
 });
