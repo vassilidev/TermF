@@ -832,15 +832,28 @@ mod tests {
         let api = json!([{ "name": "Task", "statuses": [status("Blocked", "indeterminate"), status("Won't do", "done")] }]);
         assert_eq!(
             jira::statuses_of(&[app, api]),
-            ["To Do", "In Progress", "In Review", "Blocked", "Done", "Won't do"]
+            [
+                "To Do",
+                "In Progress",
+                "In Review",
+                "Blocked",
+                "Done",
+                "Won't do"
+            ]
         );
         assert!(jira::statuses_of(&[json!({ "errorMessages": ["no"] })]).is_empty());
 
         let board = json!({ "data": { "repositoryOwner": { "projectV2": { "field": { "options": [
             { "name": "Todo" }, { "name": "In Progress" }, { "name": "Done" }
         ]}}}}});
-        assert_eq!(crate::github::status_options(&board), ["Todo", "In Progress", "Done"]);
-        assert!(crate::github::status_options(&json!({ "data": { "repositoryOwner": null } })).is_empty());
+        assert_eq!(
+            crate::github::status_options(&board),
+            ["Todo", "In Progress", "Done"]
+        );
+        assert!(
+            crate::github::status_options(&json!({ "data": { "repositoryOwner": null } }))
+                .is_empty()
+        );
     }
 
     #[test]
