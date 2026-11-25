@@ -99,6 +99,7 @@ pub fn from_url(url: &termf_worktree::Url) -> Result<Parsed> {
         gcp_project: None,
         url: None,
         site: None,
+        path: None,
         secrets: Default::default(),
     };
     let mut ignored = Vec::new();

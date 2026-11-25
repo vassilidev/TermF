@@ -1,0 +1,26 @@
+# Writes: an agent can only propose it; you run it after typing the environment's name.
+name = "laravel-write"
+description = "A Laravel site's failed job: retries it, or forgets it for good"
+mode = "write"
+ai_access = "full"
+approval = "always"
+redact = ["vault_values"]
+
+[params.command]
+type = "command"
+description = "What to do"
+required = true
+values = ["queue:retry {job}", "queue:forget {job}"]
+
+[params.job]
+type = "name"
+description = "The failed job's id, as queue:failed lists it"
+
+[limits]
+lines = 200
+bytes = 65536
+timeout_s = 60
+
+[[run]]
+kind = "ssh"
+args = ["php", "{conn.path}/artisan", "{command}", "--no-ansi", "--no-interaction"]

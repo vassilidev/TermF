@@ -12,6 +12,8 @@
   import Server from "@lucide/svelte/icons/server";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import OpsChecks from "$lib/OpsChecks.svelte";
+  import OpsRedis from "$lib/OpsRedis.svelte";
+  import OpsServer from "$lib/OpsServer.svelte";
   import OpsEnv from "$lib/OpsEnv.svelte";
   import OpsFollow from "$lib/OpsFollow.svelte";
   import OpsForm from "$lib/OpsForm.svelte";
@@ -435,6 +437,13 @@
                 </div>
                 {@render passwordForm()}
                 {#if checks}<div class="gap"><OpsChecks {checks} /></div>{/if}
+                {#key current.name}
+                  {#if current.kind === "ssh"}
+                    <OpsServer project={project.id} conn={current} ask={askPassword} />
+                  {:else if current.kind === "redis"}
+                    <OpsRedis project={project.id} conn={current} ask={askPassword} />
+                  {/if}
+                {/key}
                 <h3>{t("opsRecipesHere")}</h3>
                 <ul class="recipes">
                   {#each ops.recipes.filter((r) => runsOn(r, current)) as r (r.name)}

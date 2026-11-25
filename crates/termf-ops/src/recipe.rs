@@ -239,6 +239,7 @@ fn conn_field(conn: &Connection, field: &str) -> Option<String> {
         "gcp_project" => conn.gcp_project.clone(),
         "url" => conn.url.clone(),
         "site" => Some(conn.site.clone().unwrap_or_else(|| "datadoghq.com".into())),
+        "path" => conn.path.clone(),
         _ => None,
     }
 }
@@ -258,6 +259,7 @@ const CONN_FIELDS: &[&str] = &[
     "gcp_project",
     "url",
     "site",
+    "path",
 ];
 
 enum Piece<'a> {

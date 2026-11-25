@@ -186,6 +186,77 @@ fn every_shipped_recipe_reads() {
 }
 
 #[test]
+fn redis_reads_through_its_allow_list_and_its_password_stays_out_of_the_arguments() {
+    let read = recipe("redis-read");
+    let command = read.param("command").unwrap();
+    for refused in [
+        "KEYS *",
+        "FLUSHALL",
+        "CONFIG SET dir /tmp",
+        "EVAL return 1 0",
+        "DEL {key}",
+        "SCAN 0",
+    ] {
+        assert!(check_param(command, refused).is_err(), "{refused}");
+    }
+    assert!(check_param(command, "SCAN {cursor} MATCH {pattern} COUNT 200").is_ok());
+    assert!(
+        check_param(read.param("key").unwrap(), "-x").is_err(),
+        "a key never becomes an option"
+    );
+    assert_eq!(recipe("redis-write").mode, Mode::Write);
+
+    let server: Connection = toml::from_str(PROD_SSH).unwrap();
+    let redis: Connection = toml::from_str(
+        r#"
+name = "acme-cache"
+kind = "redis"
+env = "prod"
+via = "acme-prod"
+database = "1"
+secrets = { password = "REDIS_PASSWORD" }
+"#,
+    )
+    .unwrap();
+    redis.check().unwrap();
+    let all = [server.clone(), redis.clone()];
+    let given = params(&[("command", "GET {key}"), ("key", "session:42")]);
+    let plan = crate::plan(&read, &redis, &all, &given).unwrap();
+    assert_eq!(
+        plan.command,
+        "REDISCLI_AUTH=<vault: REDIS_PASSWORD> redis-cli -h 127.0.0.1 -p '<local port>' --no-auth-warning -n 1 GET session:42",
+        "its password in the environment, the key one argument"
+    );
+    assert!(plan.tunnel.as_deref().unwrap().contains(":127.0.0.1:6379"));
+    assert_eq!(plan.secrets, ["REDIS_PASSWORD"]);
+    let bad: Connection = toml::from_str(
+        "name = \"c\"\nkind = \"redis\"\nenv = \"dev\"\nhost = \"127.0.0.1\"\ndatabase = \"cache\"\n",
+    )
+    .unwrap();
+    assert!(bad.check().is_err(), "a database is a number");
+
+    let mut site = server.clone();
+    let laravel = recipe("laravel-read");
+    let about = params(&[("command", "about --json")]);
+    assert!(
+        crate::plan(&laravel, &site, &all, &about).is_err(),
+        "no folder"
+    );
+    site.path = Some("/home/forge/acme.com".into());
+    site.check().unwrap();
+    let plan = crate::plan(&laravel, &site, &all, &about).unwrap();
+    assert_eq!(
+        plan.remote.as_deref(),
+        Some("php /home/forge/acme.com/artisan about --json --no-ansi --no-interaction")
+    );
+    site.path = Some("acme.com".into());
+    assert!(site.check().is_err(), "an absolute path");
+    let mut cache = redis.clone();
+    cache.path = Some("/srv".into());
+    assert!(cache.check().is_err(), "a folder on an SSH server only");
+}
+
+#[test]
 fn connections_are_written_in_the_project_file_and_its_comments_stay() {
     let env = Fixture::new("connections");
     let db: Connection = toml::from_str(

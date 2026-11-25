@@ -13,7 +13,8 @@ export type Kind =
   | "datadog"
   | "sqlite"
   | "mariadb"
-  | "clickhouse";
+  | "clickhouse"
+  | "redis";
 export type Field =
   | "host"
   | "port"
@@ -29,7 +30,8 @@ export type Field =
   | "profile"
   | "gcp_project"
   | "url"
-  | "site";
+  | "site"
+  | "path";
 
 /** As `[[ops.connections]]` writes it. */
 export type Connection = {
@@ -142,6 +144,7 @@ export const KINDS: Kind[] = [
   "mariadb",
   "sqlite",
   "clickhouse",
+  "redis",
   "kubernetes",
   "cloudwatch",
   "gcp",
@@ -153,12 +156,13 @@ export const ACCESS: AiAccess[] = ["none", "redacted", "full"];
 
 /** What a kind's form shows, what it needs, and the secrets of the vault it may name. */
 export const FORM: Record<Kind, { fields: Field[]; required: Field[]; secrets: string[] }> = {
-  ssh: { fields: ["host", "user", "port", "jump"], required: ["host"], secrets: [] },
+  ssh: { fields: ["host", "user", "port", "jump", "path"], required: ["host"], secrets: [] },
   postgres: { fields: ["database", "user", "host", "port", "via", "sslmode"], required: ["database", "user"], secrets: ["password"] },
   mysql: { fields: ["database", "user", "host", "port", "via", "sslmode"], required: ["database", "user"], secrets: ["password"] },
   mariadb: { fields: ["database", "user", "host", "port", "via", "sslmode"], required: ["database", "user"], secrets: ["password"] },
   clickhouse: { fields: ["database", "user", "host", "port", "via", "sslmode"], required: ["database", "user"], secrets: ["password"] },
   sqlite: { fields: ["database"], required: ["database"], secrets: [] },
+  redis: { fields: ["host", "port", "user", "database", "via", "sslmode"], required: [], secrets: ["password"] },
   kubernetes: { fields: ["context", "namespace"], required: ["context"], secrets: [] },
   cloudwatch: { fields: ["log_group", "region", "profile"], required: ["log_group"], secrets: [] },
   gcp: { fields: ["gcp_project"], required: [], secrets: [] },
@@ -182,7 +186,8 @@ export function target(c: Connection, all: Connection[]): string {
     case "postgres":
     case "mysql":
     case "mariadb":
-    case "clickhouse": {
+    case "clickhouse":
+    case "redis": {
       const db = `${at(c.user, c.host ?? "127.0.0.1")}/${c.database ?? ""}`;
       const server = c.via ? all.find((x) => x.name === c.via) : undefined;
       return server ? `${db} (tunnel through ${target(server, all)})` : db;
@@ -220,7 +225,7 @@ export function clean(c: Connection): Connection {
 export function missing(c: Connection): Field[] {
   const form = FORM[c.kind];
   const lacks = form.required.filter((f) => !String(c[f as Exclude<Field, "port">] ?? "").trim());
-  if (isServer(c.kind) && !c.via?.trim() && !c.host?.trim()) lacks.push("host");
+  if ((isServer(c.kind) || c.kind === "redis") && !c.via?.trim() && !c.host?.trim()) lacks.push("host");
   return lacks;
 }
 
@@ -329,6 +334,23 @@ export const shippedTexts: Record<string, string> = {
   "Kubernetes: the container, when the pod has several": "uxfT4ParamFollowContainer",
   'Loki: a LogQL selector, such as {app="web"}': "uxfT4ParamFollowQuery",
   "How many past lines to start with": "uxfT4ParamFollowLines",
+  "Reads Redis through an allow list: keys by pattern (SCAN, never KEYS), a key's type, TTL and value, INFO": "opsmoreRecipeRedisRead",
+  "What to read": "opsmoreParamRead",
+  "The key": "opsmoreParamKey",
+  "SCAN's pattern, such as user:*": "opsmoreParamPattern",
+  "SCAN's cursor: 0 to start, then the one the last page gave": "opsmoreParamCursor",
+  "INFO's section": "opsmoreParamSection",
+  "Deletes a key, sets or removes its expiry, or empties the database, on a Redis server": "opsmoreRecipeRedisWrite",
+  "What to change": "opsmoreParamChange",
+  "EXPIRE: the key's time to live, in seconds": "opsmoreParamSeconds",
+  "A server's health, read-only: load and CPU, memory, disks, running services, listening ports, SSL certificates' expiry":
+    "opsmoreRecipeHealth",
+  "Nginx, read-only: whether it runs, what nginx -t says of its configuration, and its enabled sites": "opsmoreRecipeNginxStatus",
+  "Reloads nginx on a server reached by SSH, only when nginx -t passes (sudo without a password)": "opsmoreRecipeNginxReload",
+  "A Laravel site, read-only: php artisan about, the scheduler, the failed jobs, Horizon's status": "opsmoreRecipeLaravelRead",
+  "A Laravel site's failed job: retries it, or forgets it for good": "opsmoreRecipeLaravelWrite",
+  "What to do": "opsmoreParamDo",
+  "The failed job's id, as queue:failed lists it": "opsmoreParamJob",
 };
 
 /** A query's rows sorted on a column: numbers as numbers, NULL last either way. */
@@ -416,7 +438,27 @@ const RANK: Record<Level, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
 /** A log line's level, read from its words; `null` when it says none. */
 export function level(line: string): Level | null {
+  // An access log says it by its status: 5xx is an error, 4xx a warning.
+  const status = accessLine(line)?.status;
+  if (status) return status >= 500 ? "error" : status >= 400 ? "warn" : "info";
   return LEVELS.find(([, re]) => re.test(line))?.[0] ?? null;
+}
+
+/** An access log line in nginx's combined format: who asked what, and the status; null for another line. */
+export function accessLine(line: string): { ip: string; method: string; path: string; status: number } | null {
+  const m = /^(\S+) \S+ \S+ \[[^\]]*\] "([A-Z]+) (\S+)[^"]*" (\d{3}) /.exec(line);
+  return m ? { ip: m[1], method: m[2], path: m[3], status: Number(m[4]) } : null;
+}
+
+/** Log lines as entries: what continues the line before (a stack trace, a JSON tail) folds under it. */
+export function entries(lines: string[]): { head: string; trace: string[] }[] {
+  const out: { head: string; trace: string[] }[] = [];
+  for (const line of lines) {
+    const last = out.at(-1);
+    if (last && /^(#\d+ |\[stacktrace\]|\[previous exception\]|"\}|\s)/.test(line)) last.trace.push(line);
+    else out.push({ head: line, trace: [] });
+  }
+  return out;
 }
 
 /** Whether a line shows with the live filter: its text, and a level at least `min` (a line without one counts as info). */
@@ -732,4 +774,134 @@ export function layout(tables: SchemaTable[], links: Relation[]): Map<string, { 
     column++;
   }
   return at;
+}
+
+// ---------- What the recipes for Redis, Nginx, Laravel and a server's health print ----------
+
+/** Lines under each `## name` the recipe's script echoes. */
+export function sections(text: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  let at: string[] | null = null;
+  for (const line of text.split("\n")) {
+    const head = /^## (\w+)$/.exec(line.trim());
+    if (head) out[head[1]] = at = [];
+    else if (at && line.trim()) at.push(line);
+  }
+  return out;
+}
+
+/** `INFO`'s fields, `key:value` per line. */
+export function redisInfo(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const i = line.indexOf(":");
+    if (i > 0 && !line.startsWith("#")) out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+  }
+  return out;
+}
+
+/** Keyspace hits over all lookups, in percent; null before the first. */
+export function hitRate(info: Record<string, string>): number | null {
+  const hits = Number(info.keyspace_hits ?? 0);
+  const all = hits + Number(info.keyspace_misses ?? 0);
+  return all > 0 ? Math.round((hits / all) * 1000) / 10 : null;
+}
+
+/** A SCAN page, as redis-cli prints it to a pipe: the next cursor, then the keys. */
+export function redisScan(text: string): { cursor: string; keys: string[] } {
+  const [cursor = "0", ...keys] = text.split("\n").filter((l) => l !== "");
+  return { cursor: cursor.trim(), keys };
+}
+
+/** A hash's fields or a sorted set's members with their scores, one per line in turn. */
+export function pairs(lines: string[]): [string, string][] {
+  const out: [string, string][] = [];
+  for (let i = 0; i + 1 < lines.length; i += 2) out.push([lines[i], lines[i + 1]]);
+  return out;
+}
+
+/** What `nginx-status` printed: whether it runs, nginx -t's verdict (null: not run) and its messages, the sites. */
+export function nginxStatus(text: string) {
+  const s = sections(text);
+  const said = (s.test ?? []).join("\n");
+  return {
+    active: (s.active?.[0] ?? "").trim(),
+    ok: /test is successful/.test(said) ? true : /test failed|\[emerg\]/.test(said) ? false : null,
+    messages: (s.test ?? []).map((l) => l.trim()).filter((l) => /^nginx: \[(emerg|alert|crit|error|warn)\]/.test(l)),
+    sites: (s.sites ?? []).map((l) => l.trim()).filter((l) => !l.startsWith("ls:")),
+  };
+}
+
+export type FailedJob = { id: string; at: string; queue: string; job: string };
+
+/** The failed jobs `queue:failed` lists: its table (Laravel 8) or its lines (9 and later). */
+export function failedJobs(text: string): FailedJob[] {
+  const out: FailedJob[] = [];
+  for (const line of text.split("\n")) {
+    if (line.trim().startsWith("|")) {
+      const cells = line.split("|").map((c) => c.trim());
+      if (/^\d+$/.test(cells[1] ?? "")) out.push({ id: cells[1], queue: `${cells[2]}@${cells[3]}`, job: cells[4], at: cells[5] ?? "" });
+      continue;
+    }
+    const at = /\d{4}-\d\d-\d\d \d\d:\d\d:\d\d/.exec(line)?.[0];
+    const id = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/.exec(line)?.[0];
+    if (!at || !id) continue;
+    out.push({ id, at, queue: /\S+@\S+/.exec(line)?.[0] ?? "", job: /[A-Za-z_]\w*(\\\w+)+/.exec(line)?.[0] ?? "" });
+  }
+  return out;
+}
+
+export type Health = {
+  load: number[] | null;
+  cpus: number | null;
+  /** CPU used over a second, in percent. */
+  cpu: number | null;
+  memory: { total: number; used: number } | null;
+  disks: { mount: string; size: number; used: number; pct: number }[];
+  services: string[];
+  ports: number[];
+  certs: { name: string; expires: number; days: number }[];
+};
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** `notAfter` as openssl prints it (`Feb 20 12:00:00 2027 GMT`), in ms: read by hand, as WebKit's Date may not. */
+export function certDate(text: string): number | null {
+  const m = /^(\w{3})\s+(\d+) (\d\d):(\d\d):(\d\d) (\d{4})/.exec(text.trim());
+  const month = m ? MONTHS.indexOf(m[1]) : -1;
+  return m && month >= 0 ? Date.UTC(Number(m[6]), month, Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5])) : null;
+}
+
+/** What `server-health` printed, read; `now` in ms. */
+export function health(text: string, now: number): Health {
+  const s = sections(text);
+  const load = s.load ?? [];
+  const avg = load[0]?.trim().split(/\s+/).slice(0, 3).map(Number);
+  const vm = load[2]?.trim().split(/\s+/);
+  const idle = vm && vm.length >= 15 ? Number(vm[14]) : NaN;
+  const mem = (s.memory ?? [])
+    .find((l) => l.startsWith("Mem:"))
+    ?.trim()
+    .split(/\s+/)
+    .slice(1)
+    .map(Number);
+  const port = (l: string) => Number(l.trim().split(/\s+/)[3]?.split(":").at(-1));
+  return {
+    load: avg?.length === 3 && avg.every((n) => !Number.isNaN(n)) ? avg : null,
+    cpus: Number(load[1]) || null,
+    cpu: Number.isNaN(idle) ? null : 100 - idle,
+    // `available` (the 6th column) is what is free for new programs, caches counted.
+    memory: mem && mem.length >= 2 ? { total: mem[0], used: mem.length >= 6 ? mem[0] - mem[5] : mem[1] } : null,
+    disks: (s.disk ?? []).slice(1).flatMap((l) => {
+      const f = l.trim().split(/\s+/);
+      return f.length >= 6 ? [{ mount: f.slice(5).join(" "), size: Number(f[1]), used: Number(f[2]), pct: parseInt(f[4], 10) }] : [];
+    }),
+    services: (s.services ?? []).map((l) => l.trim().split(/\s+/)[0].replace(/\.service$/, "")),
+    ports: [...new Set((s.ports ?? []).map(port).filter((p) => p > 0))].sort((a, b) => a - b),
+    certs: (s.certs ?? []).flatMap((l) => {
+      const [name, end] = l.split("|");
+      const expires = certDate(end ?? "");
+      return expires === null ? [] : [{ name: name.trim(), expires, days: Math.floor((expires - now) / 86_400_000) }];
+    }),
+  };
 }

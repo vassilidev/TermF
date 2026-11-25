@@ -1,0 +1,16 @@
+# Writes: an agent can only propose it; you run it after typing the environment's name.
+name = "nginx-reload"
+description = "Reloads nginx on a server reached by SSH, only when nginx -t passes (sudo without a password)"
+mode = "write"
+ai_access = "full"
+approval = "always"
+redact = ["vault_values"]
+
+[limits]
+lines = 200
+bytes = 65536
+timeout_s = 60
+
+[[run]]
+kind = "ssh"
+args = ["sh", "-c", "sudo -n nginx -t && sudo -n systemctl reload nginx && echo 'nginx reloaded'"]

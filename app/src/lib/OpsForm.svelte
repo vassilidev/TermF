@@ -74,6 +74,7 @@
     gcp_project: "opsFieldGcpProject",
     url: "opsFieldUrl",
     site: "opsFieldSite",
+    path: "opsmorePath",
   };
   const label = (f: Field) =>
     t(
@@ -94,7 +95,11 @@
           ? t("opsdbSqliteFileHelp")
           : f === "via"
             ? t("opsdbViaHelp")
-            : "";
+            : f === "path"
+              ? t("opsmorePathHelp")
+              : c.kind === "redis" && f === "database"
+                ? t("opsmoreRedisDbHelp")
+                : "";
   const placeholders: Partial<Record<Field, string>> = {
     host: "acme-prod",
     user: "deploy",
@@ -106,6 +111,7 @@
     region: "eu-west-3",
     url: "https://loki.acme.dev",
     site: "datadoghq.com",
+    path: "/home/forge/acme.com",
   };
   const secretLabels: Record<string, Parameters<typeof t>[0]> = {
     password: "opsSecretPassword",

@@ -35,7 +35,117 @@ import {
   sortRows,
   target,
   tsv,
+  accessLine,
+  certDate,
+  entries,
+  failedJobs,
+  health,
+  hitRate,
+  nginxStatus,
+  pairs,
+  redisInfo,
+  redisScan,
 } from "../src/lib/ops-logic.ts";
+
+test("a server's health reads its load, CPU, memory, disks, services, ports and certificates", () => {
+  const out = [
+    "## load",
+    "0.52 0.48 0.41 1/234 5678",
+    "2",
+    " 1  0      0 812345 123 456    0    0     1     5  100  200  3  1 95  1  0",
+    "## memory",
+    "               total        used        free      shared  buff/cache   available",
+    "Mem:      4000000000  1500000000   500000000     1000000  2000000000  3000000000",
+    "Swap:              0           0           0",
+    "## disk",
+    "Filesystem       1-blocks        Used   Available Capacity Mounted on",
+    "/dev/vda1     40000000000 12000000000 28000000000      30% /",
+    "/dev/vdb1    100000000000 91000000000  9000000000      91% /mnt/acme data",
+    "## services",
+    "nginx.service loaded active running A high performance web server",
+    "php8.3-fpm.service loaded active running The PHP 8.3 FastCGI Process Manager",
+    "## ports",
+    "LISTEN 0 511 0.0.0.0:80 0.0.0.0:*",
+    "LISTEN 0 4096 [::]:22 [::]:*",
+    "LISTEN 0 511 0.0.0.0:80 0.0.0.0:*",
+    "## certs",
+    "acme.com|Feb 20 12:00:00 2027 GMT",
+    "old.acme.com|Nov 20 08:00:00 2026 GMT",
+  ].join("\n");
+  const h = health(out, Date.UTC(2026, 10, 25));
+  assert.deepEqual(h.load, [0.52, 0.48, 0.41]);
+  assert.equal(h.cpus, 2);
+  assert.equal(h.cpu, 5);
+  assert.deepEqual(h.memory, { total: 4000000000, used: 1000000000 }, "what is not available, caches aside");
+  assert.deepEqual(h.disks.map((d) => [d.mount, d.pct]), [["/", 30], ["/mnt/acme data", 91]]);
+  assert.deepEqual(h.services, ["nginx", "php8.3-fpm"]);
+  assert.deepEqual(h.ports, [22, 80]);
+  assert.deepEqual(h.certs.map((c) => [c.name, c.days]), [["acme.com", 87], ["old.acme.com", -5]]);
+  assert.equal(certDate("Feb  2 12:00:00 2027 GMT"), Date.UTC(2027, 1, 2, 12));
+  assert.equal(certDate("soon"), null);
+  const empty = health("", 0);
+  assert.equal(empty.load, null);
+  assert.equal(empty.memory, null);
+});
+
+test("nginx -t's verdict, its messages and the enabled sites", () => {
+  const ok = nginxStatus(
+    "## active\nactive\n## test\nnginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n## sites\nacme.com\napi.acme.com\n",
+  );
+  assert.deepEqual(ok, { active: "active", ok: true, messages: [], sites: ["acme.com", "api.acme.com"] });
+  const failed = nginxStatus(
+    '## active\nactive\n## test\nsudo: a password is required\nnginx: [emerg] unknown directive "servr_name" in /etc/nginx/sites-enabled/acme.com:4\nnginx: configuration file /etc/nginx/nginx.conf test failed\n## sites\nacme.com\n',
+  );
+  assert.equal(failed.ok, false);
+  assert.deepEqual(failed.messages, ['nginx: [emerg] unknown directive "servr_name" in /etc/nginx/sites-enabled/acme.com:4']);
+  assert.equal(nginxStatus("## active\ninactive\n## test\n## sites\n").ok, null);
+});
+
+test("an nginx access line gives its status, which sets its level; a Laravel trace folds under its line", () => {
+  const line = '203.0.113.7 - - [25/Nov/2026:10:02:11 +0000] "POST /api/invoices?page=2 HTTP/2.0" 502 166 "-" "curl/8.5"';
+  assert.deepEqual(accessLine(line), { ip: "203.0.113.7", method: "POST", path: "/api/invoices?page=2", status: 502 });
+  assert.equal(level(line), "error");
+  assert.equal(level(line.replace(" 502 ", " 404 ")), "warn");
+  assert.equal(level(line.replace(" 502 ", " 200 ")), "info");
+  assert.equal(accessLine("2026/11/25 10:02:11 [error] 812#812: upstream timed out"), null);
+  const log = [
+    "[2026-11-25 10:02:11] production.ERROR: Undefined variable $total {\"exception\":\"[object] (ErrorException(code: 0): Undefined variable $total at /home/forge/acme.com/app/Invoice.php:42)",
+    "[stacktrace]",
+    "#0 /home/forge/acme.com/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/HandleExceptions.php(255): handleError()",
+    "#1 {main}",
+    '"} ',
+    "[2026-11-25 10:02:12] production.INFO: Invoice sent",
+  ];
+  const folded = entries(log);
+  assert.equal(folded.length, 2);
+  assert.equal(folded[0].trace.length, 4);
+  assert.deepEqual(folded[1], { head: log[5], trace: [] });
+  assert.deepEqual(entries(["a", "b"]).map((e) => e.head), ["a", "b"], "a plain log folds nothing");
+});
+
+test("Laravel's failed jobs, from its lines or its older table", () => {
+  const lines = [
+    "  2026-11-25 10:02:11 6f1c2e4a-1b2c-4d3e-8f9a-0b1c2d3e4f5a ........ redis@default App\\Jobs\\SendInvoice",
+    "  2026-11-24 08:00:00 0a1b2c3d-1111-2222-3333-444455556666 ........ database@emails App\\Mail\\Welcome",
+  ].join("\n");
+  assert.deepEqual(failedJobs(lines), [
+    { id: "6f1c2e4a-1b2c-4d3e-8f9a-0b1c2d3e4f5a", at: "2026-11-25 10:02:11", queue: "redis@default", job: "App\\Jobs\\SendInvoice" },
+    { id: "0a1b2c3d-1111-2222-3333-444455556666", at: "2026-11-24 08:00:00", queue: "database@emails", job: "App\\Mail\\Welcome" },
+  ]);
+  const table = "+----+------------+---------+---------------------+---------------------+\n| ID | Connection | Queue   | Class               | Failed At           |\n| 5  | redis      | default | App\\Jobs\\Sync      | 2026-11-20 09:00:00 |";
+  assert.deepEqual(failedJobs(table), [{ id: "5", queue: "redis@default", job: "App\\Jobs\\Sync", at: "2026-11-20 09:00:00" }]);
+  assert.deepEqual(failedJobs("No failed jobs found."), []);
+});
+
+test("Redis: INFO's fields and hit rate, a SCAN page, a hash's pairs", () => {
+  const info = redisInfo("# Memory\r\nused_memory_human:1.21M\r\n# Stats\r\nkeyspace_hits:900\r\nkeyspace_misses:100\r\n");
+  assert.equal(info.used_memory_human, "1.21M");
+  assert.equal(hitRate(info), 90);
+  assert.equal(hitRate({}), null);
+  assert.deepEqual(redisScan("1536\nsession:42\nuser:7\n"), { cursor: "1536", keys: ["session:42", "user:7"] });
+  assert.deepEqual(redisScan(""), { cursor: "0", keys: [] });
+  assert.deepEqual(pairs(["name", "alex", "plan", "pro", "odd"]), [["name", "alex"], ["plan", "pro"]]);
+});
 
 test("every text of a shipped recipe has its translation, in French and in English", () => {
   const dir = new URL("../../library/recipes/", import.meta.url);

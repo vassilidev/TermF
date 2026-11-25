@@ -1,0 +1,21 @@
+# Nginx on a server reached by SSH, read-only: whether it runs, what `nginx -t` says, and the sites it serves.
+name = "nginx-status"
+description = "Nginx, read-only: whether it runs, what nginx -t says of its configuration, and its enabled sites"
+mode = "read"
+ai_access = "redacted"
+approval = "always"
+redact = ["email", "phone", "iban", "jwt", "vault_values"]
+
+[limits]
+lines = 500
+bytes = 65536
+timeout_s = 30
+
+[[run]]
+kind = "ssh"
+args = ["sh", "-c", """
+echo '## active'; systemctl is-active nginx 2>&1
+echo '## test'; sudo -n nginx -t 2>&1 || nginx -t 2>&1
+echo '## sites'; ls -1 /etc/nginx/sites-enabled 2>&1
+true
+"""]

@@ -8,7 +8,7 @@
   import Square from "@lucide/svelte/icons/square";
   import OpsParams from "$lib/OpsParams.svelte";
   import { t } from "$lib/i18n";
-  import { level, runsOn, shows, type Level, type Plan } from "$lib/ops-logic";
+  import { entries, level, runsOn, shows, type Level, type Plan } from "$lib/ops-logic";
   import { ops, resumeFollow, startFollow, stopFollow } from "$lib/ops.svelte";
 
   let { project, ask }: { project: string; ask: (e: unknown, retry: () => Promise<void>) => boolean } = $props();
@@ -30,7 +30,8 @@
   let min = $state<Level | "all">("all");
   let pane = $state<HTMLDivElement>();
   const following = $derived(ops.live.id !== null);
-  const visible = $derived(ops.live.lines.filter((l) => shows(l, filter.trim(), min)));
+  // A stack trace folds under the line it belongs to, and shows with it.
+  const visible = $derived(entries(ops.live.lines).filter((e) => shows([e.head, ...e.trace].join("\n"), filter.trim(), min)));
 
   async function start() {
     if (!recipe) return;
@@ -128,9 +129,13 @@
         </span>
       </div>
       <div class="lines" bind:this={pane} role="log" aria-live="off">
-        {#each visible as line, i (i)}
-          {@const lv = level(line)}
-          <div class="line {lv ?? ''}">{line}</div>
+        {#each visible as entry, i (i)}
+          {@const lv = level(entry.head)}
+          {#if entry.trace.length}
+            <details class="line {lv ?? ''}"><summary>{entry.head}</summary><div class="trace">{entry.trace.join("\n")}</div></details>
+          {:else}
+            <div class="line {lv ?? ''}">{entry.head}</div>
+          {/if}
         {:else}
           <p class="muted empty">
             {following ? t("opssqlLiveWaiting") : ops.live.ended ? t("opssqlLiveEnded", { code: ops.live.ended.exit ?? "—" }) : t("opssqlLiveIdle")}
@@ -249,6 +254,15 @@
 
   .line:hover {
     background: var(--hover);
+  }
+
+  details.line summary {
+    cursor: pointer;
+  }
+
+  .trace {
+    padding-left: 16px;
+    color: var(--muted);
   }
 
   .line.error {

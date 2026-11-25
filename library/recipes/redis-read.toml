@@ -1,0 +1,67 @@
+# Reads a Redis server through an allow list of commands: SCAN, never KEYS; values, types, TTLs; INFO.
+name = "redis-read"
+description = "Reads Redis through an allow list: keys by pattern (SCAN, never KEYS), a key's type, TTL and value, INFO"
+mode = "read"
+ai_access = "redacted"
+approval = "always"
+redact = ["email", "phone", "iban", "jwt", "vault_values"]
+
+[params.command]
+type = "command"
+description = "What to read"
+required = true
+values = [
+  "PING",
+  "INFO",
+  "INFO {section}",
+  "DBSIZE",
+  "SCAN {cursor} MATCH {pattern} COUNT 200",
+  "TYPE {key}",
+  "PTTL {key}",
+  "EXISTS {key}",
+  "MEMORY USAGE {key}",
+  "OBJECT ENCODING {key}",
+  "STRLEN {key}",
+  "GET {key}",
+  "HLEN {key}",
+  "HSCAN {key} {cursor} COUNT 200",
+  "LLEN {key}",
+  "LRANGE {key} 0 199",
+  "SCARD {key}",
+  "SSCAN {key} {cursor} COUNT 200",
+  "ZCARD {key}",
+  "ZRANGE {key} 0 199 WITHSCORES",
+  "XLEN {key}",
+  "XRANGE {key} - + COUNT 100",
+]
+
+[params.key]
+type = "text"
+description = "The key"
+max_len = 512
+
+[params.pattern]
+type = "text"
+description = "SCAN's pattern, such as user:*"
+default = "*"
+max_len = 200
+
+[params.cursor]
+type = "int"
+description = "SCAN's cursor: 0 to start, then the one the last page gave"
+default = 0
+min = 0
+
+[params.section]
+type = "choice"
+description = "INFO's section"
+values = ["server", "clients", "memory", "stats", "keyspace", "replication", "persistence"]
+
+[limits]
+lines = 5000
+bytes = 1048576
+timeout_s = 20
+
+[[run]]
+kind = "redis"
+args = ["{command}"]
