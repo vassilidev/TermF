@@ -295,6 +295,14 @@ fn target_and_token(
         .find(|t| t.name == name)
         .with_context(|| format!("no deploy target named {name}"))?;
     let Some(secret) = target.token.clone() else {
+        // A Forge target that names no token deploys with the project's Forge account, when it has one.
+        if target.tool == termf_ci::deploy::Tool::Forge {
+            let vault = crate::vault::shared(app);
+            return Ok((
+                target,
+                crate::forge::account_token(config, &vault, project)?,
+            ));
+        }
         return Ok((target, None));
     };
     let vault = crate::vault::shared(app);

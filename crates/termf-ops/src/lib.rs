@@ -18,6 +18,7 @@ pub mod env;
 mod exec;
 pub mod export;
 mod flow;
+pub mod forge;
 mod queries;
 mod recipe;
 pub mod redact;

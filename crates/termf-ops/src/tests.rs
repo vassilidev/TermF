@@ -256,6 +256,152 @@ secrets = { password = "REDIS_PASSWORD" }
     assert!(cache.check().is_err(), "a folder on an SSH server only");
 }
 
+/// Forge's API as its documentation shows it, for acme: curl's config arrives on stdin, the answer per URL.
+#[cfg(unix)]
+const FAKE_FORGE: &str = r#"config=$(cat)
+printf '%s\n' "$config" > "@DIR@/curl.config"
+case "$config" in
+  *'Bearer bad'*) printf '{"message":"Unauthenticated."}\n401' ;;
+  *'/servers/7/sites/31/env"'*) printf 'APP_NAME=Acme\nDB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_PORT=3306\nDB_DATABASE=acme\nDB_USERNAME=forge\nDB_PASSWORD="s3cr#t pass"\n\n200' ;;
+  *'/servers/7/sites/31/deployment/deploy"'*) printf '\n200' ;;
+  *'/servers/7/sites/31/deployment-history/905/output"'*) printf '{"output":"Cloning acme/api\\nDeployed"}\n200' ;;
+  *'/servers/7/sites/31/deployment-history"'*) printf '{"deployments":[{"id":905,"status":"finished","commit_hash":"4f2a9c1","commit_message":"Export CSV","commit_author":"alex","started_at":"2026-11-25 09:00:00","ended_at":"2026-11-25 09:01:12"}]}\n200' ;;
+  *'/servers/7/sites"'*) printf '{"sites":[{"id":31,"server_id":7,"name":"acme.com","directory":"/home/forge/acme.com","repository":"acme/api","repository_branch":"main"}]}\n200' ;;
+  *'/servers"'*) printf '{"servers":[{"id":7,"name":"acme-app-1","ip_address":"203.0.113.10"}]}\n200' ;;
+  *) printf 'no\n404' ;;
+esac"#;
+
+#[cfg(unix)]
+#[test]
+fn a_forge_account_reads_its_servers_sites_and_deployments_its_token_on_stdin() {
+    use crate::forge::{self, Forge};
+    let env = Fixture::new("forge");
+    env.fake("curl", FAKE_FORGE);
+    let curl = env.bin().join("curl");
+    let api = Forge::at("https://forge.test/api/v1", "tok-acme".into(), curl.clone());
+    let servers = api.servers().unwrap();
+    assert_eq!(
+        (servers[0].id, servers[0].ip_address.as_deref()),
+        (7, Some("203.0.113.10"))
+    );
+    let sites = api.sites(7).unwrap();
+    assert_eq!(sites[0].repository.as_deref(), Some("acme/api"));
+    let deployments = api.deployments(7, 31).unwrap();
+    assert_eq!(
+        (deployments[0].id, deployments[0].status.as_str()),
+        (905, "finished")
+    );
+    assert_eq!(
+        api.output(7, 31, 905).unwrap(),
+        "Cloning acme/api\nDeployed"
+    );
+    api.deploy(7, 31).unwrap();
+    let config = fs::read_to_string(env.root.join("curl.config")).unwrap();
+    assert!(
+        config.contains("request = \"POST\"") && config.contains("Authorization: Bearer tok-acme")
+    );
+    let refused = Forge::at("https://forge.test/api/v1", "bad".into(), curl)
+        .servers()
+        .unwrap_err();
+    assert!(
+        refused.to_string().contains("refused the token"),
+        "{refused}"
+    );
+
+    let vars: BTreeMap<_, _> = crate::env::parse(&api.env(7, 31).unwrap())
+        .into_iter()
+        .collect();
+    let ssh = forge::server_connection(&servers[0], sites[0].directory.as_deref()).unwrap();
+    assert_eq!(
+        (
+            ssh.name.as_str(),
+            ssh.host.as_deref(),
+            ssh.user.as_deref(),
+            ssh.path.as_deref()
+        ),
+        (
+            "acme-app-1",
+            Some("203.0.113.10"),
+            Some("forge"),
+            Some("/home/forge/acme.com")
+        )
+    );
+    let db = forge::site_database(&sites[0], &vars, &ssh.name).unwrap();
+    let c = &db.connections[0];
+    assert_eq!(
+        (
+            c.name.as_str(),
+            c.kind,
+            c.via.as_deref(),
+            c.database.as_deref()
+        ),
+        ("acme.com-db", Kind::Mysql, Some("acme-app-1"), Some("acme"))
+    );
+    assert_eq!(
+        db.secrets,
+        [("ACME_COM_DB_PASSWORD".to_owned(), "s3cr#t pass".to_owned())]
+    );
+    assert_eq!(
+        c.secrets["password"], "ACME_COM_DB_PASSWORD",
+        "the project names the secret, never its value"
+    );
+    let sqlite = BTreeMap::from([("DB_CONNECTION".to_owned(), "sqlite".to_owned())]);
+    assert!(
+        forge::site_database(&sites[0], &sqlite, "acme-app-1")
+            .unwrap()
+            .connections
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_forge_token_is_named_after_its_account() {
+    assert_eq!(
+        crate::forge::token_name("Acme agency"),
+        "FORGE_TOKEN_ACME_AGENCY"
+    );
+    assert_eq!(
+        crate::forge::token_name("  ACME (old)  "),
+        "FORGE_TOKEN_ACME__OLD"
+    );
+}
+
+#[test]
+fn a_project_names_its_forge_account_and_an_older_file_reads_without_one() {
+    use crate::forge::{Account, account, save_account};
+    let env = Fixture::new("forge-account");
+    assert_eq!(
+        account(&env.config(), "acme").unwrap(),
+        None,
+        "an older file"
+    );
+    let acme = Account {
+        label: "Acme agency".into(),
+        token: "FORGE_TOKEN_ACME_AGENCY".into(),
+    };
+    save_account(&env.config(), "acme", Some(&acme)).unwrap();
+    assert_eq!(account(&env.config(), "acme").unwrap(), Some(acme.clone()));
+    let file = fs::read_to_string(env.config().join("projects/acme.toml")).unwrap();
+    assert!(file.starts_with("# Acme's project\n"), "{file}");
+    assert!(
+        connections(&env.config(), "acme").unwrap().is_empty(),
+        "connections still read"
+    );
+    assert!(
+        save_account(
+            &env.config(),
+            "acme",
+            Some(&Account {
+                token: "1 bad".into(),
+                ..acme
+            })
+        )
+        .is_err()
+    );
+    save_account(&env.config(), "acme", None).unwrap();
+    assert_eq!(account(&env.config(), "acme").unwrap(), None);
+}
+
 #[test]
 fn connections_are_written_in_the_project_file_and_its_comments_stay() {
     let env = Fixture::new("connections");

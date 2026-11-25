@@ -24,7 +24,7 @@ import { ui } from "$lib/state.svelte";
 export const said = (text: string) =>
   Object.hasOwn(shippedTexts, text) ? t(shippedTexts[text] as Parameters<typeof t>[0]) : text;
 
-export type OpsTab = "connections" | "recipes" | "sql" | "live" | "history";
+export type OpsTab = "connections" | "recipes" | "sql" | "live" | "forge" | "history";
 
 /** Names and outputs only, already masked; a value of the vault reaches the webview by `ops_reveal`, on demand. */
 export const ops = $state({

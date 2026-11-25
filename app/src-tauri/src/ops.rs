@@ -40,10 +40,10 @@ struct Kept {
 }
 
 pub struct OpsState {
-    config_dir: PathBuf,
+    pub(crate) config_dir: PathBuf,
     pub(crate) data_dir: PathBuf,
     approvals: Arc<Approvals>,
-    runner: Runner,
+    pub(crate) runner: Runner,
     next: AtomicU64,
     /// A result's id → what `ops_reveal` and the `.env` commands take from it.
     kept: Mutex<BTreeMap<u64, Kept>>,
@@ -108,7 +108,7 @@ impl OpsState {
     }
 }
 
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     app: AppHandle,
     f: impl FnOnce(&AppHandle, &OpsState, &Vault) -> Result<T> + Send + 'static,
 ) -> CmdResult<T> {

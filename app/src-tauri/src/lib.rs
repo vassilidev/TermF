@@ -15,6 +15,7 @@ mod design;
 #[cfg(feature = "e2e")]
 mod e2e;
 mod files;
+mod forge;
 mod git;
 mod keep_awake;
 mod library;
@@ -695,6 +696,13 @@ pub fn run() {
             ops::ops_test,
             ops::ops_plan,
             ops::ops_run,
+            forge::forge_account,
+            forge::forge_account_save,
+            forge::forge_sites,
+            forge::forge_import,
+            forge::forge_deployments,
+            forge::forge_output,
+            forge::forge_deploy,
             ops::ops_reveal,
             ops::ops_history,
             ops::ops_requests,

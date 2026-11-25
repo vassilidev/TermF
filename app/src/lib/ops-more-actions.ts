@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import type { Args } from "$lib/actions-logic";
 import type { Action } from "$lib/actions.svelte";
 import { t } from "$lib/i18n";
@@ -95,4 +96,72 @@ const laravelJob: Action = {
   },
 };
 
-export const opsMoreActions: Action[] = [redisWrite, nginxReload, laravelJob];
+type ForgeSite = { id: number; server_id: number; name: string };
+
+/** The account's sites named, by their domain. */
+async function forgeSites(project: string, names: unknown[]): Promise<ForgeSite[]> {
+  const found = await invoke<{ sites: ForgeSite[] }[]>("forge_sites", { project });
+  const all = found.flatMap((f) => f.sites);
+  return names.map((n) => {
+    const site = all.find((s) => s.name === n);
+    if (!site) throw new Error(`No Forge site ${String(n)} on the project's account: ${all.map((s) => s.name).join(", ") || "none"}.`);
+    return site;
+  });
+}
+
+const forgeAccount: Action = {
+  id: "ops.forge_account",
+  description:
+    "Names the project's Laravel Forge account: its label, and its API token, which the user types in TermF's card and which goes to the vault. You never see the token, and never ask for it in the conversation.",
+  fields: {
+    label: { type: "string", description: "The account's label, such as the client's name." },
+    token: { type: "string", secret: true, description: "The Forge API token." },
+  },
+  required: ["label"],
+  label: "opsforgeActAccount",
+  labels: { token: "opsforgeToken" },
+  describe: (a) => t("opsforgeActAccountText", { label: String(a.label) }),
+  async run(a, secrets, project) {
+    const account = await invoke<{ label: string; token: string }>("forge_account_save", { project, label: String(a.label), token: secrets.token?.trim() || null });
+    toast(t("opsmoreDone", { what: t("opsforgeActAccount") }));
+    return { account: account.label, token: "kept in the vault" };
+  },
+};
+
+const forgeImport: Action = {
+  id: "ops.forge_import",
+  description:
+    "Imports sites of the project's Forge account: an SSH connection forge@ip per server, each site's database read in its env through that server (its password to the vault), and a deploy target per site.",
+  fields: { sites: { type: "array", description: "The sites' domains, as Forge names them (acme.com)." } },
+  required: ["sites"],
+  label: "opsforgeActImport",
+  describe: (a) => t("opsforgeActImportText", { sites: (Array.isArray(a.sites) ? a.sites : []).join(", ") }),
+  async run(a, _secrets, project) {
+    const sites = await forgeSites(project, Array.isArray(a.sites) ? a.sites : []);
+    const done = await invoke<{ connections: string[]; targets: string[]; skipped: string[] }>("forge_import", {
+      project,
+      picks: sites.map((s) => ({ server: s.server_id, site: s.id })),
+    });
+    await loadOps(project);
+    toast(t("opsforgeImported", { connections: done.connections.length, targets: done.targets.length }));
+    return done;
+  },
+};
+
+const forgeDeploy: Action = {
+  id: "ops.forge_deploy",
+  description: "Redeploys a site of the project's Forge account: Forge runs its deployment script at once.",
+  fields: { site: { type: "string", description: "The site's domain, as Forge names it." } },
+  required: ["site"],
+  label: "opsforgeActDeploy",
+  describe: (a) => t("opsforgeActDeployText", { site: String(a.site) }),
+  loses: () => t("opsforgeRedeployText"),
+  async run(a, _secrets, project) {
+    const [site] = await forgeSites(project, [a.site]);
+    await invoke("forge_deploy", { project, server: site.server_id, site: site.id });
+    toast(t("opsforgeDeploying", { site: site.name }));
+    return { deploying: site.name };
+  },
+};
+
+export const opsMoreActions: Action[] = [redisWrite, nginxReload, laravelJob, forgeAccount, forgeImport, forgeDeploy];

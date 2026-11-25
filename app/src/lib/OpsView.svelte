@@ -12,6 +12,7 @@
   import Server from "@lucide/svelte/icons/server";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import OpsChecks from "$lib/OpsChecks.svelte";
+  import OpsForge from "$lib/OpsForge.svelte";
   import OpsRedis from "$lib/OpsRedis.svelte";
   import OpsServer from "$lib/OpsServer.svelte";
   import OpsEnv from "$lib/OpsEnv.svelte";
@@ -350,6 +351,7 @@
         { id: "recipes", label: t("opsTabRecipes"), count: listed.length },
         { id: "sql", label: t("opssqlTab") },
         { id: "live", label: t("opssqlLive") },
+        { id: "forge", label: t("opsforgeTab") },
         { id: "history", label: t("opsTabHistory") },
       ]}
       selected={ops.tab}
@@ -607,6 +609,8 @@
         {:else}
           <OpsFollow project={project.id} ask={askPassword} />
         {/if}
+      {:else if ops.tab === "forge"}
+        {#key project.id}<OpsForge project={project.id} ask={askPassword} />{/key}
       {:else}
         <div class="pane">
           {#if !ops.history.length}
