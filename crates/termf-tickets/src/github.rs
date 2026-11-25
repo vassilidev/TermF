@@ -104,6 +104,61 @@ const BOARD_ITEM: &str = "query($owner: String!, $number: Int!, $url: URI!) {
   }
 }";
 
+impl GitHub {
+    /// The options of the board's Status field, in its order: its columns.
+    pub(crate) fn board_columns(&self, board: &Board) -> Result<Vec<String>> {
+        let answer = self.graphql(
+            BOARD_STATUS,
+            &[("owner", &board.owner)],
+            &[("number", board.number)],
+        )?;
+        Ok(status_options(&answer))
+    }
+
+    /// Assigns the issue to `login` (`@me`: the signed-in user), or to nobody (`None`).
+    pub(crate) fn assign(&self, ticket: &TicketRef, login: Option<&str>) -> Result<()> {
+        let (slug, number) = split(&ticket.key)?;
+        // `@me` is a search word, not a login: the signed-in user's login says who.
+        let login = match login {
+            Some("@me") => Some(
+                self.run(None, &["api", "user", "--jq", ".login"], None)?
+                    .trim()
+                    .to_owned(),
+            ),
+            other => other.map(str::to_owned),
+        };
+        let input = json!({ "assignees": login.into_iter().collect::<Vec<_>>() }).to_string();
+        let path = format!("repos/{slug}/issues/{number}");
+        self.run(
+            None,
+            &["api", "--method", "PATCH", &path, "--input", "-"],
+            Some(&input),
+        )?;
+        Ok(())
+    }
+}
+
+const BOARD_STATUS: &str = "query($owner: String!, $number: Int!) {
+  repositoryOwner(login: $owner) {
+    ... on ProjectV2Owner {
+      projectV2(number: $number) {
+        field(name: \"Status\") { ... on ProjectV2SingleSelectField { options { name } } }
+      }
+    }
+  }
+}";
+
+/// The names of a board's Status options, from GitHub's answer to `BOARD_STATUS`.
+pub(crate) fn status_options(answer: &Value) -> Vec<String> {
+    let options = &answer["data"]["repositoryOwner"]["projectV2"]["field"]["options"];
+    options
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|o| o["name"].as_str().map(str::to_owned))
+        .collect()
+}
+
 const MOVE_ITEM: &str = "mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
   updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field, value: {singleSelectOptionId: $option}}) {
     projectV2Item { id }
@@ -401,7 +456,26 @@ impl GitHub {
                 break;
             }
         }
-        Ok(items
+        Ok(self.summaries(&items))
+    }
+
+    /// One page of 50 of what a search finds, and whether another one follows.
+    pub(crate) fn issues_page(&self, query: &str, page: u32) -> Result<(Vec<TicketSummary>, bool)> {
+        let fields = [
+            ("q", query.to_owned()),
+            ("per_page", "50".to_owned()),
+            ("page", page.to_string()),
+        ];
+        let answer = self.get("search/issues", &fields, true)?;
+        let items = answer["items"].as_array().cloned().unwrap_or_default();
+        let total = answer["total_count"].as_u64().unwrap_or(0);
+        // GitHub's search stops at its 1000th result.
+        let more = !items.is_empty() && u64::from(page) * 50 < total.min(1000);
+        Ok((self.summaries(&items), more))
+    }
+
+    fn summaries(&self, items: &[Value]) -> Vec<TicketSummary> {
+        items
             .iter()
             .filter_map(|item| {
                 let labels = item["labels"].as_array().into_iter().flatten();
@@ -418,7 +492,7 @@ impl GitHub {
                     source: "github".into(),
                 })
             })
-            .collect())
+            .collect()
     }
 
     /// `merged` or `closed` once the pull request at `url` is, `None` while it is open. Asked with its ETag.

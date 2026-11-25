@@ -251,6 +251,48 @@ fn ticket_keys(subjects: &str) -> Vec<String> {
     keys.into_iter().take(MAX_KEYS).map(|(k, _)| k).collect()
 }
 
+/// The Jira sites (`acme.atlassian.net`) `text` links, the most cited first.
+fn jira_sites(text: &str) -> Vec<String> {
+    let mut count: BTreeMap<String, usize> = BTreeMap::new();
+    for (at, _) in text.match_indices(".atlassian.net") {
+        let before = &text[..at];
+        let start = before
+            .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+            .map_or(0, |i| i + 1);
+        let name = &before[start..];
+        if !name.is_empty() && !name.starts_with('-') {
+            *count
+                .entry(format!("{}.atlassian.net", name.to_ascii_lowercase()))
+                .or_default() += 1;
+        }
+    }
+    let mut sites: Vec<(String, usize)> = count.into_iter().collect();
+    sites.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    sites.into_iter().map(|(s, _)| s).collect()
+}
+
+/// What a repository tells of its ticket tracker, from git only.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct TrackerHints {
+    /// The prefixes of the ticket keys its recent commits cite, the most cited first.
+    pub keys: Vec<String>,
+    /// The Jira sites its recent commits link.
+    pub sites: Vec<String>,
+    /// The e-mail its commits are signed with here.
+    pub email: Option<String>,
+}
+
+pub fn tracker_hints(repo: &Path) -> TrackerHints {
+    let log = git(repo, &["log", KEYS_READ, "--format=%s%n%b"]).unwrap_or_default();
+    TrackerHints {
+        keys: ticket_keys(&log),
+        sites: jira_sites(&log),
+        email: git(repo, &["config", "user.email"])
+            .map(|e| e.trim().to_owned())
+            .filter(|e| e.contains('@')),
+    }
+}
+
 /// The library as a project without layer of its own sees it, the chosen repositories' stack switching skills on.
 fn library(config_dir: &Path, stack: Vec<RepoStack>) -> Result<Vec<Item>> {
     let scope = Scope {

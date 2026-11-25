@@ -12,9 +12,11 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use termf_core::TicketCleanup;
 use termf_core::ipc::SessionSummary;
+use termf_onboarding::setup::TrackerHints;
 use termf_tickets::{
-    Configured, Delivery, DeliveryPreview, Inbox, McpServer, PrCheck, PrMerge, Resolution, Run,
-    RunEvent, Sources, TicketSummary, Tickets, Trackers, Unpushed,
+    Board, Browse, Configured, Delivery, DeliveryPreview, Detail, Inbox, McpServer, Page, PrCheck,
+    PrMerge, Reached, Resolution, Run, RunEvent, Sources, TicketRef, TicketSummary, Tickets,
+    TrackerProject, Trackers, Unpushed,
 };
 
 use crate::{AppState, CmdResult, api, err};
@@ -502,6 +504,191 @@ pub async fn tickets_mcp_servers(
     project: Option<String>,
 ) -> CmdResult<Vec<McpServer>> {
     blocking(app, move |app| tickets(app).mcp_servers(project.as_deref())).await
+}
+
+/// What the project's repositories tell of its Jira, from git only: the keys their commits cite (most cited
+/// first), the sites they link, and the e-mail their commits are signed with.
+#[tauri::command]
+pub async fn tickets_jira_hints(app: AppHandle, project: String) -> CmdResult<TrackerHints> {
+    blocking(app, move |app| {
+        let config = &app.state::<AppState>().config_dir;
+        let found = termf_core::load_projects(config)?
+            .into_iter()
+            .find(|p| p.id == project)
+            .with_context(|| format!("no project {project}"))?;
+        let mut all = TrackerHints::default();
+        for repo in &found.repos {
+            let hints = termf_onboarding::setup::tracker_hints(std::path::Path::new(&repo.path));
+            for key in hints.keys {
+                if !all.keys.contains(&key) {
+                    all.keys.push(key);
+                }
+            }
+            for site in hints.sites {
+                if !all.sites.contains(&site) {
+                    all.sites.push(site);
+                }
+            }
+            all.email = all.email.or(hints.email);
+        }
+        Ok(all)
+    })
+    .await
+}
+
+/// The Jira projects an account sees: with `token` (checking it before it is kept), else the keychain's.
+#[tauri::command]
+pub async fn tickets_jira_projects(
+    app: AppHandle,
+    site: String,
+    email: String,
+    token: Option<String>,
+) -> CmdResult<Vec<TrackerProject>> {
+    blocking(app, move |app| {
+        tickets(app).jira_projects(&site, &email, token.as_deref())
+    })
+    .await
+}
+
+/// The site and projects the user's account reaches through an MCP server of their Claude Code (slow: Claude
+/// Code asks the server).
+#[tauri::command]
+pub async fn tickets_mcp_projects(
+    app: AppHandle,
+    project: Option<String>,
+    server: String,
+) -> CmdResult<Reached> {
+    blocking(app, move |app| {
+        tickets(app).mcp_projects(project.as_deref(), &server)
+    })
+    .await
+}
+
+/// A page of the tickets one of the project's sources finds; `next` as the last page gave it.
+#[tauri::command]
+pub async fn tickets_browse(
+    app: AppHandle,
+    project: String,
+    source: String,
+    browse: Browse,
+    next: Option<String>,
+) -> CmdResult<Page> {
+    blocking(app, move |app| {
+        tickets(app).browse(&project, &source, &browse, next.as_deref())
+    })
+    .await
+}
+
+/// The projects of one of the project's sources: Jira's, or the GitHub repositories.
+#[tauri::command]
+pub async fn tickets_source_projects(
+    app: AppHandle,
+    project: String,
+    source: String,
+) -> CmdResult<Vec<TrackerProject>> {
+    blocking(app, move |app| {
+        tickets(app).source_projects(&project, &source)
+    })
+    .await
+}
+
+/// One ticket in full, as its tracker gives it, with what it says of it beyond its text.
+#[tauri::command]
+pub async fn tickets_ticket(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+) -> CmdResult<Detail> {
+    blocking(app, move |app| tickets(app).ticket(&project, &ticket)).await
+}
+
+/// A source's board: its states as columns, whether tickets move between them, or that it has none.
+#[tauri::command]
+pub async fn tickets_board(app: AppHandle, project: String, source: String) -> CmdResult<Board> {
+    blocking(app, move |app| tickets(app).board(&project, &source)).await
+}
+
+/// Assigns a ticket in its tracker: `me`, `none`, or someone.
+#[tauri::command]
+pub async fn tickets_assign(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+    to: String,
+) -> CmdResult<()> {
+    blocking(app, move |app| tickets(app).assign(&project, &ticket, &to)).await
+}
+
+/// The states a ticket can move to from where it is; none: its tracker says nothing of them.
+#[tauri::command]
+pub async fn tickets_states(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+) -> CmdResult<Vec<String>> {
+    blocking(app, move |app| {
+        tickets(app).ticket_states(&project, &ticket)
+    })
+    .await
+}
+
+/// Moves a ticket to a state in its tracker: the user's own gesture, or an action the user approved.
+#[tauri::command]
+pub async fn tickets_move(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+    to: String,
+) -> CmdResult<()> {
+    blocking(app, move |app| {
+        tickets(app).move_ticket(&project, &ticket, &to)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn tickets_comment(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+    body: String,
+) -> CmdResult<()> {
+    blocking(app, move |app| {
+        tickets(app).comment_ticket(&project, &ticket, &body)
+    })
+    .await
+}
+
+/// A Jira attachment's bytes, or its thumbnail's, read with the site's token.
+#[tauri::command]
+pub async fn tickets_attachment(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+    id: String,
+    thumbnail: bool,
+) -> CmdResult<tauri::ipc::Response> {
+    blocking(app, move |app| {
+        let bytes = tickets(app).attachment(&project, &ticket, &id, thumbnail)?;
+        Ok(tauri::ipc::Response::new(bytes))
+    })
+    .await
+}
+
+/// Writes an attachment where the user chose to save it.
+#[tauri::command]
+pub async fn tickets_attachment_save(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+    id: String,
+    path: String,
+) -> CmdResult<()> {
+    blocking(app, move |app| {
+        let bytes = tickets(app).attachment(&project, &ticket, &id, false)?;
+        std::fs::write(&path, bytes).with_context(|| format!("cannot write {path}"))
+    })
+    .await
 }
 
 #[tauri::command]
