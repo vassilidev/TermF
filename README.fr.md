@@ -19,10 +19,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/vassilidev/TermF/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/vassilidev/TermF?label=release&color=5b5bd6"></a>
   <a href="https://github.com/vassilidev/TermF/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vassilidev/TermF/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="macOS, Windows et Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-4040cc">
   <img alt="Développement précoce" src="https://img.shields.io/badge/status-early%20development-f2a516">
   <a href="LICENSE"><img alt="Licence MIT" src="https://img.shields.io/github/license/vassilidev/TermF?color=555a67"></a>
+  <a href="https://code.claude.com"><img alt="For Claude Code" src="https://img.shields.io/badge/for-Claude%20Code-D97757"></a>
 </p>
 
 ```sh
