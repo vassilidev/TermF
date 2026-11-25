@@ -229,6 +229,7 @@
   $effect(() => {
     const repo = git.repo;
     const visible = onScreen("git");
+    void git.reads;
     untrack(() => {
       if (!visible || !repo) return;
       load(repo === read);

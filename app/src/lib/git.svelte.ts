@@ -133,6 +133,8 @@ export const git = $state({
   repo: "",
   /** The last cleanup proposed, for the view to show. */
   plan: null as Plan | null,
+  /** Bumped by a change made elsewhere (an agent's action): the view reads the repository again. */
+  reads: 0,
 });
 
 let plans = 0;

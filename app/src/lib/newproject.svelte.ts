@@ -83,7 +83,13 @@ const fresh = (): Draft => ({
 });
 
 /** The setup: open or not, `project` when it is one that exists, `round` to start its page over. */
-export const creating = $state({ open: false, round: 0, project: null as string | null });
+export const creating = $state({
+  open: false,
+  round: 0,
+  project: null as string | null,
+  /** Applies the setup as its Ready step shows it, while that step is ready (an agent's action takes it). */
+  apply: null as null | (() => Promise<void>),
+});
 export const draft = $state<Draft>(fresh());
 
 /** Each repository's card by path, once its git state and stack are read. */

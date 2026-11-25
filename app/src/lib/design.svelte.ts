@@ -8,6 +8,8 @@ export const design = $state({
   /** The repository's path, one of the current project's. */
   repo: "",
   section: "color" as Section,
+  /** Bumped to read the repository again (an agent's action). */
+  scans: 0,
 });
 
 export function showDesign() {

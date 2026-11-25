@@ -4,8 +4,14 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import { Approved, forAgent, refused, type Args, type Spec } from "$lib/actions-logic";
 import { ask } from "$lib/ask.svelte";
 import { ciActions } from "$lib/ci-actions";
+import { designActions } from "$lib/design-actions";
+import { gitActions } from "$lib/git-actions";
 import { t } from "$lib/i18n";
+import { libraryActions } from "$lib/library-actions";
 import { opsActions } from "$lib/ops-actions";
+import { schedulerActions } from "$lib/scheduler-actions";
+import { settingsActions } from "$lib/settings-actions";
+import { setupActions } from "$lib/setup-actions";
 import { ticketActions } from "$lib/tickets-actions";
 import { toast } from "$lib/ui/toast.svelte";
 
@@ -29,7 +35,17 @@ export type Action = Spec & {
 };
 
 /** Each screen's actions, by view, and those of anywhere. */
-const SCREENS: Record<string, Action[]> = { ops: opsActions, tickets: ticketActions, ci: ciActions };
+const SCREENS: Record<string, Action[]> = {
+  ops: opsActions,
+  tickets: ticketActions,
+  ci: ciActions,
+  library: libraryActions,
+  git: gitActions,
+  settings: settingsActions,
+  scheduler: schedulerActions,
+  newProject: setupActions,
+  design: designActions,
+};
 const GLOBAL: Action[] = [];
 
 /** A call of `termf mcp`, as the app gives it; `action` null: the list. */
