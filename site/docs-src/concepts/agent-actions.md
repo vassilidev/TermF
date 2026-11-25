@@ -58,6 +58,7 @@ Two cards, one after the other: the prerequisite, then the action.
 | Library and Claude | Turn an item on or off, copy one, install, set or uninstall a plugin |
 | Git | Create, switch to or rename a branch; clean up branches and worktrees |
 | Scheduler | Create, change, run or delete a task |
+| My environment | Detect what is installed; add, change or remove entries of `env.toml`; save or delete an install script; install what is missing, in a terminal you see |
 | Settings, project and setup | Change a setting, change the project, apply the setup, scan the design system |
 
 A query an agent runs shows its result on the screen. The agent only learns how many rows came back and their columns.
