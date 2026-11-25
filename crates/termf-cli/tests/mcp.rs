@@ -158,7 +158,7 @@ fn speaks_mcp_and_calls_termf_with_its_own_token_only() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 20, "{names:?}");
+    assert_eq!(names.len(), 22, "{names:?}");
     assert!(names.contains(&"ask_expert") && !names.contains(&"memory_search"));
     assert!(names.contains(&"ops_recipes") && names.contains(&"ops_run"));
     for never in ["deliver", "close", "push", "vault", "secret"] {
@@ -249,6 +249,37 @@ fn serves_only_the_tools_termf_names_for_the_session() {
     let list = asker.ask(1, "tools/list", json!({}));
     assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 1);
     assert_eq!(list["result"]["tools"][0]["name"], "ask_expert");
+}
+
+#[test]
+fn a_panel_conversation_asks_termf_for_a_screen_s_action() {
+    let (socket, requests) = fake_termf(
+        "actions",
+        |request| match request["params"]["tool"]["tool"].as_str() {
+            Some("do_action") => json!({"ok": {"connections": ["acme-local", "acme-prod"]}}),
+            _ => json!({"error": "The user refused this in TermF: it did not run."}),
+        },
+    );
+    let mut server = Server::with_tools(&socket, true, Some("actions,do_action"));
+    let init = server.ask(1, "initialize", json!({"protocolVersion": "2025-06-18"}));
+    let instructions = init["result"]["instructions"].as_str().unwrap();
+    assert!(instructions.contains("do_action") && instructions.contains("askedToUser"));
+    let added = server.call(
+        2,
+        "do_action",
+        json!({"action": "ops.add_connection", "args": {"name": "acme-prod", "kind": "mysql", "env": "prod"},
+               "hints": {"password": "DB_PASSWORD in the server's .env"}}),
+    );
+    assert_eq!(added["result"]["isError"], false, "{added}");
+    assert!(text(&added).contains("acme-prod"));
+    let listed = server.call(3, "actions", json!({}));
+    assert_eq!(listed["result"]["isError"], true);
+    assert_eq!(
+        requests.lock().unwrap()[0],
+        json!({"token": TOKEN, "method": "mcp", "params": {"session": 7, "tool": {"tool": "do_action",
+            "action": "ops.add_connection", "args": {"name": "acme-prod", "kind": "mysql", "env": "prod"},
+            "hints": {"password": "DB_PASSWORD in the server's .env"}}}})
+    );
 }
 
 #[test]

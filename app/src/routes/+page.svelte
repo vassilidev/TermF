@@ -21,6 +21,7 @@
   import { watchCi } from "$lib/ci.svelte";
   import { watchOps } from "$lib/ops.svelte";
   import { watchAgentEnv } from "$lib/agentenv.svelte";
+  import { watchActions } from "$lib/actions.svelte";
   import { watchSchedule } from "$lib/schedule.svelte";
   import { sync, watchSync } from "$lib/sync.svelte";
   import { watchTeam } from "$lib/team.svelte";
@@ -50,6 +51,7 @@
     const stopTeam = watchTeam();
     const stopOps = watchOps();
     const stopAgentEnv = watchAgentEnv();
+    const stopActions = watchActions();
     const stopVisual = watchVisual();
     const stopSync = watchSync();
     const stopTray = watchTray();
@@ -59,7 +61,7 @@
     const stopLive = watchLive();
     // After the panels: two panels kept win over the view kept.
     const stopWorkspace = watchWorkspace();
-    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopAgentEnv(), stopVisual(), stopSync(), stopTray(), stopUpdates(), stopMenu(), stopUsage(), stopLive(), stopWorkspace());
+    return () => (stop(), stopCi(), stopSchedule(), stopTickets(), stopSetup(), stopAgents(), stopPanes(), stopTour(), stopTeam(), stopOps(), stopAgentEnv(), stopActions(), stopVisual(), stopSync(), stopTray(), stopUpdates(), stopMenu(), stopUsage(), stopLive(), stopWorkspace());
   });
 
   function drag(e: PointerEvent) {

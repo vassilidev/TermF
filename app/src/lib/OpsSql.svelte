@@ -42,21 +42,17 @@
     isSql,
     pastQueries,
     refusal,
-    runsOn,
     sortRows,
     type Check as Checked,
-    type Connection,
     type ExportFormat,
     type Plan,
     type Query,
-    type Ran,
   } from "$lib/ops-logic";
-  import { loadHistory, loadSchema, ops } from "$lib/ops.svelte";
+  import { loadHistory, loadSchema, ops, runSql, sqlRecipe } from "$lib/ops.svelte";
 
   let { project, ask }: { project: string; ask: (e: unknown, retry: () => Promise<void>) => boolean } = $props();
 
-  const recipeFor = (c: Connection | undefined) =>
-    c ? ops.recipes.find((r) => isSql(r) && runsOn(r, c) && !r.params.some((p) => p.type === "sql" && p.values?.length)) : undefined;
+  const recipeFor = sqlRecipe;
   const databases = $derived(ops.connections.filter((c) => recipeFor(c)));
   const conn = $derived(databases.find((c) => c.name === ops.sql.connection) ?? databases[0]);
   const recipe = $derived(recipeFor(conn));
@@ -278,19 +274,8 @@
     error = "";
     notice = "";
     try {
-      const query = ops.sql.query;
-      const ran = await invoke<Ran>("ops_run", {
-        project,
-        recipe: recipe.name,
-        connection: conn.name,
-        params: { [param]: query },
-        confirm: null,
-        proposal: null,
-      });
-      // The query as launched, for a full export: the result's own carries the console's LIMIT.
-      ops.sql.result = { ...ran, query };
+      await runSql(project, conn, ops.sql.query);
       sort = null;
-      loadHistory(project);
     } catch (e) {
       if (!ask(e, run)) error = reason(e);
     } finally {

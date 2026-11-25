@@ -20,6 +20,7 @@
   import { openTile } from "$lib/tickets.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import { askAI } from "$lib/ask.svelte";
   import NextStep from "$lib/ui/NextStep.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
@@ -496,6 +497,8 @@
               : project
                 ? t("ticketsEmptyProject", { project: project.name })
                 : t("ticketsEmptyAll")}
+            onask={project ? () => askAI({ role: "cto", draft: t("actTicketsDraft") }) : undefined}
+            askLabel={t("actTicketsFind")}
           >
             {#if unset}
               <button class="btn primary" onclick={() => editProject(unset.id, "tickets")}>

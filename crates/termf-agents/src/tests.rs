@@ -1108,6 +1108,7 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
     };
     let ask: Vec<String> = termf_core::ipc::MCP_ACTIONS
         .iter()
+        .chain(&["do_action"])
         .map(|t| format!("mcp__termf__{t}"))
         .collect();
     assert_eq!(names("ask"), ask, "every action waits for the user");
@@ -1308,8 +1309,17 @@ fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
         mcp: true,
         ..env.spec()
     };
+    let answering = SessionSpec {
+        budget: Some(0.5),
+        ..expert.clone()
+    };
+    assert_eq!(
+        crate::mcp_tools(&answering),
+        termf_core::ipc::MCP_EXPERT,
+        "an answer to another agent never acts on the screens"
+    );
     let (args, tools) = run(expert);
-    assert_eq!(tools, "memory_search,memory_read");
+    assert_eq!(tools, "memory_search,memory_read,actions,do_action");
     assert_eq!(
         arg_after(&args, "--tools"),
         Some("Read,Grep,Glob,Agent"),
@@ -1320,9 +1330,17 @@ fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
     let permissions = &settings["permissions"];
     assert_eq!(
         permissions["allow"],
-        json!(["mcp__termf__memory_search", "mcp__termf__memory_read"])
+        json!([
+            "mcp__termf__memory_search",
+            "mcp__termf__memory_read",
+            "mcp__termf__actions"
+        ])
     );
-    assert!(permissions["ask"].is_null(), "no action at all");
+    assert_eq!(
+        permissions["ask"],
+        json!(["mcp__termf__do_action"]),
+        "only the screens' actions, each asked"
+    );
     for tool in [
         "Bash",
         "PowerShell",
@@ -1340,6 +1358,21 @@ fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
             "{tool}"
         );
     }
+
+    let panel = SessionSpec {
+        role: Some("devops".into()),
+        actions: true,
+        ..env.spec()
+    };
+    let (args, tools) = run(panel);
+    assert_eq!(tools, "actions,do_action");
+    let settings: Value = serde_json::from_str(arg_after(&args, "--settings").unwrap()).unwrap();
+    assert_eq!(
+        settings["permissions"],
+        json!({"allow": ["mcp__termf__actions"], "ask": ["mcp__termf__do_action"]}),
+        "a panel conversation keeps its own tools, and asks before each action"
+    );
+    assert!(!args.contains(&"--restricted".into()));
 
     let (args, tools) = run(po);
     assert_eq!(tools, "ask_expert");

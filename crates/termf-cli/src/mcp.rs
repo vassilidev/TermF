@@ -1,5 +1,6 @@
 //! `termf mcp`: the MCP server (stdio, one JSON-RPC message per line) of a session TermF gives its tools to: the
-//! project's CTO conversation, the expert's, or a role that asks the expert. Each tool is one local API call for
+//! project's CTO conversation, the expert's, a conversation of the ⌘I panel, or a role that asks the expert. Each tool
+//! is one local API call for
 //! that session, made with that session's own token, which allows nothing else; it lists and serves only the
 //! tools TermF names for the session; started any other way, it serves no tool. The `browser_*` tools are its
 //! own: it runs the session's browser itself (`termf_visual::agent`), and a reaper that outlives it.
@@ -11,7 +12,7 @@ use std::process::{ChildStdin, Command, Stdio};
 
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
-use termf_core::ipc::{self, Call, MCP_ACTIONS, MCP_OPS, MCP_READ, McpCall};
+use termf_core::ipc::{self, Call, MCP_ACTIONS, MCP_OPS, MCP_READ, MCP_SCREEN, McpCall};
 use termf_visual::agent::{Leftover, Pilot, Watch};
 
 use crate::Client;
@@ -62,6 +63,15 @@ key…) when it is not in your environment: name the variable, say in one senten
 where the user gets one. You never get the value: the user stores it in TermF's vault, and it is in the \
 environment of the project's agents from their next start. Never ask the user to paste a key anywhere else, and \
 never print, write or log one.";
+
+const SCREEN_INSTRUCTIONS: &str = "\
+You act in TermF yourself: `actions` lists what you may do from the screen the user talks to you from (add or test \
+a connection, connect a ticket source, rerun a workflow…), each with its arguments. When the user wants something \
+done in TermF, call `do_action` rather than giving them values to type or buttons to click: read and check first, \
+then propose it in one sentence and call it. The user approves each one in TermF, which shows exactly what it does. \
+TermF asks the user itself for the fields `actions` lists under `askedToUser` (passwords, tokens) and keeps them: \
+never ask the user for them, never pass them; say in `hints` where the user finds each one (DB_PASSWORD in the \
+server's .env). You get its result, or why it failed; never say it is done before it returns.";
 
 fn tools() -> Value {
     let none = json!({ "type": "object", "properties": {}, "additionalProperties": false });
@@ -385,6 +395,30 @@ fn tools() -> Value {
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "openWorldHint": false }
         }),
         read(
+            "actions",
+            "TermF's actions here",
+            "What you may do in TermF from the screen the user talks to you from, and anywhere: each action's id, what it does, its `arguments` (a JSON schema) and `askedToUser`, the fields TermF asks the user for itself.",
+            none.clone()
+        ),
+        act(
+            "do_action",
+            "Do an action in TermF",
+            "Does one of the actions `actions` lists, once the user approves it in TermF (they see exactly what it does and type the fields asked to them): its result, or why it failed. Waits up to 5 minutes for the user.",
+            object(
+                json!({
+                    "action": { "type": "string", "description": "The action's id, as actions lists it." },
+                    "args": { "type": "object", "description": "Its arguments, as its schema says; never a field asked to the user." },
+                    "hints": {
+                        "type": "object",
+                        "description": "Field asked to the user → where they find its value (DB_PASSWORD in the server's .env).",
+                        "additionalProperties": { "type": "string", "maxLength": 200 }
+                    }
+                }),
+                &["action"]
+            ),
+            false
+        ),
+        read(
             "browser_screenshot",
             "Screenshot of the page",
             &format!(
@@ -407,6 +441,7 @@ fn allowed() -> Vec<String> {
             .iter()
             .chain(&MCP_ACTIONS)
             .chain(&MCP_OPS)
+            .chain(&MCP_SCREEN)
             .map(|t| t.to_string())
             .collect(),
     }
@@ -551,6 +586,7 @@ fn instructions(allowed: &[String]) -> String {
         browser.then_some(BROWSER_INSTRUCTIONS),
         has("ops_run").then_some(OPS_INSTRUCTIONS),
         has("request_secret").then_some(SECRET_INSTRUCTIONS),
+        has("do_action").then_some(SCREEN_INSTRUCTIONS),
     ];
     parts.into_iter().flatten().collect::<Vec<_>>().join("\n\n")
 }
@@ -608,6 +644,71 @@ mod tests {
     use termf_core::ipc::{MCP_BROWSER, MCP_EXPERT, MCP_SECRETS};
 
     #[test]
+    fn a_panel_conversation_lists_the_screen_s_actions_and_does_one_through_termf() {
+        let allowed: Vec<String> = MCP_SCREEN.iter().map(|t| t.to_string()).collect();
+        let seen = std::cell::RefCell::new(Vec::new());
+        let call = |tool: McpCall| {
+            let reply = match &tool {
+                McpCall::Actions {} => {
+                    json!({"screen": "ops", "actions": [{"id": "ops.add_connection"}]})
+                }
+                _ => json!({"done": true}),
+            };
+            seen.borrow_mut().push(tool);
+            Ok(reply)
+        };
+        let mut none = |_: &str, _: &Value| -> Result<Vec<Value>> { unreachable!() };
+        let mut send = |msg: Value| answer(&msg.to_string(), &allowed, &call, &mut none).unwrap();
+        let init = send(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}));
+        assert_eq!(init["result"]["instructions"], json!(SCREEN_INSTRUCTIONS));
+        let list = send(json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}));
+        let tools = list["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0]["annotations"]["readOnlyHint"], json!(true));
+        assert_eq!(tools[1]["annotations"]["readOnlyHint"], json!(false));
+        let listed = send(
+            json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "actions", "arguments": {}}}),
+        );
+        assert!(
+            listed["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("ops.add_connection")
+        );
+        let add = send(
+            json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "do_action",
+            "arguments": {"action": "ops.add_connection", "args": {"name": "acme-prod", "kind": "mysql"},
+                          "hints": {"password": "DB_PASSWORD in the server's .env"}}}}),
+        );
+        assert_eq!(add["result"]["isError"], json!(false), "{add}");
+        let mut args = serde_json::Map::new();
+        args.insert("name".into(), json!("acme-prod"));
+        args.insert("kind".into(), json!("mysql"));
+        assert_eq!(
+            seen.borrow()[1],
+            McpCall::DoAction {
+                action: "ops.add_connection".into(),
+                args,
+                hints: [("password".into(), "DB_PASSWORD in the server's .env".into())].into(),
+            }
+        );
+        let stray = send(
+            json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "do_action",
+            "arguments": {"action": "ops.add_connection", "password": "s3cret"}}}),
+        );
+        assert_eq!(
+            stray["result"]["isError"],
+            json!(true),
+            "nothing beside the action, its arguments and the hints: {stray}"
+        );
+        assert_eq!(seen.borrow().len(), 2);
+        let team = send(
+            json!({"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "team_runs", "arguments": {}}}),
+        );
+        assert_eq!(team["error"]["code"], json!(-32602), "not a panel tool");
+    }
+
+    #[test]
     fn lists_exactly_the_tools_termf_allows_and_asks_for() {
         let listed = tools();
         let names: Vec<&str> = listed
@@ -621,6 +722,7 @@ mod tests {
         expected.extend(MCP_BROWSER);
         expected.extend(MCP_OPS);
         expected.extend(MCP_SECRETS);
+        expected.extend(MCP_SCREEN);
         expected.sort();
         let mut names = names;
         names.sort();
@@ -632,6 +734,7 @@ mod tests {
             let read = MCP_READ.contains(&name)
                 || MCP_EXPERT.contains(&name)
                 || name == "ops_recipes"
+                || name == "actions"
                 || (MCP_BROWSER.contains(&name) && !browsing.contains(&name));
             assert_eq!(tool["annotations"]["readOnlyHint"], json!(read), "{tool}");
         }
