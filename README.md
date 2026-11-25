@@ -34,7 +34,7 @@ irm https://vassilidev.github.io/TermF/install.ps1 | iex          # Windows (Pow
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/shots/home-dark.webp">
-  <img alt="TermF's project Home: the conversation with the CTO, a plan waiting for approval and a card to start a team run, and on the right what waits for you, the agents at work and the runs" src="site/shots/home-light.webp">
+  <img alt="TermF's project Home: two things wait for an answer, the agents live with what each is doing, the runs and the tickets to handle, and the bar to ask the CTO at the bottom" src="site/shots/home-light.webp">
 </picture>
 
 ## What it is
@@ -77,8 +77,8 @@ On first launch, the Home lists the tools TermF needs that are missing, with the
 
 <table>
   <tr>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/setup-dark-800.webp"><img alt="New project: what TermF proposes after reading the repositories, the agents' team, ticket sources, worktree setup, CI/CD and skills" src="site/shots/setup-light-800.webp"></picture></td>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/greenfield-dark-800.webp"><img alt="New project, Start from scratch: the idea in a few sentences, three examples, and what the team does next" src="site/shots/greenfield-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/setup-dark-800.webp"><img alt="New project, step 5 of 5, Your team and your tools: the agents' team, ticket sources, worktree setup, the checks before delivery and CI, each kept by default with Adjust" src="site/shots/setup-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/greenfield-dark-800.webp"><img alt="New project, Start from scratch: the idea in a few sentences, three examples, and what the team does next, framing, research, your decision, the skeleton" src="site/shots/greenfield-light-800.webp"></picture></td>
   </tr>
   <tr>
     <td align="center"><sub>From your repositories: the proposal</sub></td>
@@ -93,6 +93,8 @@ Every feature is documented on the website, with what works out of the box, what
 ### The CTO and the team
 
 - **The CTO's conversation.** One permanent conversation per project. Each action the CTO takes (start a run, approve a step, stop) is a card you approve. `@front` writes to an agent at work, `@expert` to the project expert.
+- **Ask from any screen.** <kbd>⌘I</kbd> opens a panel beside the view, with the agent that fits it (the lead on a run, devops on CI/CD, the DBA in the database studio, the expert in Git) and what you are looking at as context. Nothing changes without your OK.
+- **Fewer prompts, same guard rails.** In a run, read-only commands and the project's own checks, tests and lint run without asking. The CTO can add a role a ticket needs, and the pull request tells what was done and checked.
 - **Triage, sized to the ticket.** The CTO picks how the team takes a ticket: the steps, the agents, the budget, never more than it needs. A trivial change gets one developer and the project's checks, a small one a developer and a short review; only a large, vague or sensitive one gets the full team, and waits for your OK on its route and plan.
 - **Questions with proposed answers.** Open questions arrive in one form, each with a reason and a proposed answer: you only change what is wrong.
 - **29 roles.** Each role is a Markdown file you can override per project, squad or repository (model, effort, permissions, skills, paths it may not touch).
@@ -105,19 +107,20 @@ Every feature is documented on the website, with what works out of the box, what
 
 ### Projects, tickets and runs
 
-- **Projects and the setup.** Pick repositories; TermF detects stacks, commands, CI and tickets, and proposes the rest.
+- **Projects and the setup.** One guided wizard: pick repositories; TermF detects stacks, commands, CI and tickets, asks a few questions with a proposed answer, and proposes the rest.
 - **A project from scratch.** Start from an idea: TermF creates the repository (and, if you like, its GitHub repository), then the `kickoff` workflow frames it, a researcher and a competitive analyst look at what exists, and you settle the decision before the skeleton is built.
-- **The project's Home.** The CTO's conversation, what waits for you, the agents at work and the runs, on one screen.
+- **Today, on the project's Home.** Where things stand in one sentence, what waits for you first, the agents at work in plain words, the runs and the tickets to pick up.
 - **Ticket sources.** GitHub Issues, GitHub Projects, GitLab (delivered as a merge request), Jira Cloud, Linear, Azure DevOps, or any MCP server; several per project.
-- **The run page.** One page per ticket, from launch to merge: steps, plan, questions, budget, log.
+- **The run page.** One page per ticket, from launch to merge: steps, one lane per agent with your answer in place, the changed files, budget, log.
 - **Runs across repositories.** A ticket that touches the API and the front end gets one pull request in each repository, linked together.
 - **Workflows and rules.** Workflows are files; rules like "do only what the ticket asks" or "no unrequested text changes" go from advice to blocking.
 - **Delivery in two steps.** A preview of exactly what will be sent, then your confirmation; agents can never push.
 - **Git in the project.** Branch graph, branches and worktrees, stage by file, hunk or line, commit, stash, merge, rebase with conflicts, tags, history and blame.
+- **Git cleanup.** The branches and worktrees that can go, with what each would lose. What loses nothing goes at once, with Undo, and a git expert helps you sort the rest.
 
 <table>
   <tr>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/run-dark-800.webp"><img alt="A run page: the steps from framing to delivery, the plan's questions with proposed answers, the budget and the log" src="site/shots/run-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/run-dark-800.webp"><img alt="A run's page: the plan's questions in the lane of the agent that asks, each with its reason and a proposed answer already selected, and the next step on the right" src="site/shots/run-light-800.webp"></picture></td>
     <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/git-dark-800.webp"><img alt="The Git view: local and remote branches, worktrees and stashes, and the commit graph of every branch" src="site/shots/git-light-800.webp"></picture></td>
   </tr>
   <tr>
@@ -131,21 +134,21 @@ Every feature is documented on the website, with what works out of the box, what
 - **Tabs and splits**, as in Ghostty, for Claude Code, Codex, Gemini or a shell, with each session's state and how full its context is.
 - **Context reset with handoff.** When a session's context fills up, TermF has it write a handoff, clears it and resumes.
 - **Remote Control**: pick up a Claude Code session from your phone, with its link and QR code, per session, project or role; a menu bar icon and a dock badge show what waits for you.
-- **Two panels, help and a guided tour**; every shortcut can be remapped.
+- **Two panels, help and a first-launch guide**; every shortcut can be remapped.
 - **Files, a quick terminal and keep awake**: an explorer with fuzzy search and an editor, a terminal on <kbd>Ctrl+`</kbd>, and a switch that keeps the machine awake while agents work.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/shots/terminals-dark-800.webp">
-  <img alt="Terminals: tabs, and two Claude Code sessions side by side above a shell" src="site/shots/terminals-light-800.webp" width="800">
+  <img alt="Terminals in TermF: tabs, and a layout of three panes, a Claude Code session beside a shell and a second Claude Code session at work" src="site/shots/terminals-light-800.webp" width="800">
 </picture>
 
 ### Worktrees, library and skills
 
 - **Worktrees ready to run.** Each run works in its own git worktree, with dependencies, `.env` files, a cloned database and its own ports.
-- **The library.** Roles, rules, skills, workflows and commands in layers (shipped, global, project, repository).
+- **The library.** Roles, rules, skills, workflows and commands in layers (shipped, global, project, repository). Search first, see what is really active in this project and why, and switch an item on or off with Undo.
 - **38 skills by stack**, turned on by what TermF finds in your repositories, plus skills for `git`, `gh`, `curl`, `jq`, `make` and more for every agent.
 - **Language servers**: when your stack's language server is installed (rust-analyzer, TypeScript, pyright, gopls…), agents get its diagnostics as they edit; the shipped skills and key roles have evals.
-- **Conventions in plain words**, proposed from your code and reviewed one by one, and a **library scout** that checks the web for better practices.
+- **Conventions in plain words**, proposed from your code and reviewed one by one, and a **library scout** that checks the web for better practices. What they propose lands in a To do tab, one action per line.
 
 ### Claude Code, other agents and the scheduler
 
@@ -157,14 +160,14 @@ Every feature is documented on the website, with what works out of the box, what
 
 ### CI/CD, design and visual review
 
-- **CI/CD**: GitHub Actions runs and logs in the app, with the first error found, rerun and cancel, and a failure sent back to the agent that caused it.
-- **The Design system view**: your tokens and components read from the code, with every inconsistency (hard-coded values, near-identical colors, contrasts under WCAG AA, an incomplete dark theme), and brand guidelines exported to PDF.
+- **CI/CD**: GitHub Actions runs and logs in the app, with the job graph live, the first error found, rerun and cancel, and a failure sent back to the agent that caused it; webhooks, and deployments through the Laravel Forge, Vercel, Netlify, Fly.io or Railway command line.
+- **The Design system view**: your tokens and components read from the code, with every inconsistency (hard-coded values, near-identical colors, contrasts under WCAG AA, an incomplete dark theme), and brand guidelines exported to PDF. It loads the project's real fonts, with a type specimen and the components redrawn from its tokens.
 - **Visual review**: before and after captures of each changed screen, side by side, with a slider, an overlay or a heatmap, pins, and a swipe mode to go through them.
 
 <table>
   <tr>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/review-dark-800.webp"><img alt="The visual review page: the before and after slider on a changed screen, a pin, the comment for the agent and the decision buttons" src="site/shots/review-light-800.webp"></picture></td>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/design-dark-800.webp"><img alt="The Design system view: tokens by family and the inconsistencies found" src="site/shots/design-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/review-dark-800.webp"><img alt="The visual review page in Quick review: a changed screen of the invoices page, why it changed, the text that changed, and the buttons to refuse, ask for a change or approve" src="site/shots/review-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/design-dark-800.webp"><img alt="The Design system view: the repository's components drawn with its own tokens, each with its variants, its file and where it is used, beside the token families and the inconsistencies" src="site/shots/design-light-800.webp"></picture></td>
   </tr>
   <tr>
     <td align="center"><sub>Visual review</sub></td>
@@ -177,17 +180,18 @@ Every feature is documented on the website, with what works out of the box, what
 - **SSH and keys** in every common format, with the agent and `~/.ssh/config`.
 - **The vault**: logins with two-factor codes, secure notes and secrets per project, encrypted; a security key (FIDO2) as a second factor, Touch ID or Windows Hello; import from Bitwarden, 1Password, browsers and KeePassXC. Agents never see a value unless you allow it.
 - **Encrypted sync** of settings, projects, the vault and, if you choose, SSH keys, through git, a folder, S3 or WebDAV.
-- **Servers, databases and logs (Ops)**: SSH, Postgres, MySQL, Kubernetes and log services, with recipes you run, or that an agent asks to run on an approval card, output masked; a read-only SQL console, live logs, and production's `.env` compared with yours.
+- **Servers, databases and logs (Ops)**: SSH, Postgres, MySQL, Kubernetes and log services, with recipes you run, or that an agent asks to run on an approval card, output masked; live logs, and production's `.env` compared with yours.
+- **A database studio**: any database added by URL, from your project's files or through SSH, its schema, saved queries and exports, and the DBA to write, explain or optimize a query, always read-only.
 - **A minimal environment for agents**: they get only the variables they need; an API key from the vault only when they ask and you hand it over.
 
 <table>
   <tr>
     <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/vault-dark-800.webp"><img alt="The vault: the project's logins, notes and secrets, with a GitHub login open on its two-factor code" src="site/shots/vault-light-800.webp"></picture></td>
-    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/sql-dark-800.webp"><img alt="The SQL console of Ops: a read-only query on a production Postgres, checked before it runs, its result with emails masked" src="site/shots/sql-light-800.webp"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="site/shots/sql-dark-800.webp"><img alt="The database studio: the schema of a production Postgres, a query checked as a read, its result with emails masked, and the DBA's answer" src="site/shots/sql-light-800.webp"></picture></td>
   </tr>
   <tr>
     <td align="center"><sub>The vault</sub></td>
-    <td align="center"><sub>Ops: the read-only SQL console</sub></td>
+    <td align="center"><sub>The database studio</sub></td>
   </tr>
 </table>
 
@@ -195,6 +199,7 @@ Every feature is documented on the website, with what works out of the box, what
 
 - **One command to install**, and **automatic updates**, signed, on a stable or a beta channel.
 - **A native app**: a laid-out `.dmg`, Windows installers in English and French, `.deb`, `.rpm` and AppImage, a native macOS menu, a window that remembers its place.
+- **A desktop-grade workspace**: a navigation you resize or fold to icons, splits in one keystroke, right-click menus, and every screen works in a narrow window.
 
 ## The team
 
@@ -213,7 +218,7 @@ What each one does, when it is called and what it never does: [the team page](ht
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/shots/team-dark-800.webp">
-  <img alt="The project's team settings: two squads with their lead, members, repositories and paths, and the table of roles with their model" src="site/shots/team-light-800.webp" width="800">
+  <img alt="The Team tab of a project's Configuration: two squads, billing and web, the staff, and the roles with their model and layer" src="site/shots/team-light-800.webp" width="800">
 </picture>
 
 ## The team or one session?
