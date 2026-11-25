@@ -12,6 +12,7 @@ mod config;
 mod context;
 mod cto;
 mod design;
+mod devenv;
 #[cfg(feature = "e2e")]
 mod e2e;
 mod files;
@@ -551,6 +552,15 @@ pub fn run() {
             tools::tools_check,
             window::menu_keys,
             tools::tools_chrome_install,
+            devenv::env_manifest,
+            devenv::env_scan,
+            devenv::env_add,
+            devenv::env_update,
+            devenv::env_remove,
+            devenv::env_script,
+            devenv::env_script_save,
+            devenv::env_script_delete,
+            devenv::env_install,
             git::git_state,
             git::git_graph,
             git::git_prs,

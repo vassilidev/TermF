@@ -12,6 +12,7 @@ pub mod claude;
 pub mod cli_agents;
 pub mod context;
 pub mod db;
+pub mod devenv;
 pub mod ipc;
 pub mod loops;
 pub mod process;

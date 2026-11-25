@@ -26,6 +26,7 @@ pub fn scope_of(path: &str) -> Scope {
         ["vault", ..] => Scope::Vault,
         ["ssh", ..] => Scope::SshKeys,
         ["dev", ..] => Scope::DevConfig,
+        ["env.toml"] | ["env", ..] => Scope::Config,
         _ => Scope::Config,
     }
 }

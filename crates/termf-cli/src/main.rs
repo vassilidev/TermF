@@ -17,6 +17,7 @@ use termf_library::{Item, Kind, Layer, Outcome, Scope};
 mod agent;
 mod ci;
 mod claude;
+mod devenv;
 mod mcp;
 mod memory;
 mod ops;
@@ -79,6 +80,20 @@ usage:
                                         git), the last two only when named
   termf sync forget <device>            remove another machine and change the data key
   termf sync disable                    stop syncing on this machine
+  termf env scan [--save]               what this machine has installed, read only: each package manager
+                                        present (Homebrew, npm, pnpm, bun, cargo, rustup, pipx, uv, gh,
+                                        composer), language versions (mise, asdf, fnm, nvm, Volta), and
+                                        programs and apps installed by hand; --save adds the new ones
+  termf env list                        what env.toml lists, by group, and the named scripts
+  termf env add <manager> <name> [--version <v>] [--group languages|cli|apps|editors]
+                [--description <text>] [--install <command>] [--path <path>] [--id <app store id>] [--off]
+                                        add an entry, or replace the one of that manager and name
+                                        (manager shell: a command of your own, e.g. --install 'curl … | sh')
+  termf env remove <manager> <name>
+  termf env script [<name>]             the install script (POSIX sh) TermF writes from env.toml, or a
+                                        named one kept beside it
+  termf env install [<name>] [--yes]    show the script, then run it: installs what is missing, skips the
+                                        rest (macOS and Linux)
   termf run <ticket> [--project <id>] [--repo <name>]
                                         work on a ticket (URL, owner/repo#42, repo#42, #42, ACME-123)
                                         in a new worktree, with a Claude Code session
@@ -359,6 +374,7 @@ fn run(args: &[&str]) -> Result<()> {
         ["config", rest @ ..] => config(rest.to_vec())?,
         ["ssh", rest @ ..] => ssh::run(rest)?,
         ["sync", rest @ ..] => sync::run(rest)?,
+        ["env", rest @ ..] => devenv::run(rest.to_vec())?,
         ["schedule", rest @ ..] => schedule::run(rest.to_vec())?,
         ["worktree", rest @ ..] => worktree::run(rest)?,
         ["ci", rest @ ..] => ci::run(rest.to_vec())?,

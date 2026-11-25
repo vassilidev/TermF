@@ -59,6 +59,11 @@ pub const WRITES: &[&str] = &[
     "vault_join",
     "vault_import_apply",
     "vault_import_foreign",
+    "env_add",
+    "env_update",
+    "env_remove",
+    "env_script_save",
+    "env_script_delete",
 ];
 
 enum Wake {

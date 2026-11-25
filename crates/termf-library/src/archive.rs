@@ -1,5 +1,5 @@
-//! Export and import of the configuration as one `.tar.gz`: `termf.toml`, `layouts.toml`, the projects and the
-//! libraries. Repository paths are made portable (`~/…` plus the git `remote`), and no secret is ever included
+//! Export and import of the configuration as one `.tar.gz`: `termf.toml`, `layouts.toml`, the projects, the
+//! libraries and the development environment. Repository paths are made portable (`~/…` plus the git `remote`), and no secret is ever included
 //! in clear: the vault, when asked, comes sealed by its own export password ([`VAULT`]).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -18,6 +18,9 @@ const INCLUDED: &[&str] = &[
     "termf.toml",
     "layouts.toml",
     "schedules.toml",
+    // The development environment (`termf_core::devenv`): its manifest and its named scripts.
+    "env.toml",
+    "env",
     "projects",
     "library",
 ];
@@ -26,6 +29,8 @@ const SYNCED: &[&str] = &[
     "termf.toml",
     "layouts.toml",
     "schedules.toml",
+    "env.toml",
+    "env",
     "projects",
     "library",
     "scout",
