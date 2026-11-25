@@ -1412,7 +1412,6 @@
 
   /* In the narrow panel, the reason for a refusal takes its own line above the answers. */
   .thread.bare .answer {
-    flex-wrap: wrap;
     justify-content: flex-end;
   }
 
@@ -1543,7 +1542,9 @@
   }
 
   .meta .mono {
+    min-width: 0;
     color: var(--muted);
+    overflow-wrap: anywhere;
   }
 
   .banners {
@@ -2013,6 +2014,7 @@
 
   .answer {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
   }
@@ -2044,6 +2046,19 @@
     padding: 10px 24px 12px;
     border-top: 1px solid var(--border);
     background: var(--chrome);
+    container: composer / inline-size;
+  }
+
+  /* Narrow, beside another view: the buttons go under the field rather than squeezing it. */
+  @container composer (max-width: 480px) {
+    .composer:not(.embedded) textarea,
+    .composer:not(.embedded) .send {
+      grid-column: 1 / -1;
+    }
+
+    .composer:not(.embedded) .send {
+      justify-self: end;
+    }
   }
 
   .composer textarea {

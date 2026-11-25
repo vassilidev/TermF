@@ -32,6 +32,7 @@
   import { ago, t } from "$lib/i18n";
   import { bounded, isSql, runsOn, target, type Check, type Connection, type Kind, type Plan, type Ran } from "$lib/ops-logic";
   import { loadHistory, loadOps, ops, said, stopFollow, type OpsTab } from "$lib/ops.svelte";
+  import { newProject } from "$lib/newproject.svelte";
   import { app, onScreen } from "$lib/state.svelte";
   import type { VaultStatus } from "$lib/vault.svelte";
   import { askAI, provide } from "$lib/ask.svelte";
@@ -330,7 +331,14 @@
   </ViewHeader>
 
   {#if !project}
-    <div class="pane"><EmptyState icon={Server} title={t("opsView")} text={t("opsNoProject")} /></div>
+    <div class="pane">
+      <EmptyState
+        icon={Server}
+        title={t("opsView")}
+        text={t("opsNoProject")}
+        action={app.workspace?.projects.length ? undefined : { label: t("newProject"), icon: Plus, run: newProject }}
+      />
+    </div>
   {:else}
     <p class="intro muted">{t("opsIntro")}</p>
     {#if requests.length}

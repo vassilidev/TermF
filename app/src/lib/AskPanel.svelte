@@ -8,6 +8,7 @@
   import CircleCheckBig from "@lucide/svelte/icons/circle-check-big";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
+  import Plus from "@lucide/svelte/icons/plus";
   import TextSelect from "@lucide/svelte/icons/text-select";
   import X from "@lucide/svelte/icons/x";
   import Conversation from "$lib/Conversation.svelte";
@@ -21,6 +22,7 @@
   import { showConversation } from "$lib/agents.svelte";
   import { ask, askedProject, chips, currentRole, loadRoles, outgoing, pick, removedChips, screenName, screenRole, send, threadOf, type Chip } from "$lib/ask.svelte";
   import { ensure } from "$lib/home.svelte";
+  import { newProject } from "$lib/newproject.svelte";
   import { t } from "$lib/i18n";
   import { app, ui } from "$lib/state.svelte";
   import { tickets } from "$lib/tickets.svelte";
@@ -188,7 +190,12 @@
 
     {#if project === null}
       <div class="pad">
-        <EmptyState icon={MessagesSquare} title={t("aigNoProjectTitle")} text={t("aigNoProjectBody")} />
+        <EmptyState
+          icon={MessagesSquare}
+          title={t("aigNoProjectTitle")}
+          text={t("aigNoProjectBody")}
+          action={app.workspace?.projects.length ? undefined : { label: t("newProject"), icon: Plus, run: newProject }}
+        />
       </div>
     {:else if session}
       {#key session.id}

@@ -569,7 +569,7 @@
                     {#if host.identitiesOnly}<span class="badge">IdentitiesOnly</span>{/if}
                     {#if reason}<span class="muted small block">{t(reason)}</span>{/if}
                   </td>
-                  <td class="mono muted nowrap">{shortPath(host.file)}{host.line ? `:${host.line}` : ""}</td>
+                  <td class="mono muted file">{shortPath(host.file)}{host.line ? `:${host.line}` : ""}</td>
                   <td class="end">
                     {#if single(host)}
                       <div class="row-actions">
@@ -877,6 +877,10 @@
 
   .nowrap {
     white-space: nowrap;
+  }
+
+  td.file {
+    overflow-wrap: anywhere;
   }
 
   .strong {
