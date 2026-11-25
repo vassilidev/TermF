@@ -134,9 +134,10 @@ fn place(home: &Path, path: &str, git_env: &[(String, String)]) -> Option<(PathB
     }
 }
 
-/// Whether `path` has a place on this machine: if not, it is left aside, neither sent nor taken.
+/// Whether `path` has a place on this machine that no link crosses: if not, it is left aside, neither sent nor
+/// taken.
 pub fn placed(home: &Path, path: &str, git_env: &[(String, String)]) -> bool {
-    place(home, path, git_env).is_some()
+    place(home, path, git_env).is_some_and(|(root, rel)| !archive::through_link(&root, &rel))
 }
 
 /// `bytes` with this machine's home folder as `$TERMF_HOME`, so its paths work on another machine.
