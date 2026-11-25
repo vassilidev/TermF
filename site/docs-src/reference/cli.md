@@ -305,6 +305,25 @@ termf sync forget <device>
 termf sync disable
 ```
 
+## My environment
+
+```sh
+# what this machine has installed (read only); --save adds the new entries to env.toml
+termf env scan [--save]
+
+# the list, by group
+termf env list
+
+# add an entry (shell: a command of your own), or remove one
+termf env add <manager> <name> [--version <v>] [--group languages|cli|apps|editors] [--description <text>]
+              [--install <command>] [--path <path>] [--id <app store id>] [--off]
+termf env remove <manager> <name>
+
+# the install script written from env.toml (or a named one), printed or run
+termf env script [<name>]
+termf env install [<name>] [--yes]
+```
+
 ## Used by Claude Code, not by you
 
 These commands are called by Claude Code sessions TermF starts:

@@ -30,6 +30,12 @@ export const THROUGH: Record<string, string> = {
   claude_trust_set: "setup.apply",
   conventions_propose: "setup.apply",
   memory_reindex: "setup.apply",
+  env_add: "env.add",
+  env_update: "env.edit",
+  env_remove: "env.remove",
+  env_script_save: "env.save_script",
+  env_script_delete: "env.delete_script",
+  env_install: "env.install",
 };
 
 /** Commands that only read, preview or check: nothing changes. */
@@ -82,6 +88,9 @@ export const READS: string[] = [
   "deploy_logs",
   "deploy_targets",
   "deploy_tools",
+  "env_manifest",
+  "env_scan",
+  "env_script",
   "design_font_files",
   "design_scan",
   "design_web_fonts",

@@ -39,6 +39,32 @@ pub fn login_vars(names: &[&str]) -> Vec<(String, OsString)> {
     std::env::var_os("SHELL").map_or_else(Vec::new, |shell| vars_from(Path::new(&shell), names))
 }
 
+/// The program `path`, a `PATH`-like list of folders, resolves.
+pub fn which_in(path: &OsStr, program: &str) -> Option<std::path::PathBuf> {
+    let exts: &[&str] = if cfg!(windows) {
+        &[".exe", ".cmd", ".bat", ""]
+    } else {
+        &[""]
+    };
+    std::env::split_paths(&path).find_map(|dir| {
+        exts.iter()
+            .map(|ext| dir.join(format!("{program}{ext}")))
+            .find(|p| p.is_file() && executable(p))
+    })
+}
+
+#[cfg(unix)]
+pub fn executable(file: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    file.metadata()
+        .is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+pub fn executable(_: &Path) -> bool {
+    true
+}
+
 /// A line the profiles cannot print, before each value: what follows it up to the next one is that value.
 const MARK: &str = "TERMF_LOGIN_VARS_MARK";
 

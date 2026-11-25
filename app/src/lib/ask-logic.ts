@@ -16,6 +16,7 @@ export const ROLE_BY_VIEW: Record<string, string> = {
   ci: "devops",
   ops: "devops",
   ssh: "devops",
+  env: "devops",
   vault: "secops",
   vaultAll: "secops",
   design: "ux",

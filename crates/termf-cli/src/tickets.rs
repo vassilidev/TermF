@@ -159,7 +159,7 @@ pub fn run(command: &str, mut args: Vec<&str>) -> Result<()> {
     Ok(())
 }
 
-fn confirmed(question: &str) -> Result<bool> {
+pub(crate) fn confirmed(question: &str) -> Result<bool> {
     print!("{question}");
     std::io::stdout().flush()?;
     let mut answer = String::new();

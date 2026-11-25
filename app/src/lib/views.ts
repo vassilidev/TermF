@@ -9,6 +9,7 @@ import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import LockKeyhole from "@lucide/svelte/icons/lock-keyhole";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 import MessagesSquare from "@lucide/svelte/icons/messages-square";
+import PackageCheck from "@lucide/svelte/icons/package-check";
 import Palette from "@lucide/svelte/icons/palette";
 import Server from "@lucide/svelte/icons/server";
 import SettingsIcon from "@lucide/svelte/icons/settings";
@@ -20,6 +21,7 @@ import { agents, showConversations } from "$lib/agents.svelte";
 import { ci, showCi } from "$lib/ci.svelte";
 import { claudeView, showClaude } from "$lib/claude.svelte";
 import { design, showDesign } from "$lib/design.svelte";
+import { devenv, showEnv } from "$lib/devenv.svelte";
 import { files, showFiles } from "$lib/files.svelte";
 import { git, showGit } from "$lib/git.svelte";
 import { projectWaits, showHome } from "$lib/home.svelte";
@@ -225,6 +227,17 @@ export const views: View[] = [
     show: () => showClaude(claudeView.section === "artifacts" ? "overview" : undefined),
     loaded: () => claudeView.loaded,
     load: () => import("$lib/ClaudeView.svelte"),
+  },
+  {
+    id: "env",
+    label: "myenvView",
+    hint: "myenvHint",
+    command: "myenvShow",
+    icon: PackageCheck,
+    group: "machine",
+    show: () => showEnv(),
+    loaded: () => devenv.loaded,
+    load: () => import("$lib/EnvView.svelte"),
   },
   {
     id: "ssh",

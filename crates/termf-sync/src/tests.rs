@@ -970,6 +970,9 @@ fn every_file_termf_keeps_in_its_config_folder_is_synced_or_says_why_not() {
         ("scout/journal.jsonl", Scope::Config),
         ("scout/rejected.toml", Scope::Config),
         ("schedules.toml", Scope::Config),
+        // My environment: its manifest and its named scripts.
+        ("env.toml", Scope::Config),
+        ("env/laptop.sh", Scope::Config),
         // Ops connections, saved SQL queries, the Forge account, Jira sites: keys of the project's file.
         ("projects/acme.toml", Scope::Projects),
         ("projects/acme/recipes/deploy.toml", Scope::Projects),
