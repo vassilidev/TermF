@@ -1,4 +1,4 @@
-//! The inputs of a workflow's manual trigger, read from its YAML file.
+//! What a workflow's YAML file says: the inputs of its manual trigger, and its jobs with what each one needs.
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -62,6 +62,48 @@ pub fn parse_inputs(text: &str) -> Result<Vec<Input>> {
                 required: spec["required"].as_bool().unwrap_or(false),
                 default: scalar(&spec["default"]),
                 options: options.filter_map(scalar).collect(),
+            })
+        })
+        .collect())
+}
+
+/// A job of a workflow file: its key, the name GitHub shows for it, and the keys of the jobs it waits for.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Node {
+    pub key: String,
+    /// Its `name` up to the first expression, else its key: a matrix job shows as `name (values)`.
+    pub name: String,
+    /// The name had an expression: GitHub's names only start with `name`.
+    pub partial: bool,
+    pub needs: Vec<String>,
+}
+
+/// The jobs of a workflow, in the file's order.
+pub fn parse_graph(text: &str) -> Result<Vec<Node>> {
+    let docs = YamlLoader::load_from_str(text).context("the workflow is not valid YAML")?;
+    let Some(Yaml::Hash(jobs)) = docs.first().map(|doc| &doc["jobs"]) else {
+        return Ok(Vec::new());
+    };
+    Ok(jobs
+        .iter()
+        .filter_map(|(key, job)| {
+            let key = scalar(key)?;
+            let given = scalar(&job["name"]).unwrap_or_default();
+            let start = given.split("${{").next().unwrap_or_default().trim();
+            let needs = match &job["needs"] {
+                Yaml::Array(list) => list.iter().filter_map(scalar).collect(),
+                one => scalar(one).into_iter().collect(),
+            };
+            Some(Node {
+                name: if start.is_empty() {
+                    key.clone()
+                } else {
+                    start.to_owned()
+                },
+                partial: given.contains("${{"),
+                key,
+                needs,
             })
         })
         .collect())

@@ -1,6 +1,8 @@
 //! CI/CD through GitHub Actions and the GitHub CLI (`gh`), which brings its own sign-in: runs by repository,
 //! branch or pull request, their jobs, steps and logs, rerun, cancel and manual dispatch, and the message that
-//! tells a ticket run's agent why the CI of its pull request failed. GitLab CI is not supported yet.
+//! tells a ticket run's agent why the CI of its pull request failed; the repository's webhooks and their
+//! deliveries; and the deployments of the tools a project deploys with, through their own CLIs ([`deploy`]). GitLab
+//! CI is not supported yet.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -15,13 +17,14 @@ use serde::Serialize;
 use serde_json::Value;
 use termf_tickets::{RunStatus, Tickets};
 
+pub mod deploy;
 mod log;
 #[cfg(test)]
 mod tests;
 mod workflow;
 
 pub use log::{JobLog, is_error, parse_log};
-pub use workflow::{Input, parse_inputs};
+pub use workflow::{Input, Node, parse_graph, parse_inputs};
 
 /// Runs per page of a listing.
 const PAGE: u32 = 30;
@@ -46,6 +49,8 @@ pub struct WorkflowRun {
     pub id: u64,
     /// The workflow's name.
     pub workflow: String,
+    /// Its file, `.github/workflows/ci.yml`.
+    pub path: String,
     /// The commit message or pull request title it runs for.
     pub title: String,
     pub number: u64,
@@ -123,6 +128,41 @@ pub struct Workflow {
     pub state: String,
 }
 
+/// A webhook of the repository, and what its last delivery got back.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Hook {
+    pub id: u64,
+    pub url: String,
+    pub events: Vec<String>,
+    pub active: bool,
+    /// The HTTP code of its last delivery; none before the first one.
+    pub last_code: Option<u64>,
+    /// GitHub's word on it: `active`, `unused`, or why it failed.
+    pub last_status: Option<String>,
+    pub updated: String,
+}
+
+/// One time GitHub called a webhook.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Delivery {
+    pub id: u64,
+    pub event: String,
+    pub action: Option<String>,
+    /// The HTTP code the hook answered, 0 when it could not be reached.
+    pub code: u64,
+    /// `OK`, or what went wrong.
+    pub status: String,
+    pub redelivery: bool,
+    /// Seconds.
+    pub duration: f64,
+    pub delivered: String,
+}
+
+/// Starts the error of a webhooks listing GitHub refused for want of admin rights: the UI says it in its words.
+pub const NO_ADMIN: &str = "admin rights needed";
+
 /// What tells a ticket run's agent why its CI failed: `text` is in `file`, `prompt` points the agent at it.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -177,6 +217,7 @@ fn run_from(v: &Value, repo: &str) -> WorkflowRun {
         repo: repo.to_owned(),
         id: v["id"].as_u64().unwrap_or_default(),
         workflow: text(&v["name"]).unwrap_or_default(),
+        path: text(&v["path"]).unwrap_or_default(),
         title: text(&v["display_title"]).unwrap_or_default(),
         number: v["run_number"].as_u64().unwrap_or_default(),
         attempt: v["run_attempt"].as_u64().unwrap_or(1),
@@ -242,6 +283,27 @@ fn valid_slug(slug: &str) -> bool {
                 .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
     };
     matches!(slug.split('/').collect::<Vec<_>>().as_slice(), [owner, name] if part(owner) && part(name))
+}
+
+/// GitHub answers 404 to whoever may not see a repository's webhooks.
+fn admin(slug: &str, error: anyhow::Error) -> anyhow::Error {
+    let said = format!("{error:#}");
+    // Only gh's status counts, not the path or the slug it quotes; a 403 for the rate limit is no refusal.
+    if !matches!(http_status(&said), Some(403 | 404))
+        || said.to_ascii_lowercase().contains("rate limit")
+    {
+        return error;
+    }
+    anyhow!(
+        "{NO_ADMIN}: only the admins of {slug} see its webhooks, and gh's token needs the admin:repo_hook scope \
+         (gh auth refresh -s admin:repo_hook). GitHub answered: {said}"
+    )
+}
+
+/// The status gh ends its error with: `gh: Not Found (HTTP 404)`.
+fn http_status(error: &str) -> Option<u16> {
+    let at = error.rfind("(HTTP ")? + "(HTTP ".len();
+    error.get(at..at + 3)?.parse().ok()
 }
 
 fn failure(what: &str, error: &str) -> anyhow::Error {
@@ -554,6 +616,15 @@ impl Ci {
     /// The inputs a workflow's manual trigger takes, read from its file at `git_ref` (else the default branch).
     /// Refused if the workflow has no `workflow_dispatch` trigger.
     pub fn inputs(&self, repo: &str, path: &str, git_ref: Option<&str>) -> Result<Vec<Input>> {
+        parse_inputs(&self.workflow_file(repo, path, git_ref)?).with_context(|| path.to_owned())
+    }
+
+    /// The jobs of a workflow file at a commit, with what each one needs: the graph of a run.
+    pub fn graph(&self, repo: &str, path: &str, sha: &str) -> Result<Vec<Node>> {
+        parse_graph(&self.workflow_file(repo, path, Some(sha))?).with_context(|| path.to_owned())
+    }
+
+    fn workflow_file(&self, repo: &str, path: &str, git_ref: Option<&str>) -> Result<String> {
         ensure!(
             path.starts_with(".github/workflows/")
                 && !path.contains("..")
@@ -573,7 +644,120 @@ impl Ci {
             args.extend(["-f".into(), format!("ref={git_ref}")]);
         }
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        parse_inputs(&self.call(&args, None)?).with_context(|| path.to_owned())
+        self.call(&args, None)
+    }
+
+    /// The repository's webhooks. GitHub shows them only to its admins, and to a gh token with the
+    /// `admin:repo_hook` scope: a refusal says so, starting with [`NO_ADMIN`].
+    pub fn hooks(&self, repo: &str) -> Result<Vec<Hook>> {
+        let slug = self.slug(repo)?;
+        let found = self
+            .get(
+                &format!("repos/{slug}/hooks"),
+                &[("per_page", "100".into())],
+            )
+            .map_err(|e| admin(&slug, e))?;
+        let hooks = found.as_array().into_iter().flatten();
+        Ok(hooks
+            .map(|h| Hook {
+                id: h["id"].as_u64().unwrap_or_default(),
+                url: text(&h["config"]["url"]).unwrap_or_default(),
+                events: h["events"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(text)
+                    .collect(),
+                active: h["active"].as_bool().unwrap_or(false),
+                last_code: h["last_response"]["code"].as_u64(),
+                last_status: text(&h["last_response"]["status"]),
+                updated: text(&h["updated_at"]).unwrap_or_default(),
+            })
+            .collect())
+    }
+
+    /// A webhook's last 30 deliveries, newest first.
+    pub fn deliveries(&self, repo: &str, hook: u64) -> Result<Vec<Delivery>> {
+        let slug = self.slug(repo)?;
+        let found = self.get(
+            &format!("repos/{slug}/hooks/{hook}/deliveries"),
+            &[("per_page", "30".into())],
+        )?;
+        let deliveries = found.as_array().into_iter().flatten();
+        Ok(deliveries
+            .map(|d| Delivery {
+                id: d["id"].as_u64().unwrap_or_default(),
+                event: text(&d["event"]).unwrap_or_default(),
+                action: text(&d["action"]),
+                code: d["status_code"].as_u64().unwrap_or_default(),
+                status: text(&d["status"]).unwrap_or_default(),
+                redelivery: d["redelivery"].as_bool().unwrap_or(false),
+                duration: d["duration"].as_f64().unwrap_or_default(),
+                delivered: text(&d["delivered_at"]).unwrap_or_default(),
+            })
+            .collect())
+    }
+
+    /// Asks GitHub to send a delivery again.
+    pub fn redeliver(&self, repo: &str, hook: u64, delivery: u64) -> Result<()> {
+        let slug = self.slug(repo)?;
+        let path = format!("repos/{slug}/hooks/{hook}/deliveries/{delivery}/attempts");
+        self.call(&["api", "--method", "POST", &path], None)
+            .map(drop)
+    }
+
+    /// Adds a webhook that GitHub calls with JSON on `events`. The UI asks the user first.
+    pub fn create_hook(&self, repo: &str, url: &str, events: &[String]) -> Result<Hook> {
+        let slug = self.slug(repo)?;
+        ensure!(
+            (url.starts_with("https://") || url.starts_with("http://"))
+                && url.len() <= 2048
+                && !url.chars().any(|c| c.is_whitespace() || c.is_control()),
+            "{url} is not a web address"
+        );
+        ensure!(!events.is_empty(), "pick at least one event");
+        for event in events {
+            ensure!(
+                event == "*"
+                    || (!event.is_empty()
+                        && event.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')),
+                "{event} is not a GitHub event"
+            );
+        }
+        let body = serde_json::json!({
+            "name": "web",
+            "active": true,
+            "events": events,
+            "config": { "url": url, "content_type": "json" },
+        });
+        let path = format!("repos/{slug}/hooks");
+        let out = self.call(
+            &["api", "--method", "POST", &path, "--input", "-"],
+            Some(&body.to_string()),
+        )?;
+        let h: Value = serde_json::from_str(&out).context("GitHub gave no webhook back")?;
+        Ok(Hook {
+            id: h["id"].as_u64().unwrap_or_default(),
+            url: text(&h["config"]["url"]).unwrap_or_default(),
+            events: h["events"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(text)
+                .collect(),
+            active: h["active"].as_bool().unwrap_or(false),
+            last_code: None,
+            last_status: None,
+            updated: text(&h["updated_at"]).unwrap_or_default(),
+        })
+    }
+
+    /// Deletes a webhook, which cannot be undone. The UI asks the user first.
+    pub fn delete_hook(&self, repo: &str, hook: u64) -> Result<()> {
+        let slug = self.slug(repo)?;
+        let path = format!("repos/{slug}/hooks/{hook}");
+        self.call(&["api", "--method", "DELETE", &path], None)
+            .map(drop)
     }
 
     /// Starts a workflow by hand (`workflow_dispatch`), on `git_ref` or the default branch.
