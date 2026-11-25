@@ -12,9 +12,11 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use termf_core::TicketCleanup;
 use termf_core::ipc::SessionSummary;
+use termf_onboarding::setup::TrackerHints;
 use termf_tickets::{
-    Configured, Delivery, DeliveryPreview, Inbox, McpServer, PrCheck, PrMerge, Resolution, Run,
-    RunEvent, Sources, TicketSummary, Tickets, Trackers, Unpushed,
+    Browse, Configured, Delivery, DeliveryPreview, Inbox, McpServer, Page, PrCheck, PrMerge,
+    Reached, Resolution, Run, RunEvent, Sources, Ticket, TicketRef, TicketSummary, Tickets,
+    TrackerProject, Trackers, Unpushed,
 };
 
 use crate::{AppState, CmdResult, api, err};
@@ -502,6 +504,102 @@ pub async fn tickets_mcp_servers(
     project: Option<String>,
 ) -> CmdResult<Vec<McpServer>> {
     blocking(app, move |app| tickets(app).mcp_servers(project.as_deref())).await
+}
+
+/// What the project's repositories tell of its Jira, from git only: the keys their commits cite (most cited
+/// first), the sites they link, and the e-mail their commits are signed with.
+#[tauri::command]
+pub async fn tickets_jira_hints(app: AppHandle, project: String) -> CmdResult<TrackerHints> {
+    blocking(app, move |app| {
+        let config = &app.state::<AppState>().config_dir;
+        let found = termf_core::load_projects(config)?
+            .into_iter()
+            .find(|p| p.id == project)
+            .with_context(|| format!("no project {project}"))?;
+        let mut all = TrackerHints::default();
+        for repo in &found.repos {
+            let hints = termf_onboarding::setup::tracker_hints(std::path::Path::new(&repo.path));
+            for key in hints.keys {
+                if !all.keys.contains(&key) {
+                    all.keys.push(key);
+                }
+            }
+            for site in hints.sites {
+                if !all.sites.contains(&site) {
+                    all.sites.push(site);
+                }
+            }
+            all.email = all.email.or(hints.email);
+        }
+        Ok(all)
+    })
+    .await
+}
+
+/// The Jira projects an account sees: with `token` (checking it before it is kept), else the keychain's.
+#[tauri::command]
+pub async fn tickets_jira_projects(
+    app: AppHandle,
+    site: String,
+    email: String,
+    token: Option<String>,
+) -> CmdResult<Vec<TrackerProject>> {
+    blocking(app, move |app| {
+        tickets(app).jira_projects(&site, &email, token.as_deref())
+    })
+    .await
+}
+
+/// The site and projects the user's account reaches through an MCP server of their Claude Code (slow: Claude
+/// Code asks the server).
+#[tauri::command]
+pub async fn tickets_mcp_projects(
+    app: AppHandle,
+    project: Option<String>,
+    server: String,
+) -> CmdResult<Reached> {
+    blocking(app, move |app| {
+        tickets(app).mcp_projects(project.as_deref(), &server)
+    })
+    .await
+}
+
+/// A page of the tickets one of the project's sources finds; `next` as the last page gave it.
+#[tauri::command]
+pub async fn tickets_browse(
+    app: AppHandle,
+    project: String,
+    source: String,
+    browse: Browse,
+    next: Option<String>,
+) -> CmdResult<Page> {
+    blocking(app, move |app| {
+        tickets(app).browse(&project, &source, &browse, next.as_deref())
+    })
+    .await
+}
+
+/// The projects of one of the project's sources: Jira's, or the GitHub repositories.
+#[tauri::command]
+pub async fn tickets_source_projects(
+    app: AppHandle,
+    project: String,
+    source: String,
+) -> CmdResult<Vec<TrackerProject>> {
+    blocking(app, move |app| {
+        tickets(app).source_projects(&project, &source)
+    })
+    .await
+}
+
+/// One ticket in full, as its tracker gives it.
+#[tauri::command]
+pub async fn tickets_ticket(
+    app: AppHandle,
+    project: String,
+    ticket: TicketRef,
+) -> CmdResult<Ticket> {
+    blocking(app, move |app| tickets(app).ticket(&project, &ticket)).await
 }
 
 #[tauri::command]

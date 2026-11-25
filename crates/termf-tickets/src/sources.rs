@@ -106,7 +106,7 @@ pub struct JiraTracker {
     /// The inbox's JQL; none: [`jira::DEFAULT_JQL`].
     #[serde(default)]
     pub jql: Option<String>,
-    /// The Jira project key (`ACME`) a pasted key must have to go to this project; none: any key.
+    /// The Jira project keys (`ACME`, or `APP, API`) a pasted key must have to go to this project; none: any key.
     #[serde(default)]
     pub project: Option<String>,
     /// Link the pull request to the ticket once a run is delivered.
@@ -115,6 +115,20 @@ pub struct JiraTracker {
     /// The status a delivered run moves its ticket to; none: left alone.
     #[serde(default)]
     pub transition: Option<String>,
+}
+
+impl JiraTracker {
+    /// The project keys `project` lists, with commas: `APP, API`.
+    pub(crate) fn keys(&self) -> Vec<&str> {
+        let keys = self.project.as_deref().unwrap_or_default().split(',');
+        keys.map(str::trim).filter(|k| !k.is_empty()).collect()
+    }
+
+    /// Whether a pasted key with this prefix goes to this source: none listed takes any.
+    pub(crate) fn takes(&self, prefix: &str) -> bool {
+        let keys = self.keys();
+        keys.is_empty() || keys.iter().any(|k| k.eq_ignore_ascii_case(prefix))
+    }
 }
 
 /// `[trackers.linear]`: Linear. The personal API key is in the system's keychain, never in the file.

@@ -401,7 +401,26 @@ impl GitHub {
                 break;
             }
         }
-        Ok(items
+        Ok(self.summaries(&items))
+    }
+
+    /// One page of 50 of what a search finds, and whether another one follows.
+    pub(crate) fn issues_page(&self, query: &str, page: u32) -> Result<(Vec<TicketSummary>, bool)> {
+        let fields = [
+            ("q", query.to_owned()),
+            ("per_page", "50".to_owned()),
+            ("page", page.to_string()),
+        ];
+        let answer = self.get("search/issues", &fields, true)?;
+        let items = answer["items"].as_array().cloned().unwrap_or_default();
+        let total = answer["total_count"].as_u64().unwrap_or(0);
+        // GitHub's search stops at its 1000th result.
+        let more = !items.is_empty() && u64::from(page) * 50 < total.min(1000);
+        Ok((self.summaries(&items), more))
+    }
+
+    fn summaries(&self, items: &[Value]) -> Vec<TicketSummary> {
+        items
             .iter()
             .filter_map(|item| {
                 let labels = item["labels"].as_array().into_iter().flatten();
@@ -418,7 +437,7 @@ impl GitHub {
                     source: "github".into(),
                 })
             })
-            .collect())
+            .collect()
     }
 
     /// `merged` or `closed` once the pull request at `url` is, `None` while it is open. Asked with its ETag.

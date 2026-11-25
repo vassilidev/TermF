@@ -6,8 +6,10 @@ use std::path::PathBuf;
 use std::process::Stdio;
 
 use anyhow::{Context, Result, bail, ensure};
+
 use serde_json::{Value, json};
 
+use crate::browse::{Assignee, Browse, Status, TrackerProject};
 use crate::store::{iso_utc, utc};
 use crate::{Comment, Ticket, TicketProvider, TicketRef, TicketSummary};
 
@@ -221,42 +223,145 @@ impl Jira {
         let mut found = Vec::new();
         let mut next: Option<String> = None;
         for _ in 0..MAX_PAGES {
-            let mut body = json!({
-                "jql": jql,
-                "fields": ["summary", "status", "labels", "assignee", "updated"],
-                "maxResults": limit.unwrap_or(100).min(100),
-            });
-            if let Some(token) = &next {
-                body["nextPageToken"] = json!(token);
-            }
-            let page = self.call("POST", "/rest/api/3/search/jql", Some(&body))?;
-            for issue in page["issues"].as_array().into_iter().flatten() {
-                let Some(key) = issue["key"].as_str().and_then(key) else {
-                    continue;
-                };
-                let fields = &issue["fields"];
-                found.push(TicketSummary {
-                    reference: reference(&self.base, &key)?,
-                    title: fields["summary"].as_str().unwrap_or_default().into(),
-                    state: fields["status"]["name"].as_str().unwrap_or_default().into(),
-                    labels: strings(&fields["labels"]),
-                    assignees: name(&fields["assignee"]).into_iter().collect(),
-                    updated: iso_utc(fields["updated"].as_str().unwrap_or_default()),
-                    project: None,
-                    source: "jira".into(),
-                });
-            }
+            let size = limit.unwrap_or(100).min(100);
+            let (page, token) = self.page(jql, size, next.as_deref())?;
+            found.extend(page);
             if limit.is_some_and(|l| found.len() >= l) {
                 found.truncate(limit.unwrap_or_default());
                 break;
             }
-            match page["nextPageToken"].as_str() {
-                Some(token) if page["isLast"] != true => next = Some(token.to_owned()),
-                _ => break,
+            match token {
+                Some(token) => next = Some(token),
+                None => break,
             }
         }
         Ok(found)
     }
+
+    /// One page of what `jql` finds, and the token of the next one.
+    pub(crate) fn page(
+        &self,
+        jql: &str,
+        size: usize,
+        next: Option<&str>,
+    ) -> Result<(Vec<TicketSummary>, Option<String>)> {
+        let mut body = json!({
+            "jql": jql,
+            "fields": ["summary", "status", "labels", "assignee", "updated"],
+            "maxResults": size,
+        });
+        if let Some(token) = next {
+            body["nextPageToken"] = json!(token);
+        }
+        let page = self.call("POST", "/rest/api/3/search/jql", Some(&body))?;
+        summaries(&self.base, &page)
+    }
+
+    /// Every project the account sees, by name.
+    pub(crate) fn projects(&self) -> Result<Vec<TrackerProject>> {
+        let mut found = Vec::new();
+        for page in 0..MAX_PAGES {
+            let path = format!(
+                "/rest/api/3/project/search?orderBy=name&maxResults=100&startAt={}",
+                page * 100
+            );
+            let answer = self.call("GET", &path, None)?;
+            let listed = projects_of(&answer);
+            let last = listed.is_empty() || answer["isLast"] != false;
+            found.extend(listed);
+            if last {
+                break;
+            }
+        }
+        Ok(found)
+    }
+}
+
+/// A page of `/rest/api/3/search/jql` as tickets, and its next page's token.
+pub(crate) fn summaries(base: &str, page: &Value) -> Result<(Vec<TicketSummary>, Option<String>)> {
+    let mut found = Vec::new();
+    for issue in page["issues"].as_array().into_iter().flatten() {
+        let Some(key) = issue["key"].as_str().and_then(key) else {
+            continue;
+        };
+        let fields = &issue["fields"];
+        found.push(TicketSummary {
+            reference: reference(base, &key)?,
+            title: fields["summary"].as_str().unwrap_or_default().into(),
+            state: fields["status"]["name"].as_str().unwrap_or_default().into(),
+            labels: strings(&fields["labels"]),
+            assignees: name(&fields["assignee"]).into_iter().collect(),
+            updated: iso_utc(fields["updated"].as_str().unwrap_or_default()),
+            project: None,
+            source: "jira".into(),
+        });
+    }
+    let next = match page["nextPageToken"].as_str() {
+        Some(token) if page["isLast"] != true => Some(token.to_owned()),
+        _ => None,
+    };
+    Ok((found, next))
+}
+
+/// The projects of a page of `/rest/api/3/project/search`; a key Jira would not give is left out.
+pub(crate) fn projects_of(page: &Value) -> Vec<TrackerProject> {
+    let values = page["values"].as_array().into_iter().flatten();
+    values
+        .filter_map(|p| {
+            let key = p["key"].as_str().filter(|k| project_key(k))?;
+            Some(TrackerProject {
+                key: key.to_owned(),
+                name: p["name"].as_str().unwrap_or(key).to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// A Jira project key: `ACME`, `APP2`, `MY_TEAM`.
+pub(crate) fn project_key(key: &str) -> bool {
+    (1..=20).contains(&key.len())
+        && key.starts_with(|c: char| c.is_ascii_uppercase())
+        && key
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// A JQL string literal: quoted, its quotes and backslashes escaped.
+fn jql_text(text: &str) -> String {
+    let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+/// The JQL of a browse: its projects, state, assignee, words and sprint, the latest change first.
+pub(crate) fn browse_jql(browse: &Browse) -> Result<String> {
+    let mut clauses = Vec::new();
+    if !browse.projects.is_empty() {
+        for p in &browse.projects {
+            ensure!(project_key(p), "not a Jira project key: {p}");
+        }
+        clauses.push(format!("project in ({})", browse.projects.join(", ")));
+    }
+    match browse.status {
+        Status::Open => clauses.push("statusCategory != Done".to_owned()),
+        Status::Done => clauses.push("statusCategory = Done".to_owned()),
+        Status::All => {}
+    }
+    match browse.assignee {
+        Assignee::Me => clauses.push("assignee = currentUser()".to_owned()),
+        Assignee::Nobody => clauses.push("assignee is EMPTY".to_owned()),
+        Assignee::All => {}
+    }
+    if let Some(text) = browse.words() {
+        clauses.push(format!("text ~ {}", jql_text(text)));
+    }
+    if browse.sprint {
+        clauses.push("sprint in openSprints()".to_owned());
+    }
+    // Jira's search refuses a query without any restriction: ten years back is every ticket in practice.
+    if clauses.is_empty() {
+        clauses.push("updated >= -3650d".to_owned());
+    }
+    Ok(format!("{} ORDER BY updated DESC", clauses.join(" AND ")))
 }
 
 fn strings(list: &Value) -> Vec<String> {

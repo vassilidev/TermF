@@ -13,6 +13,7 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::{Deserialize, Serialize};
 
 mod azure;
+mod browse;
 mod github;
 mod gitlab;
 mod guard;
@@ -29,13 +30,14 @@ mod store;
 mod tests;
 
 pub use azure::{Azure, DEFAULT_WIQL};
+pub use browse::{Assignee, Browse, Page, Status, TrackerProject};
 use github::Etags;
 pub use github::GitHub;
 pub use gitlab::GitLab;
 pub use guard::{egress, guard, reads};
 pub use jira::{DEFAULT_JQL, Jira};
 pub use linear::Linear;
-pub use mcp::{Mcp, McpServer};
+pub use mcp::{Mcp, McpServer, Reached};
 pub use run::{
     Change, CheckError, Cleanup, CommitSummary, Delivery, DeliveryPreview, FileChange, Launch,
     PrCheck, PrMerge, Unpushed,
@@ -936,11 +938,7 @@ impl Tickets {
             }
             let jira = projects.iter().any(|p| {
                 let jira = p.trackers.jira.as_ref();
-                jira.is_some_and(|j| {
-                    j.project
-                        .as_ref()
-                        .is_none_or(|k| k.eq_ignore_ascii_case(team))
-                })
+                jira.is_some_and(|j| j.takes(team))
             });
             ensure!(
                 space.is_some() || !jira,
@@ -1004,10 +1002,7 @@ impl Tickets {
                 };
                 match &host {
                     Some(host) => jira::host(&j.site).is_ok_and(|h| &h == host),
-                    None => j.project.as_ref().is_none_or(|prefix| {
-                        key.rsplit_once('-')
-                            .is_some_and(|(k, _)| k.eq_ignore_ascii_case(prefix))
-                    }),
+                    None => key.rsplit_once('-').is_some_and(|(k, _)| j.takes(k)),
                 }
             })
             .collect();
@@ -1015,7 +1010,8 @@ impl Tickets {
             if fitting.is_empty() {
                 let mut prefixes: Vec<&str> = projects
                     .iter()
-                    .filter_map(|p| p.trackers.jira.as_ref()?.project.as_deref())
+                    .filter_map(|p| p.trackers.jira.as_ref())
+                    .flat_map(JiraTracker::keys)
                     .collect();
                 prefixes.sort();
                 prefixes.dedup();
