@@ -84,9 +84,10 @@ jobs:
         run: cargo install tauri-driver --locked
       - name: Build the app and the CLI (debug)
         working-directory: app
+        # The `e2e` feature reads the window size a scenario asks for (`TERMF_E2E_SIZE`); its bridge stays off here.
         run: |
           pnpm install --frozen-lockfile
-          pnpm tauri build --debug --no-bundle
+          pnpm tauri build --debug --no-bundle --features e2e
           cargo build -p termf-cli
       - name: End-to-end scenarios and performance
         working-directory: app
