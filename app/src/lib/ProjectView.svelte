@@ -508,8 +508,17 @@
   .body {
     display: grid;
     flex: 1;
-    grid-template: minmax(0, 1fr) / 224px minmax(0, 1fr);
+    /* Stacked, the sections take the height they need (the first row) and the page the rest. */
+    grid-template: auto / 224px minmax(0, 1fr);
+    grid-auto-rows: minmax(0, 1fr);
     min-height: 0;
+    container: sections / inline-size;
+  }
+
+  @container sections (max-width: 640px) {
+    .body > :global(*) {
+      grid-column: 1 / -1;
+    }
   }
 
   .search {

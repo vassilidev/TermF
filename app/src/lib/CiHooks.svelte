@@ -23,6 +23,7 @@
   import { askAI } from "$lib/ask.svelte";
   import { openUrl } from "$lib/tickets.svelte";
   import { deploys, loadHooks, NO_ADMIN, type Delivery, type Hook } from "$lib/ci.svelte";
+  import { HOOK_EVENTS as events, hookEventsKind } from "$lib/ci-logic";
 
   /** The repository's webhooks (`slug`: its `owner/name` for GitHub's pages, "" until known), their deliveries, and redelivery. */
   let { repo, slug }: { repo: string; slug: string } = $props();
@@ -38,10 +39,8 @@
   const hooks = $derived(deploys.hooksOf === repo ? deploys.hooks : null);
   const hook = $derived(hooks?.find((h) => h.id === selected) ?? hooks?.[0]);
   const noAdmin = $derived(deploys.hooksError.startsWith(NO_ADMIN));
-  const events = { push: ["push"], prs: ["push", "pull_request"], all: ["*"] } as Record<string, string[]>;
   const command = "gh auth refresh -s admin:repo_hook";
-  /** The Segments choice a webhook's events match; `keep` for any other set, kept as it is. */
-  const kindOf = (h: Hook) => Object.keys(events).find((k) => [...events[k]].sort().join() === [...h.events].sort().join()) ?? "keep";
+  const kindOf = (h: Hook) => hookEventsKind(h.events);
   const eventsOf = (a: NonNullable<typeof adding>) => (a.events === "keep" && a.hook ? a.hook.events : events[a.events]);
 
   let request = 0;
@@ -330,13 +329,14 @@
 
   .hook-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     gap: 8px;
     margin-bottom: 20px;
   }
 
   .grow {
-    flex: 1;
+    flex: 1 1 12rem;
     min-width: 0;
   }
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { branches, cellState, columns, cycle, excerpt, failedJobs, firstFailure, history, matches, origin, originIn, outcome } from "../src/lib/ci-logic.ts";
+import { branches, cellState, columns, cycle, excerpt, failedJobs, firstFailure, history, hookEventsKind, matches, origin, originIn, outcome } from "../src/lib/ci-logic.ts";
 
 test("going back right after a search starts at the last match", () => {
   assert.equal(cycle(-1, -1, 7), 6);
@@ -118,4 +118,12 @@ test("a deployment is tied to runs only from the repository its target deploys",
   // Another repository's target, or one that does not say its repository: only what the tool told, without a link.
   assert.deepEqual(originIn({ repo: "/code/web" }, "/code/api", { ...d, pr: 9 }, runs, tickets), { pr: 9, run: null, here: false });
   assert.deepEqual(originIn({}, "/code/api", d, runs, tickets), { pr: null, run: null, here: false });
+});
+
+test("editing a webhook starts on its events' choice, or keeps a set the tab does not offer", () => {
+  assert.equal(hookEventsKind(["push"]), "push");
+  assert.equal(hookEventsKind(["pull_request", "push"]), "prs", "in GitHub's order or not");
+  assert.equal(hookEventsKind(["*"]), "all");
+  assert.equal(hookEventsKind(["push", "release"]), "keep");
+  assert.equal(hookEventsKind([]), "keep");
 });

@@ -149,3 +149,12 @@ export function originIn(
   if (!target.repo || target.repo !== repo) return { pr: d.pr, run: null, here: false };
   return { ...origin(d, runs, tickets.filter((t) => t.repo === repo)), here: true };
 }
+
+/** The Webhooks tab's choices of events, as GitHub names them. */
+export const HOOK_EVENTS: Record<string, string[]> = { push: ["push"], prs: ["push", "pull_request"], all: ["*"] };
+
+/** The choice a webhook's events match, in any order; `keep` for any other set, which an edit leaves as it is. */
+export function hookEventsKind(events: string[]): string {
+  const key = (list: string[]) => [...list].sort().join();
+  return Object.keys(HOOK_EVENTS).find((k) => key(HOOK_EVENTS[k]) === key(events)) ?? "keep";
+}

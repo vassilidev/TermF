@@ -796,6 +796,8 @@
 
   .filter {
     flex-shrink: 0;
+    /* The field's own 100% plus its side margins made the list scroll 8 px sideways. */
+    width: auto;
     height: var(--h-sm);
     margin: 0 4px 4px;
   }

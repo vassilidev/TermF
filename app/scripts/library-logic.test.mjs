@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { broughtBy, cost, groupOf, ladder, latestOnly, merge, rolesOf, sorted, switchTo, why } from "../src/lib/library-logic.ts";
+import { broughtBy, cost, groupOf, isCopy, ladder, latestOnly, merge, rolesOf, sorted, switchTo, why } from "../src/lib/library-logic.ts";
 
 const item = (name, extra = {}) => ({
   kind: "skill",
@@ -115,4 +115,13 @@ test("only the last list asked for is kept, when an older one answers later", as
   };
   await Promise.all([load("before the click", 30), load("after the click", 5)]);
   assert.deepEqual(kept, ["after the click"]);
+});
+
+test("only a global or project copy of a shipped item can be removed", () => {
+  const path = "/config/library/skills/x";
+  assert.ok(isCopy({ path, layer: "project", shadows: ["global", "shipped"] }));
+  assert.ok(isCopy({ path, layer: "global", shadows: ["shipped"] }));
+  assert.ok(!isCopy({ path, layer: "global", shadows: [] }), "the user's own item hides nothing of TermF's");
+  assert.ok(!isCopy({ path: null, layer: "shipped", shadows: [] }));
+  assert.ok(!isCopy({ path, layer: "repo", shadows: ["shipped"] }), "the repository's own library is its own");
 });

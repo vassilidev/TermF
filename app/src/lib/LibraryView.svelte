@@ -41,7 +41,7 @@
   import { provide } from "$lib/ask.svelte";
   import { app, shortPath, ui } from "$lib/state.svelte";
   import { busy, kinds, library, matches, packageLabel, type Item, type Kind } from "$lib/library.svelte";
-  import { broughtBy, cost, groupOf, ladder, latestOnly, merge, rolesOf, sorted, switchTo, switchable, why, type Entry, type Rung, type Write } from "$lib/library-logic";
+  import { broughtBy, cost, groupOf, isCopy, ladder, latestOnly, merge, rolesOf, sorted, switchTo, switchable, why, type Entry, type Rung, type Write } from "$lib/library-logic";
 
   type Plugin = { id: string; version: string; scope: string; enabled: boolean; description: string };
   type Picked = { plugin: Plugin } | { entry: Entry };
@@ -411,8 +411,6 @@
     }
   }
 
-  /** A copy of a shipped item, in the global or the project's library: what "Remove this copy" takes back. */
-  const isCopy = (e: Entry) => !!e.path && (e.layer === "global" || e.layer === "project") && e.shadows.includes("shipped");
   let removing = $state<Entry | null>(null);
   let removeOpen = $state(false);
 

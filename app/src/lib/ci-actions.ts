@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Action } from "$lib/actions.svelte";
 import { ci, deployLabel, deploys, loadDeploys, loadHooks, type Hook, type Target, type Tool } from "$lib/ci.svelte";
+import { HOOK_EVENTS as EVENTS } from "$lib/ci-logic";
 import { t } from "$lib/i18n";
 import { toast } from "$lib/ui/toast.svelte";
 
@@ -222,8 +223,6 @@ const deleteDeploy: Action = {
   },
 };
 
-/** As the Webhooks tab offers them. */
-const EVENTS: Record<string, string[]> = { push: ["push"], prs: ["push", "pull_request"], all: ["*"] };
 const host = (url: string) => {
   try {
     return new URL(url).host;

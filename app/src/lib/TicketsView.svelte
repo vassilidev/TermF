@@ -786,6 +786,7 @@
     margin: 0;
     padding: 8px 12px 32px;
     list-style: none;
+    container: inbox / inline-size;
   }
 
   .sticky {
@@ -1029,5 +1030,25 @@
     display: flex;
     gap: 8px;
     margin-left: auto;
+  }
+
+  /* Narrow: a ticket's state and actions go under its title instead of keeping their 340 px beside it. */
+  @container inbox (max-width: 620px) {
+    .ticket {
+      flex-wrap: wrap;
+    }
+
+    .what {
+      flex: 1 0 calc(100% - 40px);
+    }
+
+    .labels {
+      margin-left: 26px;
+    }
+
+    .state {
+      flex: 1 1 auto;
+      flex-wrap: wrap;
+    }
   }
 </style>
