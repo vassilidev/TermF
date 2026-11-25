@@ -161,5 +161,23 @@ const copy: Action = {
   },
 };
 
+const removeCopy: Action = {
+  id: "library.remove_copy",
+  description:
+    "Removes the project's copy of a shipped item (the user's own copy, with `global`), as the library's Remove this copy does: its file and the changes in it go, and the version it hid takes its place again.",
+  fields: copy.fields,
+  required: ["kind", "name"],
+  label: "uxs2ActLibRemove",
+  describe: (a) =>
+    t("uxs2ActLibRemoveText", { kind: t(kindName[a.kind as Kind] ?? "kindSkill"), name: String(a.name), where: t(a.global ? "lib2CopyWhereGlobal" : "lib2CopyWhereProject") }),
+  loses: (a) => t("uxs2LibRemoveLoses", { name: String(a.name) }),
+  async run(a, _secrets, project) {
+    const path = await invoke<string>("library_remove_copy", { kind: a.kind, name: a.name, project: a.global ? null : project });
+    library.version++;
+    toast(t("uxs2LibRemoved", { name: String(a.name) }));
+    return { removed: path };
+  },
+};
+
 export const pluginActions: Action[] = [installPlugin, setPlugin, uninstallPlugin];
-export const libraryActions: Action[] = [toggle, copy, ...pluginActions];
+export const libraryActions: Action[] = [toggle, copy, removeCopy, ...pluginActions];

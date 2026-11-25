@@ -26,6 +26,7 @@
   import WorktreeSetup from "$lib/WorktreeSetup.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Button from "$lib/ui/Button.svelte";
+  import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import List from "$lib/ui/List.svelte";
   import Segments from "$lib/ui/Segments.svelte";
@@ -40,7 +41,7 @@
   import { provide } from "$lib/ask.svelte";
   import { app, shortPath, ui } from "$lib/state.svelte";
   import { busy, kinds, library, matches, packageLabel, type Item, type Kind } from "$lib/library.svelte";
-  import { broughtBy, cost, groupOf, ladder, latestOnly, merge, rolesOf, sorted, switchTo, switchable, why, type Entry, type Rung, type Write } from "$lib/library-logic";
+  import { broughtBy, cost, groupOf, isCopy, ladder, latestOnly, merge, rolesOf, sorted, switchTo, switchable, why, type Entry, type Rung, type Write } from "$lib/library-logic";
 
   type Plugin = { id: string; version: string; scope: string; enabled: boolean; description: string };
   type Picked = { plugin: Plugin } | { entry: Entry };
@@ -410,6 +411,20 @@
     }
   }
 
+  let removing = $state<Entry | null>(null);
+  let removeOpen = $state(false);
+
+  async function removeCopy(e: Entry) {
+    try {
+      await invoke<string>("library_remove_copy", { kind: e.kind, name: e.name, project: e.layer === "project" ? (project?.id ?? null) : null });
+      toast(t("uxs2LibRemoved", { name: name(e) }));
+    } catch (err) {
+      toast(String(err), { kind: "error" });
+    } finally {
+      library.version++;
+    }
+  }
+
   function onkeydown(e: KeyboardEvent) {
     // The active panel only, and `/` alone: a split's other panel and ⌘/ keep their own.
     if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || ui.view !== "library" || library.panel || library.tab !== "items") return;
@@ -719,8 +734,19 @@
     {#if !e.path && e.layer !== "repo"}
       <Button size="sm" variant="quiet" onclick={() => copyHere(e)}>{t("lib2Copy")}</Button>
     {/if}
+    {#if isCopy(e)}
+      <Button size="sm" variant="quiet-danger" onclick={() => ((removing = e), (removeOpen = true))}>{t("uxs2LibRemove")}</Button>
+    {/if}
   </div>
 {/snippet}
+
+{#if removing}
+  {@const gone = removing}
+  <ConfirmDialog bind:open={removeOpen} title={t("uxs2LibRemoveTitle", { name: name(gone) })} confirm={t("uxs2LibRemove")} danger onconfirm={() => removeCopy(gone)}>
+    <p>{t("uxs2LibRemoveLoses", { name: name(gone) })}</p>
+    <p class="mono small">{gone.path}</p>
+  </ConfirmDialog>
+{/if}
 
 {#snippet pluginSheet(p: Plugin)}
   <header class="head">

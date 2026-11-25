@@ -577,6 +577,54 @@ fn never_splits_a_shared_block_and_warns_about_earlier_ones() {
 }
 
 #[test]
+fn deletes_a_host_and_only_its_block() {
+    assert_eq!(
+        config::remove(CONFIG, "GitHub.com").unwrap(),
+        "# my config\nInclude config.d/*\n\n# defaults\nHost *\n    AddKeysToAgent yes\n",
+        "its options and comments go, the next block's comment stays"
+    );
+    assert!(
+        config::remove(CONFIG, "gitlab.com").is_err(),
+        "no such host"
+    );
+    assert!(
+        config::remove("Host a b\n    User me\n", "a").is_err(),
+        "a block shared with other hosts stays"
+    );
+    let marked = format!(
+        "{}\nHost work\n    User git\n\nHost other\n    User me\n",
+        config::MARK
+    );
+    assert_eq!(
+        config::remove(&marked, "work").unwrap(),
+        "Host other\n    User me\n",
+        "TermF's mark goes with its block"
+    );
+
+    let ssh = scratch("delete");
+    fs::write(ssh.config(), CONFIG).unwrap();
+    let preview = ssh.host_delete_preview("github.com").unwrap();
+    assert!(
+        preview
+            .diff
+            .lines()
+            .any(|l| l.starts_with('-') && l.contains("IdentityFile ~/.ssh/old")),
+        "{preview:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(ssh.config()).unwrap(),
+        CONFIG,
+        "a preview writes nothing"
+    );
+    ssh.host_delete("github.com").unwrap();
+    let left = fs::read_to_string(ssh.config()).unwrap();
+    assert!(
+        !left.contains("Host github.com") && left.contains("Host *"),
+        "{left}"
+    );
+}
+
+#[test]
 fn saves_hosts_atomically() {
     let ssh = scratch("save");
     ssh.generate("id_work", KeyType::Ed25519, "", None).unwrap();

@@ -136,6 +136,31 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Above the page in a narrow view (a container named `sections`): one wrapped row of sections. */
+  @container sections (max-width: 640px) {
+    .sections {
+      padding: 8px;
+      border-right: 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    ul {
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 2px;
+    }
+
+    hr {
+      display: none;
+    }
+
+    .item {
+      width: auto;
+      min-height: 26px;
+      gap: 6px;
+    }
+  }
+
   .none {
     padding: 6px 8px;
     color: var(--muted);

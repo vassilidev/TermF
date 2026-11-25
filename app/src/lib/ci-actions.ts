@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Action } from "$lib/actions.svelte";
 import { ci, deployLabel, deploys, loadDeploys, loadHooks, type Hook, type Target, type Tool } from "$lib/ci.svelte";
+import { HOOK_EVENTS as EVENTS } from "$lib/ci-logic";
 import { t } from "$lib/i18n";
 import { toast } from "$lib/ui/toast.svelte";
 
@@ -222,8 +223,6 @@ const deleteDeploy: Action = {
   },
 };
 
-/** As the Webhooks tab offers them. */
-const EVENTS: Record<string, string[]> = { push: ["push"], prs: ["push", "pull_request"], all: ["*"] };
 const host = (url: string) => {
   try {
     return new URL(url).host;
@@ -258,6 +257,34 @@ const addHook: Action = {
     toast(t("cvHookCreated", { host: host(made.url) }));
     await loadHooks(repo);
     return { created: made.id, url: made.url };
+  },
+};
+
+const updateHook: Action = {
+  id: "ci.update_webhook",
+  description:
+    "Changes a webhook of the GitHub repository the CI/CD view shows, as its Webhooks tab's Edit does: the address GitHub calls and its events (`push`, `prs`, `all`). Its secret stays.",
+  fields: {
+    hook: { type: "integer", description: "The webhook's id, as `here` lists it." },
+    url: { type: "string", description: "https://… the address GitHub calls from now on." },
+    events: { type: "string", description: "Which events, push by default.", enum: Object.keys(EVENTS) },
+  },
+  required: ["hook", "url"],
+  label: "uxs2ActHookUpdate",
+  describe: (a) => t("uxs2ActHookUpdateText", { repo: shown(), url: String(a.url), events: String(a.events ?? "push") }),
+  loses: (a) => {
+    const was = deploys.hooks?.find((h) => h.id === a.hook)?.url;
+    return was && was !== String(a.url).trim() ? t("uxs2HookEditLoses", { url: was }) : "";
+  },
+  async run(a) {
+    const repo = repoShown();
+    const url = String(a.url).trim();
+    if (!/^https?:\/\/\S+$/.test(url)) throw new Error("url: an http(s) address");
+    const hook = await hookNamed(repo, a.hook);
+    await invoke("ci_hook_update", { repo, hook: hook.id, url, events: EVENTS[String(a.events ?? "push")] });
+    toast(t("uxs2HookUpdated", { host: host(url) }));
+    await loadHooks(repo);
+    return { updated: hook.id, url };
   },
 };
 
@@ -309,4 +336,4 @@ export async function ciHere(project: string) {
   };
 }
 
-export const ciActions: Action[] = [connectDeploy, editDeploy, deleteDeploy, rerun, cancel, dispatch, redeploy, addHook, deleteHook, redeliver];
+export const ciActions: Action[] = [connectDeploy, editDeploy, deleteDeploy, rerun, cancel, dispatch, redeploy, addHook, updateHook, deleteHook, redeliver];

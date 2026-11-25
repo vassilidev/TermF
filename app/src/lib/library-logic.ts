@@ -189,3 +189,7 @@ export function switchTo(e: Pick<Item, "toggles">, project: string | null, on: b
   }
   return { apply, undo };
 }
+
+/** A copy of a shipped item in the global or the project's library: what "Remove this copy" takes back. */
+export const isCopy = (e: Pick<Item, "path" | "layer" | "shadows">) =>
+  !!e.path && (e.layer === "global" || e.layer === "project") && e.shadows.includes("shipped");

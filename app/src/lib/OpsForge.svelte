@@ -30,6 +30,8 @@
   let deployments = $state<Deployment[]>([]);
   let output = $state<{ id: number; text: string } | null>(null);
   let deploying = $state(false);
+  let removing = $state(false);
+  let forgetToken = $state(false);
 
   async function step<T>(name: string, work: () => Promise<T>): Promise<T | undefined> {
     busy = name;
@@ -57,6 +59,14 @@
     account = saved;
     token = "";
     editing = false;
+  }
+
+  async function removeAccount() {
+    const keptFor = await step("remove", () => invoke<string[]>("forge_account_delete", { project, forgetToken }));
+    if (!keptFor) return;
+    const name = account?.token ?? "";
+    [account, found, picked, site, label, forgetToken] = [null, null, [], null, "", false];
+    toast(keptFor.length ? t("uxs2ForgeTokenKept", { name, projects: keptFor.join(", ") }) : t("uxs2ForgeRemoved"));
   }
 
   const browse = () => step("sites", async () => void (found = await invoke<Found[]>("forge_sites", { project })));
@@ -101,7 +111,12 @@
   <section class="panel" aria-label={t("opsforgeAccount")}>
     <header>
       <h3>{t("opsforgeAccount")}</h3>
-      {#if account && !editing}<button class="btn sm" onclick={() => (editing = true)}>{t("opsforgeChange")}</button>{/if}
+      {#if account && !editing}
+        <span class="buttons">
+          <button class="btn sm" onclick={() => (editing = true)}>{t("opsforgeChange")}</button>
+          <button class="btn sm quiet danger" disabled={!!busy} onclick={() => (removing = true)}>{t("uxs2ForgeRemove")}</button>
+        </span>
+      {/if}
     </header>
     {#if account === undefined}
       <LoaderCircle size={16} aria-hidden="true" class="spin" />
@@ -124,6 +139,11 @@
   </section>
 
   {#if account}
+    {@const name = account.token}
+    <ConfirmDialog bind:open={removing} title={t("uxs2ForgeRemoveTitle", { label: account.label })} confirm={t("uxs2ForgeRemove")} danger onconfirm={removeAccount}>
+      <p>{t("uxs2ForgeRemoveLoses")}</p>
+      <label class="check"><input type="checkbox" bind:checked={forgetToken} />{t("uxs2ForgeRemoveToken", { name })}</label>
+    </ConfirmDialog>
     <section class="panel" aria-label={t("opsforgeImport")}>
       <header>
         <h3>{t("opsforgeImport")}</h3>
@@ -234,6 +254,13 @@
   .buttons {
     display: flex;
     gap: 6px;
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
   }
 
   .server ul,
