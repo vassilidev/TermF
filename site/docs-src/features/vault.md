@@ -20,11 +20,11 @@ It is encrypted with Argon2id and XChaCha20-Poly1305, and locks after 10 minutes
 ## Add and use items
 
 1. Add logins (addresses, user name, password, two-factor key) and notes, for one project or for all of them.
-2. Secrets live in `dev`, `staging` or `prod` scopes; `prod` asks the password again.
+2. **New** adds a secret too: the variable name agents get it under, its environment and its value, or a reference. Secrets live in `dev`, `staging` or `prod` scopes; `prod` asks the password again.
 3. Search and filter logins, notes and secrets. Copy a password or the current two-factor code without opening the item; the clipboard is cleared after 30 seconds.
 4. Generate passwords or passphrases.
 
-A revealed password hides again after 30 seconds, a note after two minutes. Every reveal goes in a hash-chained audit log. A secret can also be a reference to 1Password, Bitwarden, Doppler, AWS Secrets Manager or Vault.
+A revealed password hides again after 30 seconds, a note after two minutes. Every reveal goes in a hash-chained audit log; open it from **Security** to check the chain or export it. A secret can also be a reference to 1Password, Bitwarden, Doppler, AWS Secrets Manager or Vault.
 
 ## Security keys, Touch ID and recovery
 

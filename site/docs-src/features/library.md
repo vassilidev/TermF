@@ -9,10 +9,15 @@ The library holds what your agents get (roles, rules, skills, preferences, workf
 
 Each item lives in a layer: shipped, packages, global, project, repository. The most specific layer wins, and the library tells you why each item applies.
 
-1. Open **Library**. Switch any item on or off, and see why it applies.
-2. A repository can neither switch itself on nor hide another level.
-3. What a session gets goes in as a Claude Code plugin and a system prompt file.
-4. Import your own items from `~/.claude`.
+![The Library: what the project's sessions get, filtered by kind, with the accessibility skill open on why it is on, layer by layer, and what it costs](shot:library "What the sessions of a project get, and why. Sample data.")
+
+1. Open **Library**. The list is what the project's sessions get: on in this project first, then what a repository offers, then what is off. Filter by kind (skills, commands, roles, preferences, rules, workflows, plugins) or search.
+2. Open an item to see why it is on or off, layer by layer, when the agent reads it, what it costs in tokens and who uses it.
+3. Switch it on or off for **This project only** or for **Every project**; **Undo** puts it back. **Copy to edit it here** puts a copy of a shipped item in the project's library, where it replaces the shipped one.
+4. A repository can neither switch itself on nor hide another level.
+5. What a session gets goes in as a Claude Code plugin and a system prompt file.
+6. Import your own items from `~/.claude` with **Import from Claude Code**, or start a new skill with **Write with Claude**.
+7. **To do** gathers what the scout, the conventions and the updates propose, each in one gesture.
 
 Shipped items are off until switched on, except the skills that match your stack or are always on. Your global and project items are on.
 

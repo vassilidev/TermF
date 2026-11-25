@@ -11,10 +11,11 @@ TermF is not a model. It is the program around Claude Code that keeps the order 
 
 Each run has one page, from launch to merge, with or without the team. It shows where the run is, what waits for you and what happened, and it survives restarts of the app.
 
-1. The timeline shows the steps: triage, path, framing, plan, tasks, review, delivery.
-2. The cards that wait for you appear on it and on the project's Home.
-3. After a restart, **Resume** picks up the same conversation, with the same environment, ports and guard.
-4. Once the pull request is merged, the run closes itself if nothing would be lost (see [after the merge](#after)).
+1. The steps sit in a band under the title: triage, path, framing, plan, tasks, review, delivery. Click one to see its work; the page opens where the team is, or where it stopped.
+2. **Live** gives each agent at work its own lane. The agents that wait for you come first, and you answer in their lane: questions, a plan to approve, a blocked step with its output. The same cards wait on the project's Home.
+3. On the right, **Next step** says what your answer starts. Below it come the ticket, CI, the run's **Changes** (each file with its lines added and removed, and its diff) and the budget with where it is heading. The cost and the duration sit in the header.
+4. After a restart, **Resume** picks up the same conversation, with the same environment, ports and guard.
+5. Once the pull request is merged, the run closes itself if nothing would be lost (see [after the merge](#after)).
 
 ```sh
 # the runs and their state
@@ -83,11 +84,11 @@ When a ticket needs more, the CTO can add steps that ship turned off: a product 
 
 Whether they come from the triage, the product manager, the product owner, the plan or a step that got stuck, questions reach you in one form. Each has a theme (product, scope, interface, technical, security, delivery), the reason it is asked, its options and a proposed answer already filled in.
 
-![A run's page: the plan has questions, each with its theme, its reason and a proposed answer already selected](shot:run "The plan's questions, answers proposed. Sample data.")
+![A run's page: the plan's questions in the lane of the agent that asks, each with its reason and a proposed answer already selected, and the next step on the right](shot:run "The plan's questions, answers proposed. Sample data.")
 
 ### Answer the questions {#questionnaire}
 
-1. The run stops on a card in the run and on the Home; the proposed answers are already selected.
+1. The run stops on the lane of the agent that asks, and on the Home; the proposed answers are already selected.
 2. Change what is wrong, add another answer or a note, and send them all at once, or answer in free text.
 3. The step runs again with your answers, and they travel into every later brief of the run.
 

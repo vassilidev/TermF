@@ -19,6 +19,20 @@ The branches of a project, its worktrees and what the agents did are one look aw
 4. Merge, rebase, cherry-pick or revert from a branch or a commit. On a conflict, keep one side, or open the file in TermF's editor, then continue, skip or abort.
 5. Stash, tag, and open a file's history or blame. A commit opens with its message, files and diffs.
 
+Under the branch's state, **Next step** proposes one thing at a time: pull, commit, push or clean up. The project expert answers from the Git view, with the open commit or a conflict attached (see [Ask from any screen](ask-panel.md)).
+
+### Clean up branches and worktrees {#cleanup}
+
+**Clean up**, at the top of the view, with the number of suggestions, lists what can go and why: merged, its pull request merged, gone from the remote, no commit for 90 days, its run finished, detached, or its folder gone.
+
+![Clean up branches and worktrees: four worktrees and branches ticked, each with its reason and what it would lose, and one button to clean them up](shot:cleanup "What can go, why, and what it would lose. Sample data.")
+
+1. Each line says what you would lose: **Nothing to lose**, or the commits and uncommitted changes. The suggestions, which lose nothing, are ticked at first.
+2. A worktree whose run is still at work, or whose pull request is open, stays.
+3. One button cleans up everything ticked, worktrees first, then branches. When something would be lost, one dialog lists it first.
+4. **Undo** (<kbd>⌘Z</kbd>) brings the branches back to their commit and the worktrees back on their branch. A closed run and lost changes do not come back.
+5. **Ask the git expert** proposes a plan as a card: **Apply** it, change it, or ignore it.
+
 ### Defaults
 
 - The view reads git when it shows, after each action and when the window comes back to the front, never by polling.
