@@ -234,7 +234,7 @@ export const EXCLUDED: [why: string, commands: string[]][] = [
   ],
   [
     "The vault's own security (master password, keys, recovery, Touch ID, auto-lock, another machine's versions, exports and imports) is the user's alone.",
-    ["vault_password_change", "vault_key_add", "vault_key_remove", "vault_recovery_new", "vault_recover", "vault_biometry_set", "vault_auto_lock_set", "vault_unlock_biometry", "vault_reauth_biometry", "vault_reauth_key", "vault_join", "vault_resolve", "vault_export", "vault_import_apply", "vault_import_delete", "vault_import_foreign", "vault_import_read", "vault_audit_export"],
+    ["vault_password_change", "vault_key_add", "vault_key_remove", "vault_recovery_new", "vault_recover", "vault_biometry_set", "vault_auto_lock_set", "vault_lock_on_leave_set", "vault_leave", "vault_unlock_biometry", "vault_reauth_biometry", "vault_reauth_key", "vault_join", "vault_resolve", "vault_export", "vault_import_apply", "vault_import_delete", "vault_import_foreign", "vault_import_read", "vault_audit_export"],
   ],
   [
     "The password manager's own entries (logins, notes, one-time codes) are the user's: agents use the project's secrets (vault.set_secret).",

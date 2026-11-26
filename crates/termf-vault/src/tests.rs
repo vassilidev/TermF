@@ -398,6 +398,51 @@ fn prod_asks_for_the_password_again_after_five_minutes() {
 }
 
 #[test]
+fn prod_asks_for_the_password_while_open_and_leaving_the_view_locks() {
+    let env = Env::new("leave");
+    let vault = env.vault();
+    vault.init(&human(), PASSWORD, false).unwrap();
+    let prod = id("FORGE_TOKEN", Scope::Prod);
+    vault
+        .set(&human(), &prod, Secret::new(VALUE.into()), None)
+        .unwrap();
+    env.clock.awake(6 * 60);
+
+    // Open, but prod asks for the password alone: typing it again is enough, never a lock and an unlock.
+    let err = vault.value(&human(), &prod, Access::Use).unwrap_err();
+    assert!(err.downcast_ref::<NeedsPassword>().is_some());
+    assert!(err.downcast_ref::<Locked>().is_none());
+    assert!(vault.status().unwrap().unlocked);
+    vault.reauth(&human(), PASSWORD).unwrap();
+    vault.value(&human(), &prod, Access::Use).unwrap();
+    assert!(!env.actions(&vault).contains(&Action::Lock));
+
+    let status = vault.status().unwrap();
+    assert!(status.lock_on_leave && status.unlocked);
+    let status = vault.leave().unwrap();
+    assert!(!status.unlocked && status.prod_until.is_none());
+    let lock = &vault.audit(1).unwrap()[0];
+    assert_eq!(
+        (lock.action, lock.actor.kind, lock.detail.as_deref()),
+        (Action::Lock, ActorKind::Termf, Some("left"))
+    );
+    vault.leave().unwrap();
+    assert_eq!(vault.audit(1).unwrap()[0].id, lock.id, "locked once");
+    assert!(
+        vault
+            .value(&human(), &prod, Access::Use)
+            .unwrap_err()
+            .downcast_ref::<Locked>()
+            .is_some()
+    );
+
+    vault.set_lock_on_leave(false);
+    vault.unlock(&human(), Some(PASSWORD), None, None).unwrap();
+    let status = vault.leave().unwrap();
+    assert!(status.unlocked && !status.lock_on_leave);
+}
+
+#[test]
 fn keeps_the_key_in_the_keychain_only_when_asked() {
     let env = Env::new("keychain");
     let vault = env.vault();

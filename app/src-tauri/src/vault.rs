@@ -57,6 +57,7 @@ pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path) -> VaultStat
                 seen = modified;
                 if let Ok(settings) = termf_core::load_settings(&config) {
                     let _ = background.set_auto_lock(settings.vault.auto_lock_minutes);
+                    background.set_lock_on_leave(settings.vault.lock_on_leave);
                 }
             }
             background.check();
@@ -246,6 +247,12 @@ pub async fn vault_lock(state: State<'_, VaultState>) -> CmdResult<Status> {
     blocking(&state, |v| v.lock(&Actor::human())).await
 }
 
+/// The vault's view is off screen: it locks, unless `[vault] lock_on_leave` is off.
+#[tauri::command]
+pub async fn vault_leave(state: State<'_, VaultState>) -> CmdResult<Status> {
+    blocking(&state, |v| v.leave()).await
+}
+
 #[tauri::command]
 pub async fn vault_reauth(state: State<'_, VaultState>, password: String) -> CmdResult<Status> {
     let password = Secret::new(password);
@@ -350,6 +357,17 @@ pub async fn vault_auto_lock_set(state: State<'_, VaultState>, minutes: u32) -> 
     blocking(&state, move |v| {
         v.set_auto_lock(minutes)?;
         termf_core::save_vault_auto_lock(&config_dir, minutes)?;
+        v.status()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_lock_on_leave_set(state: State<'_, VaultState>, on: bool) -> CmdResult<Status> {
+    let config_dir = state.config_dir.clone();
+    blocking(&state, move |v| {
+        termf_core::save_vault_lock_on_leave(&config_dir, on)?;
+        v.set_lock_on_leave(on);
         v.status()
     })
     .await
