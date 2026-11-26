@@ -750,6 +750,7 @@ pub fn run() {
             agentenv::agentenv_requests,
             agentenv::agentenv_answer,
             agentenv::agentenv_settings,
+            agentenv::agentenv_withheld,
             agentenv::agentenv_allow_set,
             agentenv::agentenv_grants,
             agentenv::agentenv_revoke,

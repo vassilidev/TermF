@@ -39,6 +39,15 @@ pub fn login_vars(names: &[&str]) -> Vec<(String, OsString)> {
     std::env::var_os("SHELL").map_or_else(Vec::new, |shell| vars_from(Path::new(&shell), names))
 }
 
+/// The whole environment of an interactive login shell, where the agents start, read once per call. It holds values
+/// (tokens too): callers keep what they need and never show it. `None` on Windows or without a usable shell.
+pub fn login_env() -> Option<Vec<(OsString, OsString)>> {
+    if cfg!(windows) {
+        return None;
+    }
+    env_from(Path::new(&std::env::var_os("SHELL")?))
+}
+
 /// The program `path`, a `PATH`-like list of folders, resolves.
 pub fn which_in(path: &OsStr, program: &str) -> Option<std::path::PathBuf> {
     let exts: &[&str] = if cfg!(windows) {
@@ -106,6 +115,38 @@ fn vars_from(shell: &Path, names: &[&str]) -> Vec<(String, OsString)> {
             (!value.is_empty()).then(|| (name.to_string(), value.into()))
         })
         .collect()
+}
+
+#[cfg(unix)]
+fn env_from(shell: &Path) -> Option<Vec<(OsString, OsString)>> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut cmd = Command::new(shell);
+    cmd.args(["-l", "-i", "-c", &format!("printenv {MARK}; env -0")])
+        .env(MARK, MARK);
+    let (_, out, _) = crate::process::run(cmd, b"", Duration::from_secs(10)).ok()?;
+    // What the profiles print comes before the mark; `env -0` ends each variable with a NUL, so a value may hold
+    // new lines and what follows the last NUL is not a variable.
+    let mark = format!("{MARK}\n");
+    let start = out.windows(mark.len()).position(|w| w == mark.as_bytes())? + mark.len();
+    let body = &out[start..];
+    let body = &body[..body.iter().rposition(|b| *b == 0)?];
+    Some(
+        body.split(|b| *b == 0)
+            .filter_map(|var| {
+                let eq = var.iter().position(|b| *b == b'=')?;
+                let (name, value) = (&var[..eq], &var[eq + 1..]);
+                Some((
+                    OsStr::from_bytes(name).into(),
+                    OsStr::from_bytes(value).into(),
+                ))
+            })
+            .collect(),
+    )
+}
+
+#[cfg(not(unix))]
+fn env_from(_: &Path) -> Option<Vec<(OsString, OsString)>> {
+    None
 }
 
 fn var_from(shell: &Path, name: &str) -> Option<OsString> {
@@ -189,6 +230,23 @@ mod tests {
             ]
         );
         assert!(vars_from(&shell("broken2", "exit 1"), &["HOME"]).is_empty());
+
+        let interactive = shell(
+            "interactive",
+            "[ \"$1 $2 $3\" = '-l -i -c' ] || exit 3\necho 'Welcome back'\nexport ACME_NOTE='two\nlines'\nexec /bin/sh -c \"$4\"",
+        );
+        let names: Vec<_> = env_from(&interactive)
+            .unwrap()
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
+        assert!(names.iter().any(|k| k == "ACME_NOTE"));
+        assert!(
+            names
+                .iter()
+                .all(|k| !k.is_empty() && !k.to_string_lossy().contains('\n'))
+        );
+        assert_eq!(env_from(&shell("broken3", "exit 1")), None);
         fs::remove_dir_all(&dir).unwrap();
     }
 }
