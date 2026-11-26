@@ -642,7 +642,7 @@ fn present(m: &Machine, e: &Entry) -> bool {
 }
 
 fn brew(m: &Machine) -> Result<Out> {
-    let dump = m.output("brew", &["bundle", "dump", "--describe", "--file=-"], SLOW)?;
+    let dump = m.output("brew", &["bundle", "dump", "--file=-"], SLOW)?;
     let mut out = Out {
         found: brewfile(&dump),
         owns: Vec::new(),
@@ -891,6 +891,24 @@ fn gh(m: &Machine) -> Result<Out> {
 }
 
 fn composer(m: &Machine) -> Result<Out> {
+    // composer is a `#!/usr/bin/env php` script, and Herd only puts php on the PATH from ~/.zshrc, which the
+    // login shell behind `m.path` does not read.
+    let herd_bin = m.home.join("Library/Application Support/Herd/bin");
+    let herd;
+    let m = if m.has("php") {
+        m
+    } else if shell::which_in(herd_bin.as_os_str(), "php").is_some() {
+        let mut dirs = vec![herd_bin];
+        dirs.extend(std::env::split_paths(&m.path));
+        herd = Machine {
+            home: m.home.clone(),
+            path: std::env::join_paths(dirs)?,
+            apps: m.apps.clone(),
+        };
+        &herd
+    } else {
+        bail!("composer needs php, which is not on the PATH TermF sees");
+    };
     let text = m.output(
         "composer",
         &["global", "show", "--direct", "--format=json"],
@@ -1570,6 +1588,17 @@ mod tests {
     }
 
     #[test]
+    fn composer_without_php_says_so() {
+        let m = Machine {
+            home: PathBuf::from("/nonexistent-home"),
+            path: OsString::new(),
+            apps: None,
+        };
+        let e = composer(&m).err().unwrap().to_string();
+        assert!(e.contains("needs php"), "{e}");
+    }
+
+    #[test]
     fn a_brewfile_gives_its_entries_and_their_descriptions() {
         let dump = "tap \"oven-sh/bun\"\n# Search tool like grep\nbrew \"ripgrep\"\nbrew \"postgresql@16\", restart_service: :changed\n\
                     # Code editor\ncask \"visual-studio-code\"\nmas \"Xcode\", id: 497799835\nvscode \"dbaeumer.vscode-eslint\"\ncargo \"bat\"\n";
@@ -1884,6 +1913,7 @@ esac"#,
         fs::create_dir_all(&bin).unwrap();
         fs::create_dir_all(&home).unwrap();
         program(&bin, "pipx", "echo 'pipx: broken venv' >&2; exit 1");
+        program(&bin, "php", "exit 0");
         program(
             &bin,
             "composer",
