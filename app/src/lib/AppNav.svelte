@@ -159,6 +159,16 @@
   const syncReady = $derived(!!app.sync?.enabled && app.sync.unlocked && !app.sync.forgotten);
   const syncing = $derived(sync.busy === "sync_push" || sync.busy === "sync_pull");
   const syncLabel = $derived(`${t("syncTitle")} · ${syncInfo.text}`);
+  // The longest states, said shorter where the line has no room: the tooltip and the menu say them whole.
+  const syncShort = $derived(
+    tone === "off"
+      ? t("syncVisibleNavOff")
+      : tone === "error"
+        ? t("syncVisibleNavError")
+        : app.sync?.enabled && !app.sync.unlocked && !sync.recoveryKey
+          ? t("syncVisibleNavLocked")
+          : syncInfo.text,
+  );
   let syncMenu = $state(false);
   let syncButton = $state<HTMLButtonElement>();
 
@@ -177,6 +187,7 @@
   );
   let awakeMenu = $state(false);
   let awakeButton = $state<HTMLButtonElement>();
+  let statusRow = $state<HTMLElement>();
   let awakeError = $state("");
 
   async function chooseAwake(mode: KeepAwakeMode) {
@@ -317,6 +328,41 @@
   </div>
 
   <div class="foot">
+    <!-- The sync and keep awake, always in sight over this machine: their state, and their menu in one click. -->
+    <div class="row" bind:this={statusRow}>
+      <button
+        bind:this={syncButton}
+        class="nav-item sync {tone}"
+        aria-haspopup="dialog"
+        aria-expanded={syncMenu}
+        aria-label={syncLabel}
+        title={syncLabel}
+        onclick={() => (syncMenu = !syncMenu)}
+      >
+        {#if syncing}
+          <LoaderCircle size={16} aria-hidden="true" class="spin" />
+        {:else if tone === "off"}
+          <CloudOff size={16} aria-hidden="true" />
+        {:else if flagged}
+          <CloudAlert size={16} aria-hidden="true" />
+        {:else}
+          <CloudCheck size={16} aria-hidden="true" />
+        {/if}
+        <span class="label">{syncShort}</span>
+      </button>
+      <button
+        bind:this={awakeButton}
+        class="icon-btn awake"
+        class:on={awake?.active}
+        aria-haspopup="dialog"
+        aria-expanded={awakeMenu}
+        aria-label={awakeLabel}
+        title={awakeLabel}
+        onclick={() => ((awakeError = ""), (awakeMenu = !awakeMenu))}
+      >
+        {#if awake?.active}<Coffee size={16} aria-hidden="true" />{:else}<Moon size={16} aria-hidden="true" />{/if}
+      </button>
+    </div>
     <div class="row">
       <button class="nav-item machine" aria-expanded={unfolded} title={t("settingsContext")} onclick={toggleMachine}>
         <Monitor size={16} aria-hidden="true" />
@@ -334,37 +380,6 @@
         <SettingsIcon size={16} aria-hidden="true" />
       </button>
       <UsageGauge />
-      <button
-        bind:this={syncButton}
-        class="icon-btn sync {tone}"
-        aria-haspopup="dialog"
-        aria-expanded={syncMenu}
-        aria-label={syncLabel}
-        title={syncLabel}
-        onclick={() => (syncMenu = !syncMenu)}
-      >
-        {#if syncing}
-          <LoaderCircle size={16} aria-hidden="true" class="spin" />
-        {:else if tone === "off"}
-          <CloudOff size={16} aria-hidden="true" />
-        {:else if flagged}
-          <CloudAlert size={16} aria-hidden="true" />
-        {:else}
-          <CloudCheck size={16} aria-hidden="true" />
-        {/if}
-      </button>
-      <button
-        bind:this={awakeButton}
-        class="icon-btn awake"
-        class:on={awake?.active}
-        aria-haspopup="dialog"
-        aria-expanded={awakeMenu}
-        aria-label={awakeLabel}
-        title={awakeLabel}
-        onclick={() => ((awakeError = ""), (awakeMenu = !awakeMenu))}
-      >
-        {#if awake?.active}<Coffee size={16} aria-hidden="true" />{:else}<Moon size={16} aria-hidden="true" />{/if}
-      </button>
       <button
         class="icon-btn"
         onclick={toggleQuickTerminal}
@@ -412,7 +427,7 @@
   </div>
 </Popover>
 
-<Popover bind:open={syncMenu} trigger={syncButton} above label={t("syncTitle")} width={280}>
+<Popover bind:open={syncMenu} trigger={syncButton} anchor={statusRow} above label={t("syncTitle")} width={280}>
   <div class="menu">
     <div class="state">
       <strong>{t("syncTitle")}</strong>
@@ -421,7 +436,7 @@
         <span>{t("syncLastSuccess")} · {ago(app.sync.lastSync)}</span>
       {/if}
     </div>
-    {#if syncReady && !sync.recoveryKey}
+    {#if syncReady}
       <button class="item" onclick={() => syncNow()} disabled={!!sync.busy}>
         {#if syncing}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<ArrowDownUp size={14} aria-hidden="true" />{/if}
         <span>{t("syncNow")}</span>
@@ -433,13 +448,13 @@
   </div>
 </Popover>
 
-<Popover bind:open={awakeMenu} trigger={awakeButton} above label={t("keepAwake")} width={300}>
+<Popover bind:open={awakeMenu} trigger={awakeButton} anchor={statusRow} above label={t("keepAwake")} width={300}>
   <div class="menu">
     <div class="state">
       <strong>{t("keepAwake")}</strong>
       <span class:tone-on={awake?.active}>{awakeLabel}</span>
     </div>
-    <div role="menu" aria-label={t("keepAwake")}>
+    <div class="choices" role="menu" aria-label={t("keepAwake")}>
       {#each awakeModes as [mode, label] (mode)}
         <button class="item" role="menuitemradio" aria-checked={awake?.mode === mode} onclick={() => chooseAwake(mode)}>
           <span>{t(label)}</span>
@@ -743,18 +758,35 @@
     margin-bottom: 0;
   }
 
+  /* A state rather than a place: quieter than the views. */
+  .nav .sync {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-weight: 400;
+  }
+
+  .nav .sync[aria-expanded="true"] {
+    background: var(--hover);
+  }
+
   .awake.on,
-  .sync.attention {
+  .nav .sync.attention,
+  .nav .sync.attention > :global(svg) {
     color: var(--warning);
   }
 
-  .sync.error {
+  .nav .sync.error,
+  .nav .sync.error > :global(svg) {
     color: var(--danger);
   }
 
-  .sync.off,
   .awake:not(.on) {
     color: var(--muted);
+  }
+
+  .choices {
+    display: flex;
+    flex-direction: column;
   }
 
   /* What the indicator says, over the menu's choices. */

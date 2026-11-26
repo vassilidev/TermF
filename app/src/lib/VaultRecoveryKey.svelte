@@ -29,8 +29,10 @@
     <p class="notice warn"><TriangleAlert size={14} aria-hidden="true" />{t("vault2KeyOnce")}</p>
     <div class="key">
       <code aria-label={t("vault2Recovery")}>{key}</code>
-      <button class="btn sm" onclick={() => copy(key)}><Copy size={14} aria-hidden="true" />{t("vault2KeyCopy")}</button>
-      <button class="btn sm" onclick={() => download(key)}><Download size={14} aria-hidden="true" />{t("syncVisibleKeyDownload")}</button>
+      <span class="actions">
+        <button class="btn sm" onclick={() => copy(key)}><Copy size={14} aria-hidden="true" />{t("vault2KeyCopy")}</button>
+        <button class="btn sm" onclick={() => download(key)}><Download size={14} aria-hidden="true" />{t("syncVisibleKeyDownload")}</button>
+      </span>
     </div>
     {#if saved}<p class="muted fine" role="status">{t("syncVisibleKeySaved", { path: shortPath(saved) })}</p>{/if}
     <p class="muted fine">{t("vault2RecoveryLost")}</p>
@@ -88,6 +90,12 @@
     font: 600 var(--text-md) / 1.4 var(--font-mono);
     letter-spacing: 0.04em;
     user-select: all;
+  }
+
+  /* Together on the key's line, or together under it. */
+  .actions {
+    display: flex;
+    gap: 6px;
   }
 
   .fine {
