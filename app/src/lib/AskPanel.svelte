@@ -221,13 +221,20 @@
     display: contents;
   }
 
+  /* With "Expand" beside it, the title stays whole and the role's name gives way: its avatar says it too. */
+  .dock :global(header > h2) {
+    min-width: max-content;
+  }
+
   .who {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
   }
 
   .role {
+    min-width: 0;
     max-width: 150px;
     height: var(--h-sm);
     padding: 0 6px;

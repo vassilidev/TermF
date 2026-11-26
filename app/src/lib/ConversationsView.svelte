@@ -370,7 +370,7 @@
         </li>
       {/each}
       {:else}
-        {#if !agents.read}<li><Skeleton shape="list" rows={6} /></li>{:else if searching}<li class="none muted">{t("convsNoMatch")}</li>{:else}<li class="none muted">{t("chatEmpty")}</li>{/if}
+        {#if !agents.read}<li><Skeleton shape="list" rows={6} /></li>{:else if searching}{#if !olderShown.length}<li class="none muted">{t("convsNoMatch")}</li>{/if}{:else}<li class="none muted">{t("chatEmpty")}</li>{/if}
       {/each}
       {#if olderShown.length}
         <li class="archives">
