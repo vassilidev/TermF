@@ -42,7 +42,8 @@
   import Action from "$lib/Action.svelte";
   import ActionAsk from "$lib/ActionAsk.svelte";
   import ActionVault from "$lib/ActionVault.svelte";
-  import { actionOf, agentActions, approve, askFirst, perform, refuse, resume, type Call } from "$lib/actions.svelte";
+  import { actionOf, agentActions, askFirst, grant, perform, refuse, resume, revoke, type Call } from "$lib/actions.svelte";
+  import { gate } from "$lib/actions-logic";
   import StreamSteps, { type Step } from "$lib/ui/StreamSteps.svelte";
   import { toast } from "$lib/ui/toast.svelte";
   import { afterChange, changeOf, diffOf, question, within } from "$lib/ask-logic";
@@ -155,7 +156,7 @@
   let live = $state<string | null>(null);
   let draft = $state("");
   let reasons = $state<Record<string, string>>({});
-  /** What the user types in an action's card (a password, a token), by permission request or call: never sent. */
+  /** What the user types in an action's card (a password, a token), by call: never sent. */
   let actionSecrets = $state<Record<string, Record<string, string>>>({});
   const DO_ACTION = "mcp__termf__do_action";
   const who = $derived(session.role ?? session.title);
@@ -191,6 +192,7 @@
   const asking = $derived(session.state === "waiting" ? pending(events) : null);
   /** An action TermF's own card asks the user about, no permission card having approved it. */
   const calling = $derived(agentActions.waiting.find((c) => c.session === session.id) ?? null);
+  const granted = $derived(agentActions.granted[session.id] ?? []);
   // While a card waits, what is typed is a question about it: its answer, not a decision.
   const questioning = $derived(!to && (asking !== null || calling !== null));
   // A message to another agent does not wait for the CTO's turn.
@@ -516,7 +518,6 @@
     const message = questionAbout(text);
     if (asking !== null) {
       const request = asking;
-      delete actionSecrets[request];
       return !!(await run("answer", () => invoke("agent_answer", { id: id(), request, allow: false, message }).then(() => true)));
     }
     if (calling === null) return false;
@@ -626,19 +627,20 @@
     focusSession(tile.id);
   }
 
-  /** TermF's own card for an action: what the user typed in it goes with the action, then is forgotten. */
-  function settleCall(call: Call, allow: boolean) {
+  /**
+   * TermF's own card for an action: what the user typed in it goes with the action, then is forgotten. `always`: the
+   * same action runs without a card for the rest of the conversation.
+   */
+  function settleCall(call: Call, allow: boolean, always = false) {
     const key = `call:${call.id}`;
     const secrets = actionSecrets[key] ?? {};
     delete actionSecrets[key];
+    if (always && call.action) grant(call.session, call.action);
     return allow ? perform(call, secrets) : refuse(call, reasons[key] ?? "");
   }
 
   function answer(ask: Permission, allow: boolean) {
     const message = allow ? null : reasons[ask.request]?.trim() || null;
-    // An action allowed here runs with what the user typed in this card, once its call reaches TermF.
-    if (ask.tool === DO_ACTION && allow) approve(session.id, ask.input, actionSecrets[ask.request] ?? {});
-    delete actionSecrets[ask.request];
     return run("answer", () => invoke("agent_answer", { id: id(), request: ask.request, allow, message }).then(() => true));
   }
 
@@ -926,19 +928,7 @@
         <ShieldQuestionMark size={16} aria-hidden="true" />{asks(item.tool)}
       </p>
       {#if item.description}<p class="ask-text">{item.description}</p>{/if}
-      {#if item.tool === DO_ACTION}
-        <ActionAsk
-          session={session.id}
-          project={session.project ?? ""}
-          {who}
-          input={item.input}
-          bind:values={() => actionSecrets[item.request] ?? {}, (v) => (actionSecrets[item.request] = v)}
-        />
-        <details class="raw">
-          <summary><ChevronRight size={14} aria-hidden="true" class="chevron" />{t("ux3t5Details")}</summary>
-          <pre class="mono code">{pretty(item.input)}</pre>
-        </details>
-      {:else if termfTools[item.tool]}
+      {#if termfTools[item.tool]}
         {@const said = phrase(item.input)}
         {#if said}<p class="ask-what">{said}</p>{/if}
         {#each unsaid(item.input) as [name, entries] (name)}
@@ -1167,7 +1157,7 @@
     {/each}
     {#if live}<div class="text live">{@render rich(live)}</div>{/if}
     {#each agentActions.waiting.filter((c) => c.session === session.id) as call (call.id)}
-      <!-- An action no permission card approved: TermF's own card asks. -->
+      <!-- TermF's own card: every action but a read, or a change allowed for the conversation. -->
       <div class="ask" role="group" aria-label={t("actCardTitle", { who })}>
         <p class="ask-title"><ShieldQuestionMark size={16} aria-hidden="true" />{t("actCardTitle", { who })}</p>
         <ActionAsk session={session.id} project={call.project} {who} input={call} bind:values={() => actionSecrets[`call:${call.id}`] ?? {}, (v) => (actionSecrets[`call:${call.id}`] = v)} />
@@ -1182,6 +1172,9 @@
           <button class="btn sm" onclick={() => settleCall(call, false)}>
             <ShieldX size={14} aria-hidden="true" />{t("chatDeny")}
           </button>
+          {#if call.action && gate(call.action) === "change"}
+            <button class="btn sm" onclick={() => settleCall(call, true, true)}>{t("permAlways")}</button>
+          {/if}
           <button class="btn sm primary" onclick={() => settleCall(call, true)}>
             <ShieldCheck size={14} aria-hidden="true" />{t("chatAllow")}
           </button>
@@ -1201,6 +1194,23 @@
         />
       </div>
     {/each}
+    {#if granted.length}
+      <!-- What runs without a card until the conversation ends, each taken back in one click. -->
+      <div class="sys granted" role="group" aria-label={t("permGranted")}>
+        <ShieldCheck size={14} aria-hidden="true" />
+        <span>{t("permGranted")}</span>
+        {#each granted as action (action)}
+          {@const label = actionOf(session.id, action)?.label}
+          {@const name = label ? t(label) : action}
+          <span class="grant">
+            {name}
+            <button type="button" class="icon-btn sm" aria-label={t("permRevoke", { action: name })} title={t("permRevoke", { action: name })} onclick={() => revoke(session.id, action)}>
+              <X size={12} aria-hidden="true" />
+            </button>
+          </span>
+        {/each}
+      </div>
+    {/if}
     {#if thinking}
       <p class="thinking" role="status"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{t("liveThinking")}</p>
     {/if}
@@ -1768,6 +1778,20 @@
 
   .sys.failed {
     color: var(--danger);
+  }
+
+  .sys.granted {
+    flex-wrap: wrap;
+  }
+
+  .grant {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 2px 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    color: var(--text);
   }
 
   .tool {

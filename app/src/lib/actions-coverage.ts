@@ -19,6 +19,8 @@ export const THROUGH: Record<string, string> = {
   keep_awake_set: "settings.set",
   update_settings_set: "settings.set",
   context_settings_set: "settings.set",
+  remote_policy_save: "settings.set_sensitive",
+  keys_set: "settings.set_shortcut",
   onboarding_adopt: "setup.apply",
   onboarding_answer: "setup.apply",
   onboarding_decide: "setup.apply",
@@ -142,6 +144,7 @@ export const READS: string[] = [
   "ops_plan",
   "ops_requests",
   "ops_schema",
+  "ops_test",
   "ops_sql_copy",
   "pty_list",
   "schedule_desktop",
@@ -188,6 +191,7 @@ export const READS: string[] = [
   "tickets_states",
   "tickets_board",
   "tickets_source_states",
+  "tickets_source_test",
   "tickets_attachment",
   "tickets_ticket",
   "tickets_token",
@@ -239,8 +243,8 @@ export const EXCLUDED: [why: string, commands: string[]][] = [
     ["vault_reveal", "vault_item_reveal", "vault_generate", "keys_reveal", "ops_reveal", "ops_env_copy", "ops_env_write", "claude_setting_reveal", "vault_export_csv", "recovery_key_save"],
   ],
   [
-    "The vault's own security (master password, keys, recovery, Touch ID, auto-lock, another machine's versions, exports and imports) is the user's alone.",
-    ["vault_password_change", "vault_key_add", "vault_key_remove", "vault_recovery_new", "vault_recover", "vault_biometry_set", "vault_auto_lock_set", "vault_lock_on_leave_set", "vault_leave", "vault_unlock_biometry", "vault_reauth_biometry", "vault_reauth_key", "vault_join", "vault_resolve", "vault_export", "vault_import_apply", "vault_import_delete", "vault_import_foreign", "vault_import_read", "vault_audit_export"],
+    "The vault's own security (master password, keys, recovery, Touch ID, another machine's versions, exports and imports) is the user's alone: its locking is a sensitive setting (settings.set_sensitive).",
+    ["vault_password_change", "vault_key_add", "vault_key_remove", "vault_recovery_new", "vault_recover", "vault_biometry_set", "vault_leave", "vault_unlock_biometry", "vault_reauth_biometry", "vault_reauth_key", "vault_join", "vault_resolve", "vault_export", "vault_import_apply", "vault_import_delete", "vault_import_foreign", "vault_import_read", "vault_audit_export"],
   ],
   [
     "The password manager's own entries (logins, notes, one-time codes) are the user's: agents use the project's secrets (vault.set_secret).",
@@ -251,8 +255,8 @@ export const EXCLUDED: [why: string, commands: string[]][] = [
     ["ssh_agent_add", "ssh_agent_remove", "ssh_assign", "ssh_fix_permissions", "ssh_generate", "ssh_github_upload", "ssh_host_save", "ssh_host_delete", "ssh_rotate", "ssh_trash", "keys_generate", "keys_convert"],
   ],
   [
-    "What agents may do or reach (Claude Code's settings, hooks and MCP servers, the vault keys they get, the team's free reads, remote control): an agent changing it would widen its own rights.",
-    ["claude_setting_save", "claude_mcp", "claude_mcp_json_save", "agentenv_allow_set", "agentenv_revoke", "team_read_freely", "remote_set", "remote_cut_all", "remote_policy_save", "memory_settings_save"],
+    "What agents may reach is changed by an agent only through the sensitive settings the user confirms every time (settings.set_sensitive, settings.claude_code, settings.claude_mcp); a repository's raw .mcp.json, a vault key taken back from agents, and Remote Control switched on a tile or cut everywhere stay the user's gestures.",
+    ["claude_mcp_json_save", "agentenv_revoke", "remote_set", "remote_cut_all"],
   ],
   [
     "Files, Claude Code's own included (CLAUDE.md, memory, commands, agents): an agent edits them with its own tools, under Claude Code's permissions.",
@@ -275,17 +279,16 @@ export const EXCLUDED: [why: string, commands: string[]][] = [
     ["update_install", "cli_install", "cli_uninstall", "claude_update", "tools_chrome_install"],
   ],
   ["Signing Claude Code in or out: only the user can give the browser's code.", ["claude_auth_login", "claude_auth_logout"]],
-  ["Publishing on claude.ai is done under the user's account: their word only.", ["artifacts_auto", "artifacts_cancel", "artifacts_confirm", "artifacts_delete", "artifacts_refresh"]],
+  ["Publishing on claude.ai is done under the user's account: their word only.", ["artifacts_cancel", "artifacts_delete", "artifacts_refresh"]],
   [
     "The sync between machines carries the vault and the config under its own password: the user's.",
-    ["sync_setup", "sync_unlock", "sync_disable", "sync_forget", "sync_recover", "sync_change_password", "sync_push", "sync_pull", "sync_resolve", "sync_scopes", "sync_preview", "sync_undo"],
+    ["sync_setup", "sync_unlock", "sync_disable", "sync_forget", "sync_recover", "sync_change_password", "sync_push", "sync_pull", "sync_resolve", "sync_preview", "sync_undo"],
   ],
   [
     "What goes through the system's dialogs, the clipboard or another app (exports, imports, PDFs, a link or a file opened): an agent has none of them.",
     ["config_export", "config_import_apply", "library_import_claude", "ops_sql_export", "ops_sql_export_all", "ops_chart_save", "tickets_attachment_save", "design_pdf", "claude_export", "keys_clipboard_clear", "files_open_external", "open_url"],
   ],
   ["Following a recipe's live output streams it to the user's screen: an agent reads a recipe's output with termf mcp's ops_run.", ["ops_follow_start", "ops_follow_stop"]],
-  ["Keyboard shortcuts are the user's hands.", ["keys_set"]],
   ["Deleting the whole project ends its conversations, the agent's own included: the user's, from Configuration.", ["project_delete"]],
   ["TermF's own bookkeeping, no gesture of a screen (an action's reply, the menu, the tray, CI polling, the end-to-end tests).", ["actions_reply", "menu_keys", "tray_update", "ci_poll", "e2e_result"]],
 ];

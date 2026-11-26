@@ -24,6 +24,9 @@ use crate::{AppState, CmdResult, memory, team};
 /// Held while a project's conversation is looked for and created, so that it has only one.
 static OPENING: Mutex<()> = Mutex::new(());
 
+/// The shipped role that knows TermF's settings (`library/roles/termf-expert.md`, `TERMF_EXPERT` of the front end).
+const TERMF_EXPERT: &str = "termf-expert";
+
 fn agents(app: &AppHandle) -> Agents {
     app.state::<AgentsState>().agents()
 }
@@ -155,6 +158,8 @@ pub fn address(
     panel: bool,
 ) -> Result<Addressed> {
     ensure!(!text.trim().is_empty(), "the message is empty");
+    // The TermF expert changes TermF's settings through the screens' actions, whoever writes to it.
+    let panel = panel || role == TERMF_EXPERT;
     let agents = agents(app);
     let project = project(app, id)?;
     let mark = |session: i64| -> Result<()> {
