@@ -35,7 +35,7 @@ const actionOf: Record<string, string> = { ai_panel: "ask_ai" };
 export function watchMenu(): () => void {
   const off = listen("menu-settings", () => showSettings());
   const offItem = listen<string>("menu", ({ payload }) => {
-    if (menuRuns(payload, { palette: ui.palette, help: ui.help, view: ui.view })) menuActions[payload]?.();
+    if (menuRuns(payload, { palette: !!ui.palette, help: ui.help, view: ui.view })) menuActions[payload]?.();
   });
   const stop = $effect.root(() => {
     $effect(() => {

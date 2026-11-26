@@ -1,8 +1,8 @@
 import { tick } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
-import { agents, ctoOf, expertOf, upsert, type AgentSession } from "$lib/agents.svelte";
+import { agents, conversation, ctoOf, expertOf, showConversation, upsert, type AgentSession } from "$lib/agents.svelte";
 import { chipsOf, compose, Owners, removedOf, reroute, roleFor, target, threadKey, type Chip } from "$lib/ask-logic";
-import { ensure } from "$lib/home.svelte";
+import { ensure, reach } from "$lib/home.svelte";
 import { t } from "$lib/i18n";
 import type { Item as LibraryItem } from "$lib/library.svelte";
 import { app, ui, type ViewId } from "$lib/state.svelte";
@@ -63,7 +63,12 @@ export const ask = $state({
   origins: stored<Record<number, string>>(ORIGINS, {}),
   /** The screen the user last wrote to each conversation from (session → view): whose actions it may do. */
   screens: {} as Record<number, string>,
+  /** The CTO or the expert opened at full size from a screen: that screen's context, sent with the next message. */
+  carried: null as { session: number; view: string; chips: Chip[] } | null,
 });
+
+/** The CTO and the expert are talked to at full size, in Conversations; the panel is for a screen's own role. */
+export const wide = (role: string) => role === "cto" || role === "expert";
 
 const screens: Partial<Record<ViewId, Parameters<typeof t>[0]>> = {
   run: "aigScreenRun",
@@ -97,6 +102,11 @@ export function askedProject(): string | null {
 export const screenRole = () => roleFor(ui.view, ask.given[ui.view]?.role);
 export const currentRole = () => here().role ?? screenRole();
 
+/** The panel shows: open, for a screen's own role, out of Conversations, where one chat is shown already. */
+export function panelShown(): boolean {
+  return ask.open && ui.view !== "conversations" && !(wide(currentRole()) && askedProject() !== null);
+}
+
 /** The screen's chips: the view itself, then what the screen gives. */
 function screenChips(): Chip[] {
   const project = app.workspace?.projects.find((p) => p.id === askedProject());
@@ -122,8 +132,14 @@ export function provide(view: ViewId, given: Given): () => void {
   };
 }
 
-/** Opens the panel, the cursor in its field; `role`, `chips` and `draft` prefill it (the "Why?" buttons of a screen). */
+/**
+ * Opens the panel, the cursor in its field; `role`, `chips` and `draft` prefill it (the "Why?" buttons of a screen).
+ * The CTO and the expert open at full size instead.
+ */
 export async function askAI(options: { role?: string; chips?: Chip[]; draft?: string } = {}) {
+  const project = askedProject();
+  const role = options.role ?? currentRole();
+  if (wide(role) && project !== null) return openWide(project, role, options);
   ask.open = true;
   ask.error = "";
   if (options.role) pick().role = options.role === screenRole() ? null : options.role;
@@ -138,10 +154,59 @@ export async function askAI(options: { role?: string; chips?: Chip[]; draft?: st
   ask.focus++;
 }
 
-/** ⌘I: opens the panel, or closes it from inside. */
+/**
+ * The CTO or the expert in Conversations, the cursor in its field with `draft`: the context of the screen asked from
+ * goes with the next message there, as the panel's would.
+ */
+async function openWide(project: string, role: string, options: { chips?: Chip[]; draft?: string }) {
+  const from = ui.view;
+  const given = options.chips ?? [];
+  const context = from === "conversations" ? [] : [...chips().filter((c) => !given.some((g) => g.id === c.id)), ...given];
+  ask.error = "";
+  const session = await ensure(project, role === "cto" ? "cto" : "expert");
+  if (!session) return;
+  ask.carried = context.length ? { session: session.id, view: from, chips: context } : null;
+  showConversation(session.id);
+  await write(options.draft);
+}
+
+/** What the conversation shown in Conversations sends: the context carried from a screen, once. */
+export async function carriedOut(text: string): Promise<string> {
+  const carried = ask.carried;
+  if (!carried) return text;
+  ask.carried = null;
+  ask.screens[carried.session] = carried.view;
+  return compose(text, carried.chips, screenName(carried.view));
+}
+
+/** `draft` after what the field of the conversation shown in Conversations holds; the cursor there. */
+async function write(draft = "") {
+  const box = await reach('[data-panel="conversations"] form.composer textarea');
+  if (!(box instanceof HTMLTextAreaElement)) return;
+  if (draft) {
+    box.value = box.value.trim() ? `${box.value.trimEnd()}
+
+${draft}` : draft;
+    // The binding takes it from the event, as if typed.
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  box.focus();
+}
+
+/** The panel's conversation at full size, in Conversations, where the panel folds; what was typed goes along. */
+export async function expand() {
+  const session = threadOf(askedProject(), currentRole());
+  if (!session) return;
+  const typed = document.querySelector<HTMLTextAreaElement>("[data-ask] form.composer textarea")?.value.trim() ?? "";
+  showConversation(session.id);
+  await write(typed);
+}
+
+/** ⌘I: opens the panel, or closes it from inside; in Conversations, goes to the field of the conversation shown. */
 export function toggleAsk() {
   const inside = !!document.activeElement?.closest("[data-ask]");
   if (ask.open && inside) ask.open = false;
+  else if (ui.view === "conversations" && !agents.creating && conversation()) void write();
   else void askAI({ chips: selection() });
 }
 
@@ -225,25 +290,27 @@ export async function send(text: string): Promise<boolean> {
   ask.busy = true;
   ask.error = "";
   try {
-    if (to.role === "cto" || to.role === "expert") {
-      const session = await ensure(project, to.role);
+    if (wide(to.role)) {
+      const session = await ensure(project, to.role === "cto" ? "cto" : "expert");
       if (!session) return false;
       await invoke("agent_send", { id: session.id, text: body });
       started(session, view);
-    } else {
-      const reached = await invoke<{ session: AgentSession; via: string }>("cto_address", {
-        project,
-        role: to.role,
-        text: body,
-        repo: ask.given[view]?.repo ?? null,
-        direct: view !== "run",
-        panel: true,
-      });
-      upsert(reached.session);
-      ask.threads[key] = { id: reached.session.id, step: reached.via === "step" };
-      keep(THREADS, ask.threads);
-      started(reached.session, view);
+      // Its answer is read at full size; the panel keeps the screen's role.
+      showConversation(session.id);
+      return true;
     }
+    const reached = await invoke<{ session: AgentSession; via: string }>("cto_address", {
+      project,
+      role: to.role,
+      text: body,
+      repo: ask.given[view]?.repo ?? null,
+      direct: view !== "run",
+      panel: true,
+    });
+    upsert(reached.session);
+    ask.threads[key] = { id: reached.session.id, step: reached.via === "step" };
+    keep(THREADS, ask.threads);
+    started(reached.session, view);
     mine.role = to.role === screen ? null : to.role;
     return true;
   } catch (e) {

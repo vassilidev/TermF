@@ -199,6 +199,8 @@
   const queueing = $derived(why === "working");
   const queued = $derived(queues[session.id] ?? []);
   const turning = $derived(session.state === "working" || session.state === "waiting");
+  /** Nothing under way: closing the topic is the way out, taking over and stopping come second. */
+  const resting = $derived(!turning && session.state !== "interactive");
   let attached = $state<Picture[]>([]);
   let picker = $state<HTMLInputElement>();
   let viewer = $state<HTMLDialogElement>();
@@ -552,7 +554,8 @@
   }
 
   async function post(text: string, target: typeof to, images: Image[]): Promise<boolean> {
-    if (outgoing) {
+    // A message to another role is for that role alone: the caller's context stays for the next one.
+    if (outgoing && !target) {
       const out = await run("send", () => outgoing(text, images));
       if (out === undefined) return false;
       if (out === null) return true;
@@ -1009,7 +1012,7 @@
       <Trash2 size={14} aria-hidden="true" />{t("topicDelete")}
     </button>
   {:else if turns.length}
-    <button class="btn sm" disabled={!!busy} title={t("topicDoneHelp")} onclick={endTopic}>
+    <button class="btn sm" class:primary={resting} disabled={!!busy} title={t("topicDoneHelp")} onclick={endTopic}>
       <CircleCheckBig size={14} aria-hidden="true" />{t("topicDone")}
     </button>
   {/if}
@@ -1027,7 +1030,7 @@
     </button>
   {/if}
   {#if !session.mcp && (session.state === "idle" || session.state === "stopped" || session.state === "error")}
-    <button class="btn sm" disabled={!!busy} onclick={takeover} title={t("chatTakeoverHelp")}>
+    <button class="btn sm" class:quiet={resting} disabled={!!busy} onclick={takeover} title={t("chatTakeoverHelp")}>
       {#if busy === "takeover"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<SquareTerminal
           size={14}
           aria-hidden="true"
@@ -1048,7 +1051,7 @@
     </button>
   {/if}
   {#if turning || session.state === "idle"}
-    <button class="btn sm" disabled={!!busy} onclick={() => settle("stop", "agent_stop")}>
+    <button class="btn sm" class:quiet={resting} disabled={!!busy} onclick={() => settle("stop", "agent_stop")}>
       <Square size={13} aria-hidden="true" />{t("chatStop")}
     </button>
   {/if}
@@ -1412,6 +1415,10 @@
   .composer.bare {
     grid-template: "chips" auto "queued" auto "tray" auto "mentions" auto "field" auto "why" auto / minmax(0, 1fr);
     padding: 10px 12px 12px;
+  }
+
+  .composer .chips {
+    grid-column: 1 / -1;
   }
 
   .composer.bare .chips {

@@ -1,20 +1,26 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
+  import ListFilter from "@lucide/svelte/icons/list-filter";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pin from "@lucide/svelte/icons/pin";
   import Plus from "@lucide/svelte/icons/plus";
+  import Search from "@lucide/svelte/icons/search";
   import UserRound from "@lucide/svelte/icons/user-round";
+  import ContextChips from "$lib/ContextChips.svelte";
   import Conversation from "$lib/Conversation.svelte";
   import GitProposal from "$lib/GitProposal.svelte";
   import Square from "@lucide/svelte/icons/square";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Banner from "$lib/ui/Banner.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
+  import Popover from "$lib/ui/Popover.svelte";
   import SelectionBar from "$lib/ui/SelectionBar.svelte";
   import StatusPill from "$lib/ui/StatusPill.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import {
+    agentProjects,
     agents,
     archives,
     conversation,
@@ -23,27 +29,67 @@
     expertOf,
     listed,
     runtimes,
+    searchConversations,
     showCto,
     showExpert,
     upsert,
     usd,
     type AgentSession,
+    type Found,
   } from "$lib/agents.svelte";
   import { currentProject, isMac, scopeRepos } from "$lib/files.svelte";
   import { all, none, pick, settle, within, type Outcome } from "$lib/select-logic";
   import { pinned, pinnedFirst } from "$lib/conversation-logic";
   import { ago, t } from "$lib/i18n";
   import type { Item } from "$lib/library.svelte";
-  import { mostRecent } from "$lib/nav-logic";
+  import { hasWords, mostRecent } from "$lib/nav-logic";
   import { app, shortPath } from "$lib/state.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
-  import { ask, screenName } from "$lib/ask.svelte";
+  import { ask, carriedOut, screenName } from "$lib/ask.svelte";
+
+  let query = $state("");
+  /** The conversations whose messages hold the query, read once typing pauses. */
+  let found = $state<Found[]>([]);
+  let filtering = $state(false);
+  let filterButton = $state<HTMLElement>();
+  const projects = $derived(app.workspace?.projects ?? []);
+  const nameOf = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
+  /** The projects listed: those picked, else the current one; none is every project. */
+  const scope = $derived(agents.only.length ? agents.only : app.project !== null ? [app.project] : []);
+  const scopeName = $derived(
+    scope.length === 0 ? t("ticketsAll") : scope.length === 1 ? nameOf(scope[0]) : t("convsProjectsCount", { count: scope.length }),
+  );
+  const searching = $derived(query.trim() !== "");
+
+  // Another current project starts from its own conversations.
+  $effect(() => {
+    void app.project;
+    untrack(() => {
+      agents.only = [];
+    });
+  });
+
+  $effect(() => {
+    const q = query.trim();
+    if (q.length < 3) return void (found = []);
+    const timer = setTimeout(() => searchConversations(q).then((hits) => query.trim() === q && (found = hits)), 200);
+    return () => clearTimeout(timer);
+  });
+
+  const passage = (s: AgentSession) => (searching ? found.find((f) => f.session === s.id)?.text : undefined);
+  /** Found by its title, role or project at once, by what its messages say once they are read. */
+  const matches = (s: AgentSession) =>
+    !searching || hasWords([s.title, s.role ?? "", ...agentProjects(s).map(nameOf)].join(" "), query) || !!passage(s);
+
+  function toggleProject(id: string) {
+    agents.only = scope.includes(id) ? scope.filter((p) => p !== id) : [...scope, id];
+  }
 
   // Pinned for display only: without a pick, the view and ⌘J still start from the most recent.
   // Then by role, the role asked last first: what was asked with ⌘I says from which screen.
   const groups = $derived.by(() => {
     const by = new Map<string, AgentSession[]>();
-    for (const s of pinnedFirst(listed())) {
+    for (const s of pinnedFirst(listed()).filter(matches)) {
       const key = pinned(s) ? "" : (s.role ?? "~");
       by.set(key, [...(by.get(key) ?? []), s]);
     }
@@ -53,11 +99,21 @@
   const groupName = (key: string) => (key === "" ? t("aigStanding") : key === "~" ? t("aigOthers") : key);
   const current = $derived(conversation());
   const older = $derived(archives());
+  const olderShown = $derived(older.filter(matches));
   let purging = $state(false);
   let purgeError = $state("");
   // Before the list is read, neither the form nor "no conversation" would be true yet.
   const creating = $derived(agents.creating || (agents.read && !current));
   const repos = $derived([...scopeRepos()].sort((a, b) => a.name.localeCompare(b.name)));
+  /** The CTO or the expert opened from a screen: that screen's context goes with the next message. */
+  const carrying = $derived(!!current && ask.carried?.session === current.id);
+
+  function dropCarried(id: string) {
+    const carried = ask.carried;
+    if (!carried) return;
+    const chips = carried.chips.filter((c) => c.id !== id);
+    ask.carried = chips.length ? { ...carried, chips } : null;
+  }
 
   const efforts = [
     ["low", "schedulerEffortLow"],
@@ -179,8 +235,14 @@
 
 {#snippet cleanupPlan(text: string)}<GitProposal {text} />{/snippet}
 
+{#snippet carriedRow()}
+  {#if ask.carried}
+    <div class="carried"><ContextChips chips={ask.carried.chips} onremove={(c) => dropCarried(c.id)} /></div>
+  {/if}
+{/snippet}
+
 <div class="conversations">
-  <ViewHeader title={t("chatView")} context={currentProject()?.name ?? t("ticketsAll")}>
+  <ViewHeader title={t("chatView")} context={agents.only.length ? scopeName : (currentProject()?.name ?? t("ticketsAll"))}>
     {#snippet actions()}
       {#if !creating}
         <button class="btn sm primary" onclick={() => (agents.creating = true)}>
@@ -216,7 +278,40 @@
   {/if}
   <div class="split">
     <ul class="list" class:picking={chosen.length > 0} aria-label={t("chatList")}>
-      {#if app.project !== null && !ctoOf(app.project)}
+      <li class="find">
+        <label class="search">
+          <Search size={14} aria-hidden="true" />
+          <input
+            type="search"
+            placeholder={t("convsSearch")}
+            aria-label={t("convsSearch")}
+            bind:value={query}
+            onkeydown={(e) => e.key === "Escape" && query && (e.stopPropagation(), (query = ""))}
+          />
+        </label>
+        {#if projects.length > 1}
+          <button
+            class="btn sm quiet scope"
+            bind:this={filterButton}
+            aria-expanded={filtering}
+            aria-haspopup="dialog"
+            title={t("convsProjects")}
+            onclick={() => (filtering = !filtering)}
+          >
+            <ListFilter size={14} aria-hidden="true" /><span>{scopeName}</span>
+          </button>
+          <Popover bind:open={filtering} trigger={filterButton} label={t("convsProjects")} align="end" width={240}>
+            <ul class="menu">
+              {#each projects as p (p.id)}
+                <li>
+                  <label><input type="checkbox" checked={scope.includes(p.id)} onchange={() => toggleProject(p.id)} />{p.name}</label>
+                </li>
+              {/each}
+            </ul>
+          </Popover>
+        {/if}
+      </li>
+      {#if app.project !== null && !ctoOf(app.project) && !searching && !agents.only.length}
         <li class="row">
           <span class="slot" aria-hidden="true"></span>
           <button class="pick" onclick={showCto}>
@@ -228,7 +323,7 @@
           </button>
         </li>
       {/if}
-      {#if app.project !== null && !expertOf(app.project)}
+      {#if app.project !== null && !expertOf(app.project) && !searching && !agents.only.length}
         <li class="row">
           <span class="slot" aria-hidden="true"></span>
           <button class="pick" onclick={showExpert}>
@@ -243,6 +338,7 @@
       {#each groups as [key, list] (key)}
         {#if groups.length > 1}<li class="grp" aria-hidden="true">{groupName(key)}</li>{/if}
       {#each list as session (session.id)}
+        {@const hit = passage(session)}
         <li class="row" class:current={session === current && !creating} class:picked={chosen.includes(session)}>
           <input
             class="box"
@@ -261,35 +357,43 @@
               {#if pinned(session)}<Pin size={12} class="pin" aria-label={t("ctoPinned")} />{/if}
               {#if session.role && !pinned(session)}<span class="role"><UserRound size={11} aria-hidden="true" />{session.role}</span>{/if}
             </span>
-            <span class="desc"
-              >{runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · {ago(session.updated)}{#if ask.origins[session.id] && !pinned(session)}
-                · {t("aigFrom", { screen: screenName(ask.origins[session.id]) })}{/if}</span
-            >
+            {#if hit}
+              <span class="desc">{hit}</span>
+            {:else}
+              <span class="desc"
+                >{runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · {ago(session.updated)}{#if ask.origins[session.id] && !pinned(session)}
+                  · {t("aigFrom", { screen: screenName(ask.origins[session.id]) })}{/if}</span
+              >
+            {/if}
           </button>
           <StatusPill status={session.state} />
         </li>
       {/each}
       {:else}
-        {#if agents.read}<li class="none muted">{t("chatEmpty")}</li>{:else}<li><Skeleton shape="list" rows={6} /></li>{/if}
+        {#if !agents.read}<li><Skeleton shape="list" rows={6} /></li>{:else if searching}<li class="none muted">{t("convsNoMatch")}</li>{:else}<li class="none muted">{t("chatEmpty")}</li>{/if}
       {/each}
-      {#if older.length}
+      {#if olderShown.length}
         <li class="archives">
-          <details open={!!current?.archived}>
-            <summary>{t("topicArchives")} · {older.length}</summary>
+          <details open={!!current?.archived || searching}>
+            <summary>{t("topicArchives")} · {olderShown.length}</summary>
             <ul>
-              {#each older as session (session.id)}
+              {#each olderShown as session (session.id)}
+                {@const hit = passage(session)}
                 <li class="row" class:current={session === current && !creating}>
                   <span class="slot" aria-hidden="true"></span>
                   <button class="pick" aria-current={session === current && !creating} onclick={() => select(session.id)}>
                     <span class="name"><span class="title">{session.title}</span></span>
-                    <span class="desc">{runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · {ago(session.updated)}</span>
+                    <span class="desc">{hit ?? `${runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · ${ago(session.updated)}`}</span>
                   </button>
                 </li>
               {/each}
             </ul>
-            <button class="btn sm quiet purge" onclick={() => ((purgeError = ""), (purging = true))}>
-              <Trash2 size={13} aria-hidden="true" />{t("topicDeleteAll")}
-            </button>
+            <!-- While searching it would also delete the archives the search leaves out. -->
+            {#if !searching}
+              <button class="btn sm quiet purge" onclick={() => ((purgeError = ""), (purging = true))}>
+                <Trash2 size={13} aria-hidden="true" />{t("topicDeleteAll")}
+              </button>
+            {/if}
             {#if purgeError}<p class="purge-error" role="alert">{purgeError}</p>{/if}
           </details>
         </li>
@@ -403,7 +507,12 @@
         </form>
       {:else if current}
         {#key current.id}
-          <Conversation session={current} fences={{ "termf-cleanup": cleanupPlan }} />
+          <Conversation
+            session={current}
+            fences={{ "termf-cleanup": cleanupPlan }}
+            chips={carrying ? carriedRow : undefined}
+            outgoing={carrying ? carriedOut : undefined}
+          />
         {/key}
       {/if}
     </section>
@@ -460,6 +569,87 @@
   .none {
     padding: 8px 10px;
     font-size: var(--text-sm);
+  }
+
+  /* Stays at the top of the list as it scrolls. */
+  .find {
+    position: sticky;
+    top: -8px;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: -8px -6px 6px;
+    padding: 8px 6px 6px;
+    background: var(--chrome);
+  }
+
+  .search {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    height: var(--h-sm);
+    padding: 0 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--muted);
+    cursor: text;
+  }
+
+  .search:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  .search input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: 0;
+    outline: none;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+  }
+
+  .scope {
+    max-width: 45%;
+  }
+
+  .scope span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .menu {
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+  }
+
+  .menu label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .menu label:hover {
+    background: var(--hover);
+  }
+
+  .carried {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
   }
 
   .archives {

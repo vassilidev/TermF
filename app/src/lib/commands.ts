@@ -33,6 +33,7 @@ import Maximize2 from "@lucide/svelte/icons/maximize-2";
 import Megaphone from "@lucide/svelte/icons/megaphone";
 import BrainCircuit from "@lucide/svelte/icons/brain-circuit";
 import MessageSquareText from "@lucide/svelte/icons/message-square-text";
+import MessagesSquare from "@lucide/svelte/icons/messages-square";
 import Play from "@lucide/svelte/icons/play";
 import Plus from "@lucide/svelte/icons/plus";
 import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -45,10 +46,19 @@ import Telescope from "@lucide/svelte/icons/telescope";
 import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
 import Ticket from "@lucide/svelte/icons/ticket";
 import Workflow from "@lucide/svelte/icons/workflow";
-import { agents, conversation, showConversation, showExpert, topicEnders, waitingAgents } from "$lib/agents.svelte";
+import {
+  agentProjects,
+  agents,
+  conversation,
+  showConversation,
+  showExpert,
+  topicEnders,
+  waitingAgents,
+  type Found,
+} from "$lib/agents.svelte";
 import { showClaude } from "$lib/claude.svelte";
 import { goToWait, home, projectWaits, talkCto } from "$lib/home.svelte";
-import { ask, askAI, askedProject, currentRole, screenRole, threadOf, toggleAsk } from "$lib/ask.svelte";
+import { ask, askAI, askedProject, currentRole, expand, panelShown, screenRole, threadOf, toggleAsk } from "$lib/ask.svelte";
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { terminalReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
@@ -258,11 +268,13 @@ export function onShortcut(e: KeyboardEvent) {
   const shownTabs = tabs.visibleTabs();
   const projects = app.workspace?.projects ?? [];
   const asked = pressed(e, { tile: shownTabs.length, project: projects.length });
-  if (!asked || (ui.palette && asked.id !== "palette" && asked.id !== "quick_terminal")) return;
+  if (!asked || (ui.palette && !["palette", "find_conversation", "quick_terminal"].includes(asked.id))) return;
   if (ui.help && asked.id !== "help") return;
   const n = asked.n ?? 0;
   const actions: Record<string, (() => void) | undefined> = {
-    palette: () => (ui.palette = !ui.palette),
+    // From the conversation finder, the whole palette.
+    palette: () => (ui.palette = ui.palette !== true),
+    find_conversation: () => (ui.palette = ui.palette === "conversations" ? false : "conversations"),
     // Held down, the key repeats: the help would open and close in a loop.
     help: () => e.repeat || (ui.help = !ui.help),
     split_view: toggleSplit,
@@ -274,6 +286,7 @@ export function onShortcut(e: KeyboardEvent) {
     switch_project: () => (ui.switcher = !ui.switcher),
     talk_cto: app.project === null ? undefined : talkCto,
     ask_ai: toggleAsk,
+    expand_ask: panelShown() && threadOf(askedProject(), currentRole()) ? () => void expand() : undefined,
     new_session: () => openLauncher(),
     reopen_tab: () => reopenTab(),
     toggle_nav: toggleNav,
@@ -312,6 +325,30 @@ const statusLabel = {
   idle: "statusIdle",
   done: "statusDone",
 } as const;
+
+/**
+ * Every conversation, archived ones included, the latest first, found by its title, role or project; `found` adds the
+ * passage where its messages hold the query. `all`: listed before typing too, as the conversation finder does.
+ */
+export function conversationCommands(found: Found[] = [], all = false): Command[] {
+  const names = new Map((app.workspace?.projects ?? []).map((p) => [p.id, p.name]));
+  return [...agents.sessions]
+    .sort((a, b) => b.updated - a.updated)
+    .map((s) => {
+      const passage = found.find((f) => f.session === s.id)?.text;
+      const about = [s.role, ...agentProjects(s).map((id) => names.get(id) ?? id), s.archived ? t("topicArchivedPill") : ""].filter(Boolean).join(" · ");
+      return {
+        id: `conversation-${s.id}`,
+        label: s.title,
+        hint: passage ?? about,
+        terms: passage ? `${about} ${passage}` : about,
+        icon: MessagesSquare,
+        group: "conversations",
+        searchOnly: !all,
+        run: () => showConversation(s.id),
+      } satisfies Command;
+    });
+}
 
 /** Every action the palette offers, by group, in the order shown before typing. */
 export function commands(): Command[] {
@@ -396,7 +433,7 @@ export function commands(): Command[] {
     list.push({ id: "next", label: t("nextWaiting"), keys: keys.next, icon: BellRing, group: "sessions", run: nextWaiting });
   }
   // The conversation in front of the user: the ⌘I panel's, else the one Conversations shows.
-  const talking = ask.open ? threadOf(askedProject(), currentRole()) : ui.view === "conversations" ? conversation() : undefined;
+  const talking = panelShown() ? threadOf(askedProject(), currentRole()) : ui.view === "conversations" ? conversation() : undefined;
   const endTopic = talking && !talking.archived ? topicEnders.get(talking.id) : undefined;
   if (endTopic) list.push({ id: "topic-new", label: t("topicNew"), icon: CircleCheckBig, group: "sessions", run: endTopic });
   const visible = app.sessions.filter(shown);

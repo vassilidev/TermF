@@ -8,7 +8,7 @@
   import Play from "@lucide/svelte/icons/play";
   import ShieldX from "@lucide/svelte/icons/shield-x";
   import SquarePen from "@lucide/svelte/icons/square-pen";
-  import SquareArrowOutUpRight from "@lucide/svelte/icons/square-arrow-out-up-right";
+  import Maximize2 from "@lucide/svelte/icons/maximize-2";
   import Conversation from "$lib/Conversation.svelte";
   import { agents, showConversation, upsert, type AgentSession } from "$lib/agents.svelte";
   import type { Image } from "$lib/conversation-logic";
@@ -123,8 +123,8 @@
     {#if session}
       {@const id = session.id}
       <div class="head-actions">
-        <button class="icon-btn" title={t("opsdbAskOpen")} aria-label={t("opsdbAskOpen")} onclick={() => showConversation(id)}>
-          <SquareArrowOutUpRight size={14} aria-hidden="true" />
+        <button class="btn sm quiet" title={t("convsExpandHelp")} onclick={() => showConversation(id)}>
+          <Maximize2 size={14} aria-hidden="true" />{t("convsExpand")}
         </button>
         <button class="icon-btn" title={t("topicDoneHelp")} aria-label={t("topicDone")} onclick={() => conv?.endTopic()}>
           <CircleCheckBig size={14} aria-hidden="true" />
@@ -203,6 +203,7 @@
 
   .head-actions {
     display: flex;
+    align-items: center;
     gap: 2px;
   }
 
