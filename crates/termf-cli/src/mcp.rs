@@ -399,7 +399,7 @@ fn tools() -> Value {
         read(
             "actions",
             "TermF's actions here",
-            "What you may do in TermF from the screen the user talks to you from, and anywhere: each action's id, what it does, its `arguments` (a JSON schema) and `askedToUser`, the fields TermF asks the user for itself; and `here`, what the screen holds by name (connections, tasks, the vault's secrets: never a value).",
+            "What you may do in TermF from the screen the user talks to you from, and anywhere: each action's id, what it does, its `arguments` (a JSON schema) and `askedToUser`, the fields TermF asks the user for itself; and `here`, what the screen holds by name (connections, tasks, the vault's secrets: never a value); and `sync`, the encrypted sync's state on this machine (on or off, last sync, error, conflicts, what is left to send or receive).",
             none.clone()
         ),
         act(

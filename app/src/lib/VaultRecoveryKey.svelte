@@ -1,12 +1,24 @@
 <script lang="ts">
   import CircleCheck from "@lucide/svelte/icons/circle-check";
   import Copy from "@lucide/svelte/icons/copy";
+  import Download from "@lucide/svelte/icons/download";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { t } from "$lib/i18n";
+  import { saveRecoveryKey } from "$lib/recovery-key";
+  import { shortPath } from "$lib/state.svelte";
   import { copy, vault } from "$lib/vault.svelte";
 
   const lead = { first: "vault2KeyFirst", renewed: "vault2KeyRenewed", recovered: "vault2KeyRecovered" } as const;
   let stored = $state(false);
+  let saved = $state("");
+
+  async function download(key: string) {
+    try {
+      saved = (await saveRecoveryKey(key, "vault")) ?? saved;
+    } catch (e) {
+      vault.error = String(e);
+    }
+  }
 </script>
 
 {#if vault.recoveryKey}
@@ -17,8 +29,12 @@
     <p class="notice warn"><TriangleAlert size={14} aria-hidden="true" />{t("vault2KeyOnce")}</p>
     <div class="key">
       <code aria-label={t("vault2Recovery")}>{key}</code>
-      <button class="btn sm" onclick={() => copy(key)}><Copy size={14} aria-hidden="true" />{t("vault2KeyCopy")}</button>
+      <span class="actions">
+        <button class="btn sm" onclick={() => copy(key)}><Copy size={14} aria-hidden="true" />{t("vault2KeyCopy")}</button>
+        <button class="btn sm" onclick={() => download(key)}><Download size={14} aria-hidden="true" />{t("syncVisibleKeyDownload")}</button>
+      </span>
     </div>
+    {#if saved}<p class="muted fine" role="status">{t("syncVisibleKeySaved", { path: shortPath(saved) })}</p>{/if}
     <p class="muted fine">{t("vault2RecoveryLost")}</p>
     <label class="check">
       <input type="checkbox" bind:checked={stored} />
@@ -74,6 +90,12 @@
     font: 600 var(--text-md) / 1.4 var(--font-mono);
     letter-spacing: 0.04em;
     user-select: all;
+  }
+
+  /* Together on the key's line, or together under it. */
+  .actions {
+    display: flex;
+    gap: 6px;
   }
 
   .fine {

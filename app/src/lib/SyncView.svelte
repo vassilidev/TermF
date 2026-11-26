@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
   import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
   import ArrowUpFromLine from "@lucide/svelte/icons/arrow-up-from-line";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import CircleCheck from "@lucide/svelte/icons/circle-check";
   import CirclePlus from "@lucide/svelte/icons/circle-plus";
@@ -26,6 +27,7 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Lock from "@lucide/svelte/icons/lock";
   import Power from "@lucide/svelte/icons/power";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Server from "@lucide/svelte/icons/server";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Undo2 from "@lucide/svelte/icons/undo-2";
@@ -33,9 +35,21 @@
   import SyncConflict from "$lib/SyncConflict.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { ago, t } from "$lib/i18n";
-  import { app, load } from "$lib/state.svelte";
-  import { cloneTarget, expandHome, inside, previewGroups, shownPath, type Change } from "$lib/sync-logic";
+  import { app, load, shortPath } from "$lib/state.svelte";
+  import { saveRecoveryKey } from "$lib/recovery-key";
   import {
+    cloneTarget,
+    compareRows,
+    expandHome,
+    inside,
+    previewGroups,
+    shownPath,
+    type Change,
+    type Counts,
+    type PreviewItem,
+  } from "$lib/sync-logic";
+  import {
+    compareSync,
     currentReport,
     keepReport,
     remoteText,
@@ -69,8 +83,11 @@
   let joining = $state<boolean | null>(null);
   // The vault, the SSH keys and the dev config only when asked, as on the command line.
   let chosen = $state<Scope[]>(
-    scopes.map(([scope]) => scope).filter((scope) => !["vault", "sshKeys", "devConfig"].includes(scope)),
+    scopes
+      .map(([scope]) => scope)
+      .filter((scope) => !["vault", "sshKeys", "devConfig"].includes(scope) || scope === sync.suggested),
   );
+  sync.suggested = null;
   let deviceName = $state("");
   /** Ticking the SSH keys waits for this confirmation: `apply` runs once confirmed, then the focus goes back to `box`. */
   let sshWarning = $state<{ apply: () => unknown; box: HTMLInputElement } | null>(null);
@@ -94,6 +111,8 @@
   let devicesError = $state("");
   let copied = $state(false);
   let stored = $state(false);
+  /** Where the recovery key was saved, once it was. */
+  let saved = $state("");
 
   const remote = $derived<Remote>(
     kind === "git"
@@ -137,6 +156,42 @@
     added: "syncReconcileAdded",
     sent: "syncReconcileSent",
   };
+  /** The same changes, still to come: what the next sync does. */
+  const aheadLabel: Record<Change, Parameters<typeof t>[0]> = {
+    conflict: "syncReconcileConflict",
+    merged: "syncVisibleMerge",
+    kept: "syncVisibleReceive",
+    added: "syncVisibleReceive",
+    sent: "syncVisibleSend",
+  };
+  const compared = $derived(
+    sync.compare
+      ? compareRows(
+          sync.compare,
+          scopes.map(([scope]) => scope).filter((scope) => status?.scopes.includes(scope)),
+        )
+      : [],
+  );
+  const total = $derived(
+    compared.reduce(
+      (all, row) => ({
+        conflict: all.conflict + row.counts.conflict,
+        merge: all.merge + row.counts.merge,
+        receive: all.receive + row.counts.receive,
+        send: all.send + row.counts.send,
+      }),
+      { conflict: 0, merge: 0, receive: 0, send: 0 },
+    ),
+  );
+  const countsText = (c: Counts) =>
+    [
+      c.send && t("syncVisibleCountSend", { count: c.send }),
+      c.receive && t("syncVisibleCountReceive", { count: c.receive }),
+      c.merge && t("syncVisibleCountMerge", { count: c.merge }),
+      c.conflict && t("syncVisibleCountConflict", { count: c.conflict }),
+    ]
+      .filter(Boolean)
+      .join(" · ");
   const scopeLabel = (scope: string) => scopes.find(([s]) => s === scope)?.[1] ?? "syncScopeConfig";
   const osLabel: Record<string, Parameters<typeof t>[0]> = { macos: "osMacos", linux: "osLinux", windows: "osWindows" };
 
@@ -144,6 +199,13 @@
   $effect(() => {
     void syncedAt;
     if (ready) loadDevices();
+  });
+
+  // When the page opens, after each sync, and once a command here is done (scopes, password, undo…): never on
+  // its own, a comparison reaches the remote.
+  $effect(() => {
+    void syncedAt;
+    if (ready && !sync.busy) untrack(compareSync);
   });
 
   async function loadDevices() {
@@ -308,9 +370,18 @@
     }
   }
 
+  async function download(key: string) {
+    try {
+      saved = (await saveRecoveryKey(key, "sync")) ?? saved;
+    } catch (e) {
+      sync.error = String(e);
+    }
+  }
+
   function stash() {
     sync.recoveryKey = null;
     copied = stored = false;
+    saved = "";
   }
 
   function submit(run: () => unknown) {
@@ -415,6 +486,87 @@
   </form>
 {/snippet}
 
+{#snippet changeRows(items: PreviewItem[], labels: Record<Change, Parameters<typeof t>[0]>)}
+  <ul class="rows">
+    {#each items as item (item.path)}
+      {@const Icon = changeIcon[item.change]}
+      <li>
+        <Icon size={14} aria-hidden="true" class="change-{item.change}" />
+        <div class="grow">
+          <span class="mono">{shownPath(item.path)}</span>
+          {#if item.change === "conflict"}
+            <span class="sub">
+              {item.keys.length ? t("syncConflictKeys", { keys: item.keys.join(", ") }) : t("syncConflictWhole")}
+            </span>
+          {:else if item.change === "kept" && item.to}
+            <span class="sub">{t("syncReconcileKeptAs", { name: shownPath(item.to) })}</span>
+          {:else if item.change === "merged"}
+            <span class="sub">{t("syncReconcileMergedHelp")}</span>
+          {/if}
+        </div>
+        <span class="badge change-{item.change}">{t(labels[item.change])}</span>
+      </li>
+    {/each}
+  </ul>
+{/snippet}
+
+{#snippet comparison()}
+  <section class="step compare">
+    <div class="compare-head">
+      <h3>{t("syncVisibleCompareTitle")}</h3>
+      <button class="btn sm quiet" onclick={compareSync} disabled={sync.comparing || !!sync.busy}>
+        {#if sync.comparing}
+          <LoaderCircle size={14} aria-hidden="true" class="spin" />
+        {:else}
+          <RefreshCw size={14} aria-hidden="true" />
+        {/if}{t("syncVisibleCompareCheck")}
+      </button>
+    </div>
+    {#if sync.compareError}
+      <p class="notice error lines"><CircleAlert size={14} aria-hidden="true" />{sync.compareError}</p>
+    {:else if !sync.compare}
+      <Skeleton shape="list" rows={2} label={t("syncVisibleComparing")} />
+    {:else}
+      {@const differs = countsText(total)}
+      <div class="verdict" role="status">
+        {#if differs}
+          <ArrowDownUp size={16} aria-hidden="true" class="differs" />
+          <div class="grow">
+            <span>{differs}</span>
+            <span class="sub">{t("syncVisibleDiffersHelp")}</span>
+          </div>
+        {:else}
+          <CircleCheck size={16} aria-hidden="true" class="same" />
+          <div class="grow">
+            <span>{t("syncVisibleSame")}</span>
+            <span class="sub">{t("syncVisibleSameHelp")}</span>
+          </div>
+        {/if}
+      </div>
+      <ul class="rows">
+        {#each compared as row (row.scope)}
+          <li>
+            {#if row.items.length}
+              <details>
+                <summary>
+                  <ChevronRight size={14} aria-hidden="true" class="chev" />
+                  <span class="scope">{t(scopeLabel(row.scope))}</span>
+                  <span class="sub">{countsText(row.counts)}</span>
+                </summary>
+                {@render changeRows(row.items, aheadLabel)}
+              </details>
+            {:else}
+              <CircleCheck size={14} aria-hidden="true" class="same" />
+              <span class="scope">{t(scopeLabel(row.scope))}</span>
+              <span class="sub">{t("syncVisibleScopeSame")}</span>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </section>
+{/snippet}
+
 {#snippet disableBlock()}
   <section class="step">
     {#if mode === "disable"}
@@ -435,7 +587,10 @@
   <header class="head">
     <h2>{t("syncTitle")}</h2>
     <div class="actions">
-      {#if ready && !sync.recoveryKey}
+      {#if ready}
+        {#if sync.recoveryKey}
+          <span class="sub when">{syncedAt ? t("syncDone", { ago: ago(syncedAt) }) : t("syncNever")}</span>
+        {/if}
         <button class="btn sm" onclick={() => syncNow(false)} disabled={!!sync.busy}>
           {@render spinner("sync_pull", Download)}{t("syncPullOnly")}
         </button>
@@ -478,7 +633,11 @@
             <Copy size={14} aria-hidden="true" />{t("syncKeyCopy")}
           {/if}
         </button>
+        <button class="btn sm" onclick={() => download(key)}>
+          <Download size={14} aria-hidden="true" />{t("syncVisibleKeyDownload")}
+        </button>
       </div>
+      {#if saved}<p class="help" role="status">{t("syncVisibleKeySaved", { path: shortPath(saved) })}</p>{/if}
       <label class="check stored">
         <input type="checkbox" bind:checked={stored} />
         {t("syncKeyStored")}
@@ -657,29 +816,7 @@
               {#each groups as group (group.scope)}
                 <div class="group">
                   <h4>{t(scopeLabel(group.scope))} <span class="count">{group.items.length}</span></h4>
-                  <ul class="rows">
-                    {#each group.items as item (item.path)}
-                      {@const Icon = changeIcon[item.change]}
-                      <li>
-                        <Icon size={14} aria-hidden="true" class="change-{item.change}" />
-                        <div class="grow">
-                          <span class="mono">{shownPath(item.path)}</span>
-                          {#if item.change === "conflict"}
-                            <span class="sub">
-                              {item.keys.length
-                                ? t("syncConflictKeys", { keys: item.keys.join(", ") })
-                                : t("syncConflictWhole")}
-                            </span>
-                          {:else if item.change === "kept" && item.to}
-                            <span class="sub">{t("syncReconcileKeptAs", { name: shownPath(item.to) })}</span>
-                          {:else if item.change === "merged"}
-                            <span class="sub">{t("syncReconcileMergedHelp")}</span>
-                          {/if}
-                        </div>
-                        <span class="badge change-{item.change}">{t(changeLabel[item.change])}</span>
-                      </li>
-                    {/each}
-                  </ul>
+                  {@render changeRows(group.items, changeLabel)}
                 </div>
               {/each}
             {/if}
@@ -783,6 +920,8 @@
       {#if status.lastError && status.lastError !== sync.error && !report?.skipped.length}
         <p class="notice error lines"><CircleAlert size={14} aria-hidden="true" />{status.lastError}</p>
       {/if}
+
+      {@render comparison()}
 
       {#if status.conflicts.length}
         <section class="step">
@@ -1454,6 +1593,80 @@
 
   .preview {
     max-width: 820px;
+  }
+
+  .compare-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .verdict {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-weight: 500;
+  }
+
+  .verdict :global(svg) {
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .verdict :global(.same),
+  .rows :global(svg.same) {
+    flex-shrink: 0;
+    color: var(--done);
+  }
+
+  .verdict :global(.differs) {
+    color: var(--accent-ink);
+  }
+
+  .verdict .sub {
+    font-weight: 400;
+  }
+
+  .scope {
+    flex: 1;
+    font-weight: 500;
+  }
+
+  .rows li > details {
+    flex: 1;
+    min-width: 0;
+  }
+
+  summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  summary :global(.chev) {
+    flex-shrink: 0;
+    color: var(--muted);
+    transition: transform var(--dur-fast) ease-out;
+  }
+
+  details[open] > summary {
+    margin-bottom: 8px;
+  }
+
+  details[open] > summary :global(.chev) {
+    transform: rotate(90deg);
+  }
+
+  details .rows li {
+    padding-left: 12px;
   }
 
   .summary {

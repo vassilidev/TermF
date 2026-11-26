@@ -258,6 +258,12 @@ pub async fn sync_preview(
     blocking(&state, move |e| e.preview(remote, &password, &scopes)).await
 }
 
+/// What a sync would do now: nothing is applied, here or on the remote.
+#[tauri::command]
+pub async fn sync_compare(state: State<'_, SyncState>) -> CmdResult<Report> {
+    blocking(&state, |e| e.compare()).await
+}
+
 /// Puts back what the last sync changed here; what it put back waits as conflicts.
 #[tauri::command]
 pub async fn sync_undo(app: AppHandle, state: State<'_, SyncState>) -> CmdResult<Undone> {

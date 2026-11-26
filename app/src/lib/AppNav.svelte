@@ -1,11 +1,17 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
   import BellRing from "@lucide/svelte/icons/bell-ring";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import CloudAlert from "@lucide/svelte/icons/cloud-alert";
+  import CloudCheck from "@lucide/svelte/icons/cloud-check";
+  import CloudOff from "@lucide/svelte/icons/cloud-off";
   import Coffee from "@lucide/svelte/icons/coffee";
   import Columns2 from "@lucide/svelte/icons/columns-2";
   import Layers from "@lucide/svelte/icons/layers";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Monitor from "@lucide/svelte/icons/monitor";
+  import Moon from "@lucide/svelte/icons/moon";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
   import PanelLeftClose from "@lucide/svelte/icons/panel-left-close";
   import PanelLeftOpen from "@lucide/svelte/icons/panel-left-open";
@@ -23,14 +29,14 @@
   import { waitingAgents } from "$lib/agents.svelte";
   import { waitingRuns } from "$lib/team.svelte";
   import { keys, nextWaiting } from "$lib/commands";
-  import { t } from "$lib/i18n";
+  import { ago, t } from "$lib/i18n";
   import { aria, display } from "$lib/keymap.svelte";
   import { validProject } from "$lib/nav-logic";
   import { newProject } from "$lib/newproject.svelte";
   import { tallies } from "$lib/project.svelte";
   import { showSettings } from "$lib/settings.svelte";
-  import { app, onScreen, panes, setProject, ui, waitingSessions, type ViewId } from "$lib/state.svelte";
-  import { summary } from "$lib/sync.svelte";
+  import { app, onScreen, panes, setKeepAwake, setProject, ui, waitingSessions, type KeepAwakeMode, type ViewId } from "$lib/state.svelte";
+  import { showSync, summary, sync, syncNow } from "$lib/sync.svelte";
   import { views, type View } from "$lib/views";
   import Popover from "$lib/ui/Popover.svelte";
   import UsageGauge from "$lib/UsageGauge.svelte";
@@ -145,10 +151,49 @@
   const side = (id: ViewId) => (!panes.other || !onScreen(id) ? null : (ui.view === id) === (panes.active === 0) ? "left" : "right");
   const projects = $derived(app.workspace?.projects ?? []);
   const counts = $derived(tallies());
-  /** Sync needs the owner (password, conflicts, recovery key, error): a dot on Settings, or on "This machine" folded. */
-  const tone = $derived(summary(app.sync).tone);
+  /** Sync needs the owner (password, conflicts, recovery key, error): its icon says so, and a dot on Settings. */
+  const syncInfo = $derived(summary(app.sync));
+  const tone = $derived(syncInfo.tone);
   const flagged = $derived(tone === "attention" || tone === "error");
   const settingsLabel = $derived(flagged ? `${t("settings")} · ${t("syncNeedsYou")}` : t("settings"));
+  const syncReady = $derived(!!app.sync?.enabled && app.sync.unlocked && !app.sync.forgotten);
+  const syncing = $derived(sync.busy === "sync_push" || sync.busy === "sync_pull");
+  const syncLabel = $derived(`${t("syncTitle")} · ${syncInfo.text}`);
+  // The longest states, said shorter where the line has no room: the tooltip and the menu say them whole.
+  const syncShort = $derived(
+    tone === "off"
+      ? t("syncVisibleNavOff")
+      : tone === "error"
+        ? t("syncVisibleNavError")
+        : app.sync?.enabled && !app.sync.unlocked && !sync.recoveryKey
+          ? t("syncVisibleNavLocked")
+          : syncInfo.text,
+  );
+  let syncMenu = $state(false);
+  let syncButton = $state<HTMLButtonElement>();
+
+  const awakeModes: [KeepAwakeMode, "keepAwakeAuto" | "keepAwakeAlways" | "keepAwakeOff"][] = [
+    ["auto", "keepAwakeAuto"],
+    ["always", "keepAwakeAlways"],
+    ["off", "keepAwakeOff"],
+  ];
+  const awake = $derived(app.keepAwake);
+  const awakeLabel = $derived(
+    !awake
+      ? t("keepAwake")
+      : awake.active
+        ? t(awake.mode === "always" ? "syncVisibleAwakeAlways" : "syncVisibleAwakeAgents")
+        : t(awake.mode === "off" ? "syncVisibleAwakeNever" : "syncVisibleAwakeFree"),
+  );
+  let awakeMenu = $state(false);
+  let awakeButton = $state<HTMLButtonElement>();
+  let statusRow = $state<HTMLElement>();
+  let awakeError = $state("");
+
+  async function chooseAwake(mode: KeepAwakeMode) {
+    awakeError = await setKeepAwake(mode, awake?.displayOn ?? false);
+    if (!awakeError) awakeMenu = false;
+  }
 
   // A remembered or current project that no longer exists falls back to every project.
   $effect(() => {
@@ -283,6 +328,41 @@
   </div>
 
   <div class="foot">
+    <!-- The sync and keep awake, always in sight over this machine: their state, and their menu in one click. -->
+    <div class="row" bind:this={statusRow}>
+      <button
+        bind:this={syncButton}
+        class="nav-item sync {tone}"
+        aria-haspopup="dialog"
+        aria-expanded={syncMenu}
+        aria-label={syncLabel}
+        title={syncLabel}
+        onclick={() => (syncMenu = !syncMenu)}
+      >
+        {#if syncing}
+          <LoaderCircle size={16} aria-hidden="true" class="spin" />
+        {:else if tone === "off"}
+          <CloudOff size={16} aria-hidden="true" />
+        {:else if flagged}
+          <CloudAlert size={16} aria-hidden="true" />
+        {:else}
+          <CloudCheck size={16} aria-hidden="true" />
+        {/if}
+        <span class="label">{syncShort}</span>
+      </button>
+      <button
+        bind:this={awakeButton}
+        class="icon-btn awake"
+        class:on={awake?.active}
+        aria-haspopup="dialog"
+        aria-expanded={awakeMenu}
+        aria-label={awakeLabel}
+        title={awakeLabel}
+        onclick={() => ((awakeError = ""), (awakeMenu = !awakeMenu))}
+      >
+        {#if awake?.active}<Coffee size={16} aria-hidden="true" />{:else}<Moon size={16} aria-hidden="true" />{/if}
+      </button>
+    </div>
     <div class="row">
       <button class="nav-item machine" aria-expanded={unfolded} title={t("settingsContext")} onclick={toggleMachine}>
         <Monitor size={16} aria-hidden="true" />
@@ -293,24 +373,13 @@
       <button
         class="icon-btn gear"
         class:on={ui.view === "settings"}
-        aria-label={settingsLabel}
-        title={settingsLabel}
+        aria-label={t("settings")}
+        title={t("settings")}
         onclick={() => showSettings()}
       >
         <SettingsIcon size={16} aria-hidden="true" />
-        {#if flagged}<span class="dot {tone}" aria-hidden="true"></span>{/if}
       </button>
       <UsageGauge />
-      {#if app.keepAwake?.active}
-        <button
-          class="icon-btn awake"
-          onclick={() => showSettings("awake")}
-          aria-label={t("keepAwakeActive")}
-          title={t("keepAwakeActive")}
-        >
-          <Coffee size={16} aria-hidden="true" />
-        </button>
-      {/if}
       <button
         class="icon-btn"
         onclick={toggleQuickTerminal}
@@ -355,6 +424,45 @@
         {#if nav.fold === fold}<Check size={14} aria-hidden="true" />{/if}
       </button>
     {/each}
+  </div>
+</Popover>
+
+<Popover bind:open={syncMenu} trigger={syncButton} anchor={statusRow} above label={t("syncTitle")} width={280}>
+  <div class="menu">
+    <div class="state">
+      <strong>{t("syncTitle")}</strong>
+      <span class="tone-{tone}">{syncInfo.text}</span>
+      {#if tone !== "ok" && app.sync?.enabled && app.sync.lastSync}
+        <span>{t("syncLastSuccess")} · {ago(app.sync.lastSync)}</span>
+      {/if}
+    </div>
+    {#if syncReady}
+      <button class="item" onclick={() => syncNow()} disabled={!!sync.busy}>
+        {#if syncing}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<ArrowDownUp size={14} aria-hidden="true" />{/if}
+        <span>{t("syncNow")}</span>
+      </button>
+    {/if}
+    <button class="item" onclick={() => ((syncMenu = false), showSync())}>
+      <SettingsIcon size={14} aria-hidden="true" /><span>{t(app.sync?.enabled ? "syncVisibleNavOpen" : "syncVisibleNavEnable")}</span>
+    </button>
+  </div>
+</Popover>
+
+<Popover bind:open={awakeMenu} trigger={awakeButton} anchor={statusRow} above label={t("keepAwake")} width={300}>
+  <div class="menu">
+    <div class="state">
+      <strong>{t("keepAwake")}</strong>
+      <span class:tone-on={awake?.active}>{awakeLabel}</span>
+    </div>
+    <div class="choices" role="menu" aria-label={t("keepAwake")}>
+      {#each awakeModes as [mode, label] (mode)}
+        <button class="item" role="menuitemradio" aria-checked={awake?.mode === mode} onclick={() => chooseAwake(mode)}>
+          <span>{t(label)}</span>
+          {#if awake?.mode === mode}<Check size={14} aria-hidden="true" />{/if}
+        </button>
+      {/each}
+    </div>
+    {#if awakeError || awake?.error}<p class="state error" role="alert">{awakeError || awake?.error}</p>{/if}
   </div>
 </Popover>
 
@@ -633,21 +741,9 @@
     width: 24px;
   }
 
-  .gear {
-    position: relative;
-  }
-
   .gear.on {
     background: var(--selected);
     color: var(--accent-ink);
-  }
-
-  /* The dot sits on the icon: the row has no width to spare for it. */
-  .gear .dot {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    box-shadow: 0 0 0 2px var(--chrome);
   }
 
   .machine :global(.chev) {
@@ -662,8 +758,65 @@
     margin-bottom: 0;
   }
 
-  .awake {
+  /* A state rather than a place: quieter than the views. */
+  .nav .sync {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-weight: 400;
+  }
+
+  .nav .sync[aria-expanded="true"] {
+    background: var(--hover);
+  }
+
+  .awake.on,
+  .nav .sync.attention,
+  .nav .sync.attention > :global(svg) {
     color: var(--warning);
+  }
+
+  .nav .sync.error,
+  .nav .sync.error > :global(svg) {
+    color: var(--danger);
+  }
+
+  .awake:not(.on) {
+    color: var(--muted);
+  }
+
+  .choices {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* What the indicator says, over the menu's choices. */
+  .state {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 6px 8px 8px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .state strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .state .tone-ok {
+    color: var(--done);
+  }
+
+  .state .tone-attention,
+  .state .tone-on {
+    color: var(--warning);
+  }
+
+  .state .tone-error,
+  .state.error {
+    color: var(--danger);
   }
 
   .dot {
@@ -853,10 +1006,5 @@
   /* Unfolded, this machine lists the settings already. */
   .rail .machine[aria-expanded="true"] ~ .gear {
     display: none;
-  }
-
-  .rail .gear .dot {
-    top: 6px;
-    right: 8px;
   }
 </style>

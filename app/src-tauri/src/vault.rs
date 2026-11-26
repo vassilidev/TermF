@@ -633,6 +633,12 @@ pub async fn vault_export_csv(
     .await
 }
 
+/// A recovery key, the vault's or the sync's, in a text file that says what it opens: the user's only.
+#[tauri::command]
+pub fn recovery_key_save(path: String, text: String) -> CmdResult<()> {
+    write_private(&path, text.as_bytes()).map_err(err)
+}
+
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum ImportFile {
@@ -748,4 +754,26 @@ pub async fn vault_biometry_set(
         v.set_quick(&Actor::human(), days)
     })
     .await
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn a_recovery_key_file_is_the_users_only() {
+        let dir = std::env::temp_dir().join(format!("termf-recovery-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("key.txt");
+        fs::write(&path, "older").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        super::recovery_key_save(path.to_string_lossy().into(), "KEY".into()).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "KEY");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

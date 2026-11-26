@@ -28,6 +28,7 @@
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
+  import SyncInvite from "$lib/SyncInvite.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { t } from "$lib/i18n";
   import { app, type ViewId } from "$lib/state.svelte";
@@ -254,6 +255,7 @@
       {/if}
     </div>
   {/if}
+  {#if status?.initialized && !vault.recoveryKey}<SyncInvite text="syncVisibleInviteVault" scope="vault" />{/if}
 
   {#if vault.recoveryKey}
     <div class="pane"><VaultRecoveryKey /></div>

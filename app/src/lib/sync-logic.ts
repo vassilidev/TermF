@@ -86,3 +86,15 @@ export function previewGroups(plan: Plan, order: string[]): { scope: string; ite
     }))
     .filter((g) => g.items.length);
 }
+
+export type Counts = { conflict: number; merge: number; receive: number; send: number };
+
+/** Each synced scope, in the order given, with what a sync would do to it now; no item: the same as the sync. */
+export function compareRows(plan: Plan, synced: string[]): { scope: string; items: PreviewItem[]; counts: Counts }[] {
+  const groups = previewGroups(plan, synced);
+  return synced.map((scope) => {
+    const items = groups.find((g) => g.scope === scope)?.items ?? [];
+    const n = (...of: Change[]) => items.filter((i) => of.includes(i.change)).length;
+    return { scope, items, counts: { conflict: n("conflict"), merge: n("merged"), receive: n("added", "kept"), send: n("sent") } };
+  });
+}
