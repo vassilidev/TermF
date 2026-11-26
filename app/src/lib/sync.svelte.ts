@@ -24,7 +24,13 @@ export type Report = {
   conflicts: Conflict[];
   missingRepos: MissingRepo[];
   skipped: { path: string; error: string }[];
+  /** Pulled and pushed both: this machine's version and another's, combined. */
+  merged: string[];
+  /** Another machine's key pair written beside this machine's of the same name. */
+  renamed: { path: string; to: string }[];
 };
+/** `sync_undo`: put back as before the last sync (each waits as a conflict), or left as is (changed since). */
+export type Undone = { restored: string[]; changed: string[] };
 export type SyncStatus = {
   enabled: boolean;
   remote: Remote | null;
@@ -39,6 +45,8 @@ export type SyncStatus = {
   missingRepos: MissingRepo[];
   /** Another machine forgot this one: nothing syncs here until set up again. */
   forgotten: boolean;
+  /** When the last sync that can be undone changed files here. */
+  lastBackup: number | null;
 };
 export type Device = { id: string; name: string; os: string; lastSync: number; current: boolean };
 /** `sync-pulled`: what a pull brought that does not apply at once. */

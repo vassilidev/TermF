@@ -11,7 +11,7 @@ use serde::Serialize;
 use tauri::ipc::Invoke;
 use tauri::{AppHandle, Emitter, Manager, State};
 use termf_sync::{
-    Device, Engine, OsKeyStore, RemoteSpec, Report, Resolution, Scope, Setup, Status,
+    Device, Engine, OsKeyStore, RemoteSpec, Report, Resolution, Scope, Setup, Status, Undone,
 };
 
 use crate::{AppState, CmdResult, err, quick_terminal};
@@ -243,6 +243,32 @@ pub async fn sync_setup(
         let setup = e.setup(remote, &password, &scopes, device_name.as_deref())?;
         applied(&app, &setup.report);
         Ok(setup)
+    })
+    .await
+}
+
+/// What joining `remote` would do here: nothing is applied.
+#[tauri::command]
+pub async fn sync_preview(
+    state: State<'_, SyncState>,
+    remote: RemoteSpec,
+    password: String,
+    scopes: Vec<Scope>,
+) -> CmdResult<Report> {
+    blocking(&state, move |e| e.preview(remote, &password, &scopes)).await
+}
+
+/// Puts back what the last sync changed here; what it put back waits as conflicts.
+#[tauri::command]
+pub async fn sync_undo(app: AppHandle, state: State<'_, SyncState>) -> CmdResult<Undone> {
+    blocking(&state, move |e| {
+        let undone = e.undo()?;
+        let report = Report {
+            pulled: undone.restored.clone(),
+            ..Default::default()
+        };
+        applied(&app, &report);
+        Ok(undone)
     })
     .await
 }

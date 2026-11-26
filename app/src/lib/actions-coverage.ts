@@ -276,7 +276,7 @@ export const EXCLUDED: [why: string, commands: string[]][] = [
   ["Publishing on claude.ai is done under the user's account: their word only.", ["artifacts_auto", "artifacts_cancel", "artifacts_confirm", "artifacts_delete", "artifacts_refresh"]],
   [
     "The sync between machines carries the vault and the config under its own password: the user's.",
-    ["sync_setup", "sync_unlock", "sync_disable", "sync_forget", "sync_recover", "sync_change_password", "sync_push", "sync_pull", "sync_resolve", "sync_scopes"],
+    ["sync_setup", "sync_unlock", "sync_disable", "sync_forget", "sync_recover", "sync_change_password", "sync_push", "sync_pull", "sync_resolve", "sync_scopes", "sync_preview", "sync_undo"],
   ],
   [
     "What goes through the system's dialogs, the clipboard or another app (exports, imports, PDFs, a link or a file opened): an agent has none of them.",

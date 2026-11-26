@@ -1,5 +1,5 @@
-//! What the encrypted sync carries of `~/.ssh` when asked to (§5.4): the key pairs, and `~/.ssh/config` whole.
-//! A key already there is never replaced.
+//! What the encrypted sync carries of `~/.ssh` when asked to (§5.4): the key pairs, `~/.ssh/config` and
+//! `~/.ssh/known_hosts`. A key already there is never replaced.
 
 use std::fs;
 use std::io::Write;
@@ -103,15 +103,33 @@ impl Ssh {
 
     /// Replaces `~/.ssh/config` whole, as the Hosts tab writes it, or deletes it.
     pub fn set_config_file(&self, bytes: Option<&[u8]>) -> Result<()> {
-        let Some(bytes) = bytes else {
-            return match fs::remove_file(self.config()) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
-                _ => Ok(()),
-            };
-        };
-        create_private_dir(&self.dir)?;
-        config::write(&self.config(), bytes)
+        set(&self.dir, &self.config(), bytes)
     }
+
+    /// `~/.ssh/known_hosts` as it is, `None` when there is none; unreadable is an error, as for the config.
+    pub fn known_hosts_file(&self) -> Result<Option<Vec<u8>>> {
+        match fs::read(self.dir.join("known_hosts")) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e).context("cannot read ~/.ssh/known_hosts"),
+        }
+    }
+
+    pub fn set_known_hosts_file(&self, bytes: Option<&[u8]>) -> Result<()> {
+        set(&self.dir, &self.dir.join("known_hosts"), bytes)
+    }
+}
+
+/// Atomic, readable by the user only, through a link (dotfiles); `None` deletes it.
+fn set(dir: &Path, file: &Path, bytes: Option<&[u8]>) -> Result<()> {
+    let Some(bytes) = bytes else {
+        return match fs::remove_file(file) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        };
+    };
+    create_private_dir(dir)?;
+    config::write(file, bytes)
 }
 
 fn create(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {

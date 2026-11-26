@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 pub mod crypto;
 mod dev;
 mod http;
+mod lines;
 mod local;
 mod merge;
 mod objects;
@@ -50,6 +51,10 @@ const KEYS: &str = "termf-sync.json";
 const FILES: &str = "files";
 const DEVICES: &str = "devices";
 const STATE_DIR: &str = ".sync";
+/// What each sync replaced here, under `.sync/`, for [`Engine::undo`].
+const BACKUPS: &str = "backups";
+/// How many syncs can be undone, one after the other.
+const KEEP_BACKUPS: usize = 10;
 const FILE: &str = "f";
 const DEVICE: &str = "d";
 /// A machine that only pulls still says it is alive once a day.
@@ -103,11 +108,33 @@ pub struct Conflict {
 pub struct Report {
     pub pulled: Vec<String>,
     pub pushed: Vec<String>,
-    /// Kept as they are here until resolved; the remote keeps its version.
+    /// Kept as they are here until resolved; the remote keeps its version. Each side of a conflict on some keys
+    /// is the file as keeping that side writes it: the other changes of both are in both.
     pub conflicts: Vec<Conflict>,
     pub missing_repos: Vec<MissingRepo>,
     /// Not synced, either way, until fixed here; `Status.last_error` says it too.
     pub skipped: Vec<Skipped>,
+    /// Pulled and pushed both: this machine's version and another's, combined.
+    pub merged: Vec<String>,
+    /// Another machine's key pair written beside this machine's, which has the same name.
+    pub renamed: Vec<Renamed>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Renamed {
+    pub path: String,
+    pub to: String,
+}
+
+/// What [`Engine::undo`] did.
+#[derive(Serialize, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Undone {
+    /// As they were before the last sync; each waits as a conflict until the user chooses.
+    pub restored: Vec<String>,
+    /// Changed here since that sync: left as they are.
+    pub changed: Vec<String>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -135,6 +162,8 @@ pub struct Status {
     pub missing_repos: Vec<MissingRepo>,
     /// Another machine forgot this one: nothing syncs here until sync is set up again.
     pub forgotten: bool,
+    /// When the last sync that can be undone changed files here.
+    pub last_backup: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -313,6 +342,65 @@ struct State {
     missing_repos: Vec<MissingRepo>,
     #[serde(default)]
     forgotten: bool,
+    /// Put back by an undo: shown as conflicts, never merged nor sent, until the user chooses.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    held: BTreeSet<String>,
+}
+
+impl State {
+    fn new(
+        remote: RemoteSpec,
+        scopes: BTreeSet<Scope>,
+        sync_id: String,
+        device_name: String,
+    ) -> Self {
+        State {
+            remote,
+            scopes,
+            device_id: crypto::hex(&crypto::random::<8>()),
+            device_name,
+            sync_id,
+            remembered: false,
+            needs_password: false,
+            last_sync: None,
+            last_device_write: None,
+            last_error: None,
+            conflicts: Vec::new(),
+            missing_repos: Vec::new(),
+            forgotten: false,
+            held: BTreeSet::new(),
+        }
+    }
+}
+
+/// This machine's synced files, as they are synced ([`Engine::read_mine`]).
+struct Mine {
+    entries: BTreeMap<String, Entry>,
+    /// Those that hold what only makes sense here, as they are before [`merge::pin`].
+    pinned: BTreeMap<String, Entry>,
+    skipped: Vec<Skipped>,
+}
+
+impl Mine {
+    /// The file as it is here, what only makes sense here included.
+    fn file(&self, path: &str) -> Option<&Entry> {
+        self.pinned.get(path).or(self.entries.get(path))
+    }
+}
+
+/// A keychain that holds nothing and keeps nothing.
+struct Nowhere;
+
+impl KeyStore for Nowhere {
+    fn get(&self, _: &str) -> Result<Option<Vec<u8>>> {
+        Ok(None)
+    }
+    fn set(&self, _: &str, _: &[u8]) -> Result<()> {
+        bail!("not kept")
+    }
+    fn delete(&self, _: &str) -> Result<()> {
+        Ok(())
+    }
 }
 
 fn now() -> u64 {
@@ -544,6 +632,12 @@ impl Engine {
     /// One sync at a time, across the app and the CLI.
     fn lock(&self) -> Result<File> {
         fs::create_dir_all(self.dir())?;
+        // The merge bases and the backups hold the synced files in clear: the user's only.
+        #[cfg(unix)]
+        fs::set_permissions(
+            self.dir(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )?;
         let file = fs::OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -706,6 +800,7 @@ impl Engine {
                 conflicts: Vec::new(),
                 missing_repos: Vec::new(),
                 forgotten: false,
+                last_backup: None,
             });
         }
         let state = self.load()?;
@@ -728,6 +823,11 @@ impl Engine {
             conflicts: state.conflicts,
             missing_repos: state.missing_repos,
             forgotten: state.forgotten,
+            last_backup: self
+                .backups()
+                .last()
+                .and_then(|d| d.file_name()?.to_str()?.parse::<u64>().ok())
+                .map(|millis| millis / 1000),
         })
     }
 
@@ -789,24 +889,12 @@ impl Engine {
         let (sync_id, kek) = joined.context("the remote kept changing: try again")?;
         self.keep_credentials(&spec)?;
         let remembered = self.remember(&sync_id, &kek);
-        let mut state = State {
-            remote: spec,
-            scopes,
-            device_id: crypto::hex(&crypto::random::<8>()),
-            device_name: device_name
-                .map(str::trim)
-                .filter(|n| !n.is_empty())
-                .map_or_else(hostname, str::to_owned),
-            sync_id,
-            remembered,
-            needs_password: false,
-            last_sync: None,
-            last_device_write: None,
-            last_error: None,
-            conflicts: Vec::new(),
-            missing_repos: Vec::new(),
-            forgotten: false,
-        };
+        let name = device_name
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map_or_else(hostname, str::to_owned);
+        let mut state = State::new(spec, scopes, sync_id, name);
+        state.remembered = remembered;
         self.save(&state)?;
         let (report, error) = match self.sync_locked(&mut state, true, &lock) {
             Ok(report) => (report, None),
@@ -817,6 +905,35 @@ impl Engine {
             report,
             error,
         })
+    }
+
+    /// What joining `spec` would do on this machine, without doing it: what it receives (`pulled`), combines with
+    /// another machine's version (`merged`), finds in conflict, and sends (`pushed`). Nothing is written, here or
+    /// on the remote, and the password's key is not kept.
+    pub fn preview(&self, spec: RemoteSpec, password: &str, scopes: &[Scope]) -> Result<Report> {
+        ensure!(!self.enabled(), "sync is already set up: disable it first");
+        let scopes: BTreeSet<Scope> = scopes.iter().copied().collect();
+        check_scopes(&scopes)?;
+        let _lock = self.lock()?;
+        let mut remote = self.remote(&spec)?;
+        remote.begin()?;
+        let keys = read_keys(remote.root())?.context("this remote holds no TermF sync yet")?;
+        let kek = keys.derive(&keys.password, password)?;
+        ensure!(
+            keys.unwrap(&keys.password, &kek).is_some(),
+            "wrong password for this remote"
+        );
+        let look = Engine {
+            config_dir: self.config_dir.clone(),
+            store: Box::new(Nowhere),
+            memory: Mutex::new(Some((keys.sync_id.clone(), kek))),
+            git_env: self.git_env.clone(),
+            vault_dir: self.vault_dir.clone(),
+            home: self.home.clone(),
+            credentials: Mutex::new(None),
+        };
+        let mut state = State::new(spec, scopes, keys.sync_id, String::new());
+        look.run(&mut state, false, true)
     }
 
     /// Takes the password on a machine that lost it (changed elsewhere, no keychain).
@@ -856,7 +973,7 @@ impl Engine {
     }
 
     fn sync_locked(&self, state: &mut State, publish: bool, _lock: &File) -> Result<Report> {
-        let result = self.run(state, publish);
+        let result = self.run(state, publish, false);
         if let Err(e) = &result {
             state.last_error = Some(format!("{e:#}"));
             state.needs_password |= e.downcast_ref::<Locked>().is_some();
@@ -866,7 +983,8 @@ impl Engine {
         result
     }
 
-    fn run(&self, state: &mut State, publish: bool) -> Result<Report> {
+    /// `dry`: decides as a sync would, writes nothing anywhere, and says what it would do.
+    fn run(&self, state: &mut State, publish: bool, dry: bool) -> Result<Report> {
         let mut remote = self.remote(&state.remote)?;
         let mut base = self.load_base()?;
         let mut mapping = local::load_mapping(&self.config_dir)?;
@@ -880,33 +998,20 @@ impl Engine {
             let keys = self.data_keys(&keys_file)?;
             let theirs = read_files(&root, &keys)?;
             let before = mapping.clone();
-            let (mut mine, mut skipped) =
-                local::read(&self.config_dir, &state.scopes, &base, &mut mapping)?;
-            if mapping != before {
+            let mine = self.read_mine(&state.scopes, &base, &mut mapping)?;
+            if mapping != before && !dry {
                 local::save_mapping(&self.config_dir, &mapping)?;
             }
+            let mut skipped = mine.skipped.clone();
             let ssh = self
                 .ssh()
                 .filter(|_| state.scopes.contains(&Scope::SshKeys));
-            if let Some((ssh, home)) = &ssh {
-                match ssh::read_config(ssh, home) {
-                    Ok(entry) => mine.extend(entry.map(|e| (ssh::CONFIG.into(), e))),
-                    Err(e) => skipped.push(Skipped {
-                        path: ssh::CONFIG.into(),
-                        error: format!("{e:#}"),
-                    }),
-                }
-            }
             let home = self
                 .home
                 .as_deref()
                 .filter(|_| state.scopes.contains(&Scope::DevConfig));
-            if let Some(home) = home {
-                let (entries, unread) = dev::read(home, &self.git_env);
-                mine.extend(entries);
-                skipped.extend(unread);
-            }
             let paths: BTreeSet<&String> = mine
+                .entries
                 .keys()
                 .chain(theirs.keys())
                 .chain(base.keys())
@@ -917,7 +1022,7 @@ impl Engine {
                     let ours = if dev::is_dev(p) {
                         home.is_some_and(|h| dev::valid(p) && dev::placed(h, p, &self.git_env))
                     } else {
-                        local::valid(p) || (*p == ssh::CONFIG && ssh.is_some())
+                        local::valid(p) || (ssh::is_file(p) && ssh.is_some())
                     };
                     ours && state.scopes.contains(&local::scope_of(p))
                         && !termf_library::archive::through_link(&self.config_dir, p)
@@ -931,19 +1036,50 @@ impl Engine {
 
             let mut conflicts = Vec::new();
             let mut outgoing = Vec::new();
+            let mut merged = Vec::new();
+            // Written once every file is decided, after a copy of what they replace.
+            let mut writes = Vec::new();
             for path in paths {
                 let b = base.get(&path);
                 let b_entry = b.and_then(|r| r.entry.as_ref());
                 let b_clock = b.map(|r| r.clock.clone()).unwrap_or_default();
-                let l = mine.get(&path);
+                let l = mine.entries.get(&path);
                 // A blob missing from the remote says nothing: a sync service may not have delivered it yet.
                 let r = theirs.get(&path);
                 let r_entry = r.map_or(b_entry, |r| r.entry.as_ref());
+                if state.held.contains(&path) {
+                    if !merge::same(&path, l, r_entry) {
+                        conflicts.push(Conflict {
+                            keys: Vec::new(),
+                            local: text(l),
+                            remote: text(r_entry),
+                            path,
+                        });
+                        continue;
+                    }
+                    state.held.remove(&path);
+                }
                 let r_clock = r.map_or(&b_clock, |r| &r.clock);
                 let follows = record::descends(r_clock, &b_clock);
                 let clock = || record::next(&b_clock, r_clock, &state.device_id);
 
-                if merge::same(&path, l, r_entry) {
+                if path == ssh::KNOWN_HOSTS {
+                    // Lines, in any order: written only when one is missing here, sent only when one is missing there.
+                    let all = ssh::known_hosts(l, r_entry);
+                    if !ssh::knows_all(l, all.as_ref()) {
+                        writes.push((path.clone(), all.clone()));
+                        pulled.insert(path.clone());
+                    }
+                    if !ssh::knows_all(r_entry, all.as_ref()) {
+                        outgoing.push(Record {
+                            path,
+                            entry: all,
+                            clock: clock(),
+                        });
+                    } else if let Some(r) = r {
+                        base.insert(path, r.clone());
+                    }
+                } else if merge::same(&path, l, r_entry) {
                     if let Some(r) = r {
                         base.insert(path, r.clone());
                     }
@@ -953,50 +1089,74 @@ impl Engine {
                         entry: l.cloned(),
                         clock: clock(),
                     });
-                } else if follows && merge::same(&path, l, b_entry) {
-                    self.write_local(&path, r_entry, &mapping)?;
+                } else if follows
+                    && merge::same(&path, l, b_entry)
+                    // Deleted elsewhere while it holds what only makes sense here: the user chooses.
+                    && (r_entry.is_some() || !mine.pinned.contains_key(&path))
+                {
+                    writes.push((path.clone(), r_entry.cloned()));
                     base.insert(path.clone(), r.expect("changed remotely").clone());
                     pulled.insert(path);
                 } else {
                     // Without a common history (a version written without this one), nothing is taken as base.
                     let common = if follows { b_entry } else { None };
-                    let merged = match (l, r_entry) {
+                    let combined = match (l, r_entry) {
                         (Some(l), Some(re)) => merge::merge3(&path, common, l, re),
                         _ => Err(Vec::new()),
                     };
-                    match merged {
+                    match combined {
                         Ok(entry) => {
-                            self.write_local(&path, Some(&entry), &mapping)?;
+                            writes.push((path.clone(), Some(entry.clone())));
                             base.insert(path.clone(), r.expect("changed remotely").clone());
                             pulled.insert(path.clone());
+                            merged.push(path.clone());
                             outgoing.push(Record {
                                 path,
                                 entry: Some(entry),
                                 clock: clock(),
                             });
                         }
-                        Err(keys) => conflicts.push(Conflict {
-                            keys,
-                            local: text(l),
-                            remote: text(r_entry),
-                            path,
-                        }),
+                        Err(keys) => {
+                            let side = |keep_remote| match (l, r_entry) {
+                                (Some(l), Some(re)) if !keys.is_empty() => {
+                                    merge::settle(&path, common, l, re, keep_remote)
+                                }
+                                _ => None,
+                            };
+                            let (local, remote) = (side(false), side(true));
+                            conflicts.push(Conflict {
+                                local: text(local.as_ref().or(mine.file(&path))),
+                                remote: text(remote.as_ref().or(r_entry)),
+                                keys,
+                                path,
+                            });
+                        }
                     }
                 }
             }
+            if !dry {
+                self.apply(&writes, &mine, &mapping)?;
+            }
             if state.scopes.contains(&Scope::Vault)
                 && let Some(dir) = &self.vault_dir
-                && let Some(record) =
-                    sync_vault(dir, &theirs, &mut base, &mut pulled, &state.device_id)?
             {
-                outgoing.push(record);
+                if dry {
+                    if theirs.get(VAULT_PATH).is_some_and(|r| r.entry.is_some()) {
+                        pulled.insert(VAULT_PATH.into());
+                    }
+                } else if let Some(record) =
+                    sync_vault(dir, &theirs, &mut base, &mut pulled, &state.device_id)?
+                {
+                    outgoing.push(record);
+                }
             }
+            let mut renamed = Vec::new();
             if let Some((ssh, _)) = &ssh {
                 // Unreadable keys skip the keys this time: never taken as deleted.
-                match ssh::sync_keys(ssh, &theirs, &mut base, &mut pulled, &state.device_id) {
+                match ssh::sync_keys(ssh, &theirs, &mut base, &mut pulled, &state.device_id, dry) {
                     Ok(keys) => {
                         outgoing.extend(keys.outgoing);
-                        conflicts.extend(keys.conflicts);
+                        renamed = keys.renamed;
                         skipped.extend(keys.skipped);
                     }
                     Err(e) => skipped.push(Skipped {
@@ -1004,6 +1164,17 @@ impl Engine {
                         error: format!("{e:#}"),
                     }),
                 }
+            }
+            if dry {
+                return Ok(Report {
+                    pulled: pulled.into_iter().collect(),
+                    pushed: outgoing.into_iter().map(|r| r.path).collect(),
+                    conflicts,
+                    missing_repos: Vec::new(),
+                    skipped,
+                    merged,
+                    renamed,
+                });
             }
             // What came from the remote is in place: kept even if publishing fails.
             self.save_base(&base)?;
@@ -1065,15 +1236,171 @@ impl Engine {
                 conflicts,
                 missing_repos,
                 skipped,
+                merged,
+                renamed,
             });
         }
         bail!("the remote kept changing during the sync: try again")
     }
 
+    /// This machine's files of `scopes`, as they are synced. What cannot be read is skipped, never taken as
+    /// deleted.
+    fn read_mine(
+        &self,
+        scopes: &BTreeSet<Scope>,
+        base: &BTreeMap<String, Record>,
+        mapping: &mut local::Mapping,
+    ) -> Result<Mine> {
+        let (mut entries, mut skipped) = local::read(&self.config_dir, scopes, base, mapping)?;
+        if let Some((ssh, home)) = self.ssh().filter(|_| scopes.contains(&Scope::SshKeys)) {
+            let files = [
+                (ssh::CONFIG, ssh::read_config(&ssh, home)),
+                (ssh::KNOWN_HOSTS, ssh::read_known_hosts(&ssh)),
+            ];
+            for (path, read) in files {
+                match read {
+                    Ok(entry) => entries.extend(entry.map(|e| (path.to_owned(), e))),
+                    Err(e) => skipped.push(Skipped {
+                        path: path.into(),
+                        error: format!("{e:#}"),
+                    }),
+                }
+            }
+        }
+        if let Some(home) = self
+            .home
+            .as_deref()
+            .filter(|_| scopes.contains(&Scope::DevConfig))
+        {
+            let (dev, unread) = dev::read(home, &self.git_env);
+            entries.extend(dev);
+            skipped.extend(unread);
+        }
+        let mut pinned = BTreeMap::new();
+        for (path, entry) in &mut entries {
+            let synced = base.get(path).and_then(|r| r.entry.as_ref());
+            if let Some(synced) = merge::pin(path, entry, synced) {
+                pinned.insert(path.clone(), std::mem::replace(entry, synced));
+            }
+        }
+        Ok(Mine {
+            entries,
+            pinned,
+            skipped,
+        })
+    }
+
+    /// Writes what a sync settled here, what only makes sense here kept, after a copy of the files as they are
+    /// and as they will be (`.sync/backups/`), for [`Engine::undo`]. Key pairs never come here: a sync only ever
+    /// adds them.
+    fn apply(
+        &self,
+        writes: &[(String, Option<Entry>)],
+        mine: &Mine,
+        mapping: &local::Mapping,
+    ) -> Result<()> {
+        if writes.is_empty() {
+            return Ok(());
+        }
+        let landed: Vec<(&String, Option<Entry>)> = writes
+            .iter()
+            .map(|(path, entry)| {
+                let entry = entry
+                    .as_ref()
+                    .map(|e| merge::unpin(path, e, mine.pinned.get(path)));
+                (path, entry)
+            })
+            .collect();
+        let (mut before, mut after) = (Vec::new(), Vec::new());
+        for (path, entry) in &landed {
+            let record = |entry: Option<Entry>| Record {
+                path: (*path).clone(),
+                entry,
+                clock: Default::default(),
+            };
+            record::encode(&record(mine.file(path).cloned()), &mut before);
+            record::encode(&record(entry.clone()), &mut after);
+        }
+        self.save_backup(&before, &after)?;
+        for (path, entry) in &landed {
+            self.write_local(path, entry.as_ref(), mapping)?;
+        }
+        Ok(())
+    }
+
+    /// The backups, oldest first.
+    fn backups(&self) -> Vec<PathBuf> {
+        let mut dirs: Vec<PathBuf> = fs::read_dir(self.dir().join(BACKUPS))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|d| d.join("after").is_file())
+            .collect();
+        dirs.sort();
+        dirs
+    }
+
+    fn save_backup(&self, before: &[u8], after: &[u8]) -> Result<()> {
+        let root = self.dir().join(BACKUPS);
+        fs::create_dir_all(&root)?;
+        let millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        let dir = (millis..millis + 1000)
+            .map(|m| root.join(format!("{m:013}")))
+            .find(|d| fs::create_dir(d).is_ok())
+            .context("cannot keep a copy of the files before syncing")?;
+        put(&dir, "before", before)?;
+        // Last: a folder without it is no backup.
+        put(&dir, "after", after)?;
+        let all = self.backups();
+        for old in &all[..all.len().saturating_sub(KEEP_BACKUPS)] {
+            fs::remove_dir_all(old)?;
+        }
+        Ok(())
+    }
+
+    /// Puts back the files the last sync (or conflict choice) changed on this machine, as they were before; a
+    /// file changed here since is left as it is. What is put back is neither merged nor sent: each file waits as
+    /// a conflict, side by side, until the user chooses. Each call goes one sync further back.
+    pub fn undo(&self) -> Result<Undone> {
+        let (lock, mut state) = self.locked()?;
+        let dir = self
+            .backups()
+            .pop()
+            .context("no sync to undo on this machine")?;
+        let read = |name: &str| -> Result<BTreeMap<String, Record>> {
+            record::decode_all(&fs::read(dir.join(name))?)
+        };
+        let (before, after) = (read("before")?, read("after")?);
+        let mapping = local::load_mapping(&self.config_dir)?;
+        let base = self.load_base()?;
+        let mine = self.read_mine(&state.scopes, &base, &mut mapping.clone())?;
+        let mut undone = Undone::default();
+        for (path, was) in before {
+            let wrote = after.get(&path).and_then(|r| r.entry.as_ref());
+            // Byte for byte: a comment added since is a change too. Put back as it was, whole.
+            if mine.file(&path).map(|e| &e.bytes) == wrote.map(|e| &e.bytes) {
+                self.write_local(&path, was.entry.as_ref(), &mapping)?;
+                state.held.insert(path.clone());
+                undone.restored.push(path);
+            } else {
+                undone.changed.push(path);
+            }
+        }
+        fs::remove_dir_all(&dir)?;
+        self.save(&state)?;
+        // The conflicts show at once; a failure stays in the status, as any sync's.
+        let _ = self.sync_locked(&mut state, true, &lock);
+        Ok(undone)
+    }
+
     /// Settles a conflict, then syncs: the version kept becomes this machine's change on top of the remote's.
+    /// Keeping one side of a conflict on some keys keeps the other side's changes to the other keys.
     pub fn resolve(&self, path: &str, resolution: Resolution) -> Result<Report> {
         ensure!(
-            local::valid(path) || path == ssh::CONFIG || ssh::is_key(path) || dev::valid(path),
+            local::valid(path) || ssh::is_file(path) || dev::valid(path),
             "invalid path {path}"
         );
         let (lock, mut state) = self.locked()?;
@@ -1087,37 +1414,48 @@ impl Engine {
             .with_context(|| format!("the remote has no version of {path}"))?;
         let mapping = local::load_mapping(&self.config_dir)?;
         let mut base = self.load_base()?;
-        if ssh::is_key(path) {
-            let (ssh, _) = self.ssh().context("no SSH folder on this machine")?;
-            ssh::resolve(&ssh, path, &theirs, &resolution, &mut base)?;
-        } else {
-            match resolution {
-                Resolution::Local => {}
-                Resolution::Remote => self.write_local(path, theirs.entry.as_ref(), &mapping)?,
-                Resolution::Merged { text } => {
-                    let entry = Entry {
-                        bytes: text.into_bytes(),
-                        exec: theirs.entry.as_ref().is_some_and(|e| e.exec),
-                    };
-                    self.write_local(path, Some(&entry), &mapping)?
-                }
-            }
-            base.insert(path.into(), theirs);
+        let mine = self.read_mine(&state.scopes, &base, &mut mapping.clone())?;
+        let l = mine.entries.get(path);
+        // Put back by an undo: the two sides are whole files.
+        let held = state.held.remove(path);
+        let common = base
+            .get(path)
+            .filter(|b| record::descends(&theirs.clock, &b.clock))
+            .and_then(|b| b.entry.as_ref());
+        let side = |keep_remote| match (l, &theirs.entry) {
+            (Some(l), Some(r)) if !held => merge::settle(path, common, l, r, keep_remote),
+            _ => None,
+        };
+        let write = match resolution {
+            Resolution::Local => side(false).map(Some),
+            Resolution::Remote => Some(side(true).or_else(|| theirs.entry.clone())),
+            Resolution::Merged { text } => Some(Some(Entry {
+                bytes: text.into_bytes(),
+                exec: theirs.entry.as_ref().is_some_and(|e| e.exec),
+            })),
+        };
+        if let Some(entry) = write.filter(|e| !merge::same(path, e.as_ref(), l)) {
+            self.apply(&[(path.to_owned(), entry)], &mine, &mapping)?;
         }
+        base.insert(path.into(), theirs);
         self.save_base(&base)?;
         self.sync_locked(&mut state, true, &lock)
     }
 
-    /// A file of the config folder, `~/.ssh/config`, or one of the dev config scope.
+    /// A file of the config folder, of `~/.ssh`, or of the dev config scope, as it is given.
     fn write_local(
         &self,
         path: &str,
         entry: Option<&Entry>,
         mapping: &local::Mapping,
     ) -> Result<()> {
-        if path == ssh::CONFIG {
+        if ssh::is_file(path) {
             let (ssh, home) = self.ssh().context("no SSH folder on this machine")?;
-            return ssh::write_config(&ssh, home, entry);
+            return if path == ssh::CONFIG {
+                ssh::write_config(&ssh, home, entry)
+            } else {
+                ssh.set_known_hosts_file(entry.map(|e| e.bytes.as_slice()))
+            };
         }
         if dev::is_dev(path) {
             let home = self

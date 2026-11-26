@@ -29,3 +29,60 @@ export function cloneTarget(path: string, present: string[], home: string): stri
   const parent = sibling.replace(/[\\/]+[^\\/]+[\\/]*$/, "");
   return inside(parent, path);
 }
+
+/** The scope of a synced path, as `termf-sync` files it (`local::scope_of`). */
+export function scopeOf(path: string): string {
+  const [first, , third] = path.split("/");
+  if (first === "projects") return third === "conventions" ? "conventions" : "projects";
+  if (first === "vault") return "vault";
+  if (first === "ssh") return "sshKeys";
+  if (first === "dev") return "devConfig";
+  return "config";
+}
+
+/** A synced path as the user knows it: the file of the home folder, a key by its name. */
+export function shownPath(path: string): string {
+  if (path.startsWith("ssh/keys/")) return path.slice("ssh/keys/".length);
+  if (path.startsWith("ssh/")) return "~/.ssh/" + path.slice("ssh/".length);
+  if (path === "dev/gitconfig") return "~/.gitconfig";
+  if (path === "dev/claude.json") return "~/.claude.json";
+  if (path.startsWith("dev/claude/") && !path.startsWith("dev/claude/memory/")) {
+    return "~/.claude/" + path.slice("dev/claude/".length);
+  }
+  return path;
+}
+
+export type Change = "conflict" | "merged" | "kept" | "added" | "sent";
+export type PreviewItem = { path: string; change: Change; keys: string[]; to?: string };
+type Plan = {
+  pulled: string[];
+  pushed: string[];
+  merged: string[];
+  renamed: { path: string; to: string }[];
+  conflicts: { path: string; keys: string[] }[];
+};
+
+const rank: Record<Change, number> = { conflict: 0, merged: 1, kept: 2, added: 3, sent: 4 };
+
+/** What joining a sync would do here, by scope in the order given, what needs a look first. */
+export function previewGroups(plan: Plan, order: string[]): { scope: string; items: PreviewItem[] }[] {
+  const items = new Map<string, PreviewItem>();
+  const set = (path: string, change: Change, keys: string[] = [], to?: string) =>
+    items.set(path, { path, change, keys, to });
+  for (const path of plan.pushed) set(path, "sent");
+  for (const path of plan.pulled) set(path, "added");
+  for (const path of plan.merged) set(path, "merged");
+  for (const r of plan.renamed) {
+    items.delete(r.to);
+    set(r.path, "kept", [], r.to);
+  }
+  for (const c of plan.conflicts) set(c.path, "conflict", c.keys);
+  return order
+    .map((scope) => ({
+      scope,
+      items: [...items.values()]
+        .filter((i) => scopeOf(i.path) === scope)
+        .sort((a, b) => rank[a.change] - rank[b.change] || a.path.localeCompare(b.path)),
+    }))
+    .filter((g) => g.items.length);
+}

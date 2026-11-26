@@ -411,18 +411,45 @@ fn ssh_keys_travel_sealed_and_never_replace_a_key() {
         "{config}"
     );
 
-    // Same name, different key: shown as a conflict with public keys only, and b keeps its own.
-    let status = b.engine.status().unwrap();
-    let conflict = status
-        .conflicts
-        .iter()
-        .find(|c| c.path == "ssh/keys/id_ed25519")
-        .expect("a conflict");
-    assert!(conflict.local.as_deref().unwrap().contains("alex@b"));
-    assert!(conflict.remote.as_deref().unwrap().contains("alex@a"));
+    // Same name, different key: both kept on b, a's beside b's own, which stays as it was.
+    assert!(joined.report.conflicts.is_empty(), "{:?}", joined.report);
+    assert_eq!(
+        joined.report.renamed,
+        [Renamed {
+            path: "ssh/keys/id_ed25519".into(),
+            to: "ssh/keys/id_ed25519-2".into()
+        }]
+    );
     assert_eq!(fs::read(b_ssh.dir().join("id_ed25519")).unwrap(), b_own);
+    assert_eq!(
+        fs::read(b_ssh.dir().join("id_ed25519-2")).unwrap(),
+        fs::read(a_ssh.dir().join("id_ed25519")).unwrap()
+    );
+    assert_eq!(
+        fs::read(b_ssh.dir().join("id_ed25519-2.pub")).unwrap(),
+        fs::read(a_ssh.dir().join("id_ed25519.pub")).unwrap()
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(b_ssh.dir().join("id_ed25519-2"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    // Neither the copy nor b's own is offered to the others, and nothing is written twice.
+    let again = b.push();
+    assert!(
+        !again.pushed.iter().any(|p| p.starts_with("ssh/keys/")),
+        "{again:?}"
+    );
+    assert!(again.renamed.is_empty() && again.conflicts.is_empty());
+    a.push();
+    assert!(!a_ssh.dir().join("id_ed25519-2").exists());
+    assert_ne!(fs::read(a_ssh.dir().join("id_ed25519")).unwrap(), b_own);
 
-    // No private key in clear outside ~/.ssh: neither the merge base, the state nor the remote.
+    // No private key in clear outside ~/.ssh: neither the merge base, the state, the backups nor the remote.
     for m in [&a, &b] {
         for private in [
             fs::read(a_ssh.dir().join("id_work")).unwrap(),
@@ -440,39 +467,20 @@ fn ssh_keys_travel_sealed_and_never_replace_a_key() {
         }
     }
 
-    // Taking the other machine's key puts this one in the trash first.
-    b.engine
-        .resolve("ssh/keys/id_ed25519", Resolution::Remote)
-        .unwrap();
-    assert_eq!(
-        fs::read(b_ssh.dir().join("id_ed25519")).unwrap(),
-        fs::read(a_ssh.dir().join("id_ed25519")).unwrap()
-    );
-    let trash = b_ssh.dir().join(termf_ssh::TRASH);
-    let kept = fs::read_dir(&trash)
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-    assert_eq!(fs::read(kept.join("id_ed25519")).unwrap(), b_own);
-    assert!(b.engine.status().unwrap().conflicts.is_empty());
-
-    // Keeping one's own: it stays here, and is not pushed over the others'.
+    // A third machine with its own id_ed25519 gets a's beside it too.
     let (c, c_ssh) = ssh_machine(&sandbox, "c");
     c_ssh
         .generate("id_ed25519", KeyType::Ed25519, "alex@c", None)
         .unwrap();
     let c_own = fs::read(c_ssh.dir().join("id_ed25519")).unwrap();
     c.setup(&remote);
-    c.engine
-        .resolve("ssh/keys/id_ed25519", Resolution::Local)
-        .unwrap();
-    assert!(c.engine.status().unwrap().conflicts.is_empty());
     assert!(c.push().conflicts.is_empty());
     a.push();
-    assert!(a.engine.status().unwrap().conflicts.is_empty());
     assert_eq!(fs::read(c_ssh.dir().join("id_ed25519")).unwrap(), c_own);
+    assert_eq!(
+        fs::read(c_ssh.dir().join("id_ed25519-2")).unwrap(),
+        fs::read(a_ssh.dir().join("id_ed25519")).unwrap()
+    );
     assert_ne!(fs::read(a_ssh.dir().join("id_ed25519")).unwrap(), c_own);
     assert!(
         c.engine
@@ -579,9 +587,10 @@ fn unreadable_ssh_files_are_skipped_not_deleted_elsewhere() {
     }
 }
 
-/// `~/.ssh/config` travels whole, blocks written by hand too, its paths into the home folder made this machine's.
+/// `~/.ssh/config` travels host by host, blocks written by hand too, its paths into the home folder made this
+/// machine's; a path out of it stays on its machine.
 #[test]
-fn the_whole_ssh_config_travels() {
+fn the_ssh_config_travels_host_by_host() {
     let sandbox = Sandbox::new("ssh-config");
     let remote = sandbox.folder();
     let (a, a_ssh) = ssh_machine(&sandbox, "a");
@@ -597,7 +606,12 @@ fn the_whole_ssh_config_travels() {
     b.setup(&remote);
     let b_config = b_ssh.dir().join("config");
     let on_b = fs::read_to_string(&b_config).unwrap();
-    assert_eq!(on_b, config.replace(&home(&a), &home(&b)));
+    assert_eq!(
+        on_b,
+        config
+            .replace(&home(&a), &home(&b))
+            .replace("  IdentityFile /opt/keys/legacy\n", "")
+    );
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -615,22 +629,61 @@ fn the_whole_ssh_config_travels() {
     a.push();
     let on_a = fs::read_to_string(a_ssh.dir().join("config")).unwrap();
     assert!(
-        on_a.contains("Host box") && on_a.contains(&home(&a)),
+        on_a.contains("Host box")
+            && on_a.contains(&home(&a))
+            && on_a.contains("IdentityFile /opt/keys/legacy"),
         "{on_a}"
     );
 
-    // Changed on both sides: side by side, and each keeps its own until the user chooses.
-    fs::write(a_ssh.dir().join("config"), "Host a\n").unwrap();
-    fs::write(&b_config, "Host b\n").unwrap();
+    // Each side adds a host and changes the same one differently: the new hosts of both stay, and the host set
+    // differently waits for the user, its two settings side by side.
+    fs::write(
+        a_ssh.dir().join("config"),
+        on_a.replace("old.acme.test", "a.acme.test") + "\nHost a\n  HostName a.test\n",
+    )
+    .unwrap();
+    fs::write(
+        &b_config,
+        fs::read_to_string(&b_config)
+            .unwrap()
+            .replace("old.acme.test", "b.acme.test")
+            + "\nHost b\n  HostName b.test\n",
+    )
+    .unwrap();
     a.push();
     let report = b.push();
-    assert!(
-        report.conflicts.iter().any(|c| c.path == "ssh/config"),
-        "{report:?}"
+    let conflict = report
+        .conflicts
+        .iter()
+        .find(|c| c.path == "ssh/config")
+        .expect("a conflict");
+    assert_eq!(conflict.keys, ["Host legacy › hostname"]);
+    let (local, other) = (
+        conflict.local.as_deref().unwrap(),
+        conflict.remote.as_deref().unwrap(),
     );
-    assert_eq!(fs::read_to_string(&b_config).unwrap(), "Host b\n");
+    assert!(local.contains("b.acme.test") && other.contains("a.acme.test"));
+    for side in [local, other] {
+        assert!(
+            side.contains("Host a\n") && side.contains("Host b\n"),
+            "{side}"
+        );
+    }
+    let on_b = fs::read_to_string(&b_config).unwrap();
+    assert!(on_b.contains("b.acme.test") && !on_b.contains("Host a\n"));
+
     b.engine.resolve("ssh/config", Resolution::Remote).unwrap();
-    assert_eq!(fs::read_to_string(&b_config).unwrap(), "Host a\n");
+    let on_b = fs::read_to_string(&b_config).unwrap();
+    assert!(
+        on_b.contains("a.acme.test") && on_b.contains("Host a\n") && on_b.contains("Host b\n"),
+        "{on_b}"
+    );
+    a.push();
+    let on_a = fs::read_to_string(a_ssh.dir().join("config")).unwrap();
+    assert!(
+        on_a.contains("Host b\n") && on_a.contains("IdentityFile /opt/keys/legacy"),
+        "{on_a}"
+    );
 }
 
 #[test]

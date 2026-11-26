@@ -451,6 +451,8 @@ pub fn run() {
             sync::sync_disable,
             sync::sync_forget,
             sync::sync_clone,
+            sync::sync_preview,
+            sync::sync_undo,
             tickets::tickets_inbox,
             tickets::tickets_resolve,
             tickets::tickets_run,

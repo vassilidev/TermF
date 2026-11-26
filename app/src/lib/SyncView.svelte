@@ -3,17 +3,22 @@
   import { invoke } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
   import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
+  import ArrowUpFromLine from "@lucide/svelte/icons/arrow-up-from-line";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import CircleCheck from "@lucide/svelte/icons/circle-check";
+  import CirclePlus from "@lucide/svelte/icons/circle-plus";
   import Cloud from "@lucide/svelte/icons/cloud";
   import Copy from "@lucide/svelte/icons/copy";
   import CopyCheck from "@lucide/svelte/icons/copy-check";
+  import CopyPlus from "@lucide/svelte/icons/copy-plus";
   import Download from "@lucide/svelte/icons/download";
+  import Eye from "@lucide/svelte/icons/eye";
   import FolderDown from "@lucide/svelte/icons/folder-down";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import FolderSync from "@lucide/svelte/icons/folder-sync";
   import GitBranch from "@lucide/svelte/icons/git-branch";
+  import GitMerge from "@lucide/svelte/icons/git-merge";
   import GitMergeConflict from "@lucide/svelte/icons/git-merge-conflict";
   import Info from "@lucide/svelte/icons/info";
   import KeyRound from "@lucide/svelte/icons/key-round";
@@ -23,12 +28,13 @@
   import Power from "@lucide/svelte/icons/power";
   import Server from "@lucide/svelte/icons/server";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+  import Undo2 from "@lucide/svelte/icons/undo-2";
   import Unplug from "@lucide/svelte/icons/unplug";
   import SyncConflict from "$lib/SyncConflict.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { ago, t } from "$lib/i18n";
   import { app, load } from "$lib/state.svelte";
-  import { cloneTarget, expandHome, inside } from "$lib/sync-logic";
+  import { cloneTarget, expandHome, inside, previewGroups, shownPath, type Change } from "$lib/sync-logic";
   import {
     currentReport,
     keepReport,
@@ -45,6 +51,7 @@
     type Report,
     type Scope,
     type SyncStatus,
+    type Undone,
   } from "$lib/sync.svelte";
 
   const status = $derived(app.sync);
@@ -73,7 +80,11 @@
   let targets = $state<Record<string, string>>({});
   let cloneErrors = $state<Record<string, string>>({});
 
-  let mode = $state<"" | "recover" | "password" | "disable">("");
+  /** What joining would do here, shown before anything is applied; null until asked, and again once a choice changes. */
+  let preview = $state<Report | null>(null);
+  let undone = $state<Undone | null>(null);
+
+  let mode = $state<"" | "recover" | "password" | "disable" | "undo">("");
   let password = $state("");
   let confirm = $state("");
   let current = $state("");
@@ -108,6 +119,25 @@
   const mismatch = $derived(confirm.length > 0 && !tooShort && confirm !== password);
   const newPasswordOk = $derived(length >= 8 && confirm === password);
   const openConflict = $derived(status?.conflicts.find((c) => c.path === conflict));
+  const groups = $derived(
+    preview
+      ? previewGroups(
+          preview,
+          scopes.map(([scope]) => scope),
+        )
+      : [],
+  );
+  const changes = $derived(groups.flatMap((g) => g.items.map((i) => i.change)));
+  const count = (...of: Change[]) => changes.filter((c) => of.includes(c)).length;
+  const changeIcon = { conflict: GitMergeConflict, merged: GitMerge, kept: CopyPlus, added: CirclePlus, sent: ArrowUpFromLine };
+  const changeLabel: Record<Change, Parameters<typeof t>[0]> = {
+    conflict: "syncReconcileConflict",
+    merged: "syncReconcileMerged",
+    kept: "syncReconcileKept",
+    added: "syncReconcileAdded",
+    sent: "syncReconcileSent",
+  };
+  const scopeLabel = (scope: string) => scopes.find(([s]) => s === scope)?.[1] ?? "syncScopeConfig";
   const osLabel: Record<string, Parameters<typeof t>[0]> = { macos: "osMacos", linux: "osLinux", windows: "osWindows" };
 
   // After each sync, manual or not: the devices' last syncs moved.
@@ -135,6 +165,7 @@
   function setKind(next: typeof kind) {
     kind = next;
     joining = null;
+    preview = null;
   }
 
   async function browse() {
@@ -150,6 +181,18 @@
     if (found !== undefined) joining = found;
   }
 
+  async function look() {
+    const found = await syncCall<Report>("sync_preview", { remote, password, scopes: chosen });
+    if (found) preview = found;
+  }
+
+  async function undo() {
+    const result = await syncCall<Undone>("sync_undo");
+    if (!result) return;
+    setMode("");
+    undone = result;
+  }
+
   async function setup() {
     const result = await syncCall<{ recoveryKey: string | null; report: Report; error: string | null }>("sync_setup", {
       remote,
@@ -160,6 +203,7 @@
     if (!result) return;
     setMode("");
     joining = null;
+    preview = null;
     // A failed first sync leaves an empty report: the status's lastError tells it instead.
     if (!result.error) keepReport(result.report);
     if (result.recoveryKey) sync.recoveryKey = { key: result.recoveryKey, reason: "setup" };
@@ -180,6 +224,7 @@
 
   function choose(scope: Scope, on: boolean) {
     chosen = on ? [...chosen, scope] : chosen.filter((s) => s !== scope);
+    preview = null;
   }
 
   async function setScope(scope: Scope, on: boolean) {
@@ -444,7 +489,7 @@
     </div>
   {:else if !status.enabled}
     <p class="lead">{t("syncIntro")}</p>
-    <form class="setup" onsubmit={submit(() => (joining === null ? probe() : setup()))}>
+    <form class="setup" onsubmit={submit(() => (joining === null ? probe() : joining && !preview ? look() : setup()))}>
       <section class="step">
         <h3>{t("syncWhere")}</h3>
         <div class="segmented" role="radiogroup" aria-label={t("syncWhere")}>
@@ -573,6 +618,7 @@
               type="password"
               autocomplete="current-password"
               bind:value={password}
+              oninput={() => (preview = null)}
               aria-label={t("syncPassword")}
               {@attach focus}
             />
@@ -593,11 +639,63 @@
             aria-label={t("syncDevice")}
           />
         </section>
+        {#if preview}
+          <section class="step preview" aria-live="polite">
+            <h3><Eye size={14} aria-hidden="true" />{t("syncReconcilePreviewTitle")}</h3>
+            <p class="help">{t("syncReconcilePreviewHelp")}</p>
+            {#if !groups.length}
+              <p class="notice"><CircleCheck size={14} aria-hidden="true" />{t("syncReconcilePreviewEmpty")}</p>
+            {:else}
+              <p class="summary">
+                {t("syncReconcileSummary", {
+                  conflict: count("conflict"),
+                  merged: count("merged"),
+                  added: count("added", "kept"),
+                  sent: count("sent"),
+                })}
+              </p>
+              {#each groups as group (group.scope)}
+                <div class="group">
+                  <h4>{t(scopeLabel(group.scope))} <span class="count">{group.items.length}</span></h4>
+                  <ul class="rows">
+                    {#each group.items as item (item.path)}
+                      {@const Icon = changeIcon[item.change]}
+                      <li>
+                        <Icon size={14} aria-hidden="true" class="change-{item.change}" />
+                        <div class="grow">
+                          <span class="mono">{shownPath(item.path)}</span>
+                          {#if item.change === "conflict"}
+                            <span class="sub">
+                              {item.keys.length
+                                ? t("syncConflictKeys", { keys: item.keys.join(", ") })
+                                : t("syncConflictWhole")}
+                            </span>
+                          {:else if item.change === "kept" && item.to}
+                            <span class="sub">{t("syncReconcileKeptAs", { name: shownPath(item.to) })}</span>
+                          {:else if item.change === "merged"}
+                            <span class="sub">{t("syncReconcileMergedHelp")}</span>
+                          {/if}
+                        </div>
+                        <span class="badge change-{item.change}">{t(changeLabel[item.change])}</span>
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              {/each}
+            {/if}
+          </section>
+        {/if}
         <footer class="buttons">
-          <button type="button" class="btn" onclick={() => (setMode(""), (joining = null), (sshWarning = null))}>{t("cancel")}</button>
+          <button type="button" class="btn" onclick={() => (setMode(""), (joining = null), (sshWarning = null), (preview = null))}
+            >{t("cancel")}</button
+          >
           <!-- The SSH keys' warning is answered first: creating with it open would leave them out. -->
           <button class="btn primary" disabled={(joining ? !password : !newPasswordOk) || !!sync.busy || !!sshWarning}>
-            {@render spinner("sync_setup", FolderSync)}{joining ? t("syncJoin") : t("syncCreate")}
+            {#if joining && !preview}
+              {@render spinner("sync_preview", Eye)}{t("syncReconcilePreview")}
+            {:else}
+              {@render spinner("sync_setup", FolderSync)}{joining ? t("syncJoin") : t("syncCreate")}
+            {/if}
           </button>
         </footer>
       {/if}
@@ -676,6 +774,11 @@
         {#if keys.length}
           <p class="notice"><KeyRound size={14} aria-hidden="true" />{t("syncSshScopeSent", { names: keys.join(", ") })}</p>
         {/if}
+        {#each report.renamed as r (r.path)}
+          <p class="notice">
+            <CopyPlus size={14} aria-hidden="true" />{t("syncReconcileRenamed", { name: shownPath(r.path), to: shownPath(r.to) })}
+          </p>
+        {/each}
       {/if}
       {#if status.lastError && status.lastError !== sync.error && !report?.skipped.length}
         <p class="notice error lines"><CircleAlert size={14} aria-hidden="true" />{status.lastError}</p>
@@ -761,6 +864,36 @@
               </li>
             {/each}
           </ul>
+        </section>
+      {/if}
+
+      {#if status.lastBackup || undone}
+        <section class="step">
+          <h3>{t("syncReconcileUndoTitle")}</h3>
+          {#if undone}
+            <p class="notice" role="status">
+              <CircleCheck size={14} aria-hidden="true" />{t("syncReconcileUndone", { count: undone.restored.length })}
+            </p>
+            {#if undone.changed.length}
+              <p class="help">{t("syncReconcileUndoChanged", { paths: undone.changed.map(shownPath).join(", ") })}</p>
+            {/if}
+          {/if}
+          {#if status.lastBackup}
+            <p class="help">{t("syncReconcileUndoHelp", { ago: ago(status.lastBackup) })}</p>
+            {#if mode === "undo"}
+              <div class="confirm" role="alert">
+                <span>{t("syncReconcileUndoConfirm")}</span>
+                <button class="btn sm" onclick={() => setMode("")} {@attach focus}>{t("cancel")}</button>
+                <button class="btn sm primary" onclick={undo} disabled={!!sync.busy}>
+                  {@render spinner("sync_undo", Undo2)}{t("syncReconcileUndoRun")}
+                </button>
+              </div>
+            {:else}
+              <button class="btn sm" onclick={() => setMode("undo")} disabled={!!sync.busy}>
+                <Undo2 size={14} aria-hidden="true" />{t("syncReconcileUndo")}
+              </button>
+            {/if}
+          {/if}
         </section>
       {/if}
 
@@ -1317,5 +1450,83 @@
     margin: 0;
     font-size: var(--text-sm);
     font-weight: 600;
+  }
+
+  .preview {
+    max-width: 820px;
+  }
+
+  .summary {
+    margin: 0;
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    margin-top: 4px;
+  }
+
+  .group h4 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .rows :global(svg.change-conflict) {
+    flex-shrink: 0;
+    color: var(--warning);
+  }
+
+  .rows :global(svg.change-merged),
+  .rows :global(svg.change-kept) {
+    flex-shrink: 0;
+    color: var(--accent-ink);
+  }
+
+  .rows :global(svg.change-added) {
+    flex-shrink: 0;
+    color: var(--done);
+  }
+
+  .rows :global(svg.change-sent) {
+    flex-shrink: 0;
+    color: var(--muted);
+  }
+
+  .badge.change-conflict,
+  .badge.change-merged,
+  .badge.change-kept,
+  .badge.change-added,
+  .badge.change-sent {
+    flex-shrink: 0;
+    border-color: transparent;
+  }
+
+  .badge.change-conflict {
+    background: var(--waiting-soft);
+    color: var(--warning);
+  }
+
+  .badge.change-merged,
+  .badge.change-kept {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+  }
+
+  .badge.change-added {
+    background: color-mix(in srgb, var(--done) 14%, transparent);
+    color: var(--done);
+  }
+
+  .badge.change-sent {
+    background: var(--hover);
+    color: var(--muted);
   }
 </style>

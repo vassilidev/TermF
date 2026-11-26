@@ -1,6 +1,33 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cloneTarget, expandHome, inside } from "../src/lib/sync-logic.ts";
+import { cloneTarget, expandHome, inside, previewGroups, scopeOf, shownPath } from "../src/lib/sync-logic.ts";
+
+test("the preview of a join sorts each file by scope, what needs a look first", () => {
+  const groups = previewGroups(
+    {
+      pulled: ["library/commands/a.md", "termf.toml", "ssh/keys/id_ed25519-2", "ssh/config"],
+      pushed: ["projects/web.toml", "termf.toml", "ssh/config"],
+      merged: ["termf.toml", "ssh/config"],
+      renamed: [{ path: "ssh/keys/id_ed25519", to: "ssh/keys/id_ed25519-2" }],
+      conflicts: [{ path: "projects/acme.toml", keys: ["name"] }],
+    },
+    ["config", "projects", "sshKeys"],
+  );
+  assert.deepEqual(
+    groups.map((g) => [g.scope, g.items.map((i) => [i.path, i.change])]),
+    [
+      ["config", [["termf.toml", "merged"], ["library/commands/a.md", "added"]]],
+      ["projects", [["projects/acme.toml", "conflict"], ["projects/web.toml", "sent"]]],
+      ["sshKeys", [["ssh/config", "merged"], ["ssh/keys/id_ed25519", "kept"]]],
+    ],
+  );
+  assert.equal(groups[2].items[1].to, "ssh/keys/id_ed25519-2");
+  assert.equal(scopeOf("projects/acme/conventions/style/source.md"), "conventions");
+  assert.equal(shownPath("ssh/keys/id_work"), "id_work");
+  assert.equal(shownPath("ssh/known_hosts"), "~/.ssh/known_hosts");
+  assert.equal(shownPath("dev/claude/settings.json"), "~/.claude/settings.json");
+  assert.equal(shownPath("dev/claude/memory/acme/MEMORY.md"), "dev/claude/memory/acme/MEMORY.md");
+});
 
 test("a missing repository goes beside the project's others", () => {
   const home = "/Users/alex";
