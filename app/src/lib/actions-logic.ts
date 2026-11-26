@@ -126,6 +126,16 @@ export function vaultBlock(error: unknown): "unlock" | "reauth" | null {
   return /needs the master password again/.test(text) ? "reauth" : null;
 }
 
+/** What the agent proposes for a secret the vault lacks: vault.set_secret, whose card asks the user for it. */
+export const proposeSecret = (name: string, scope: string, then: string) =>
+  `The vault has no ${name} (${scope}) for this project: propose vault.set_secret {name: "${name}", scope: "${scope}"}, whose card asks the user for its value (you never see it), then ${then}.`;
+
+/** The next step for an action whose run failed on a secret the vault lacks (`no secret X in the vault (env…`). */
+export function secretMissing(error: unknown): string | null {
+  const m = /no secret ([A-Za-z_][\w.-]*) in the vault \((dev|staging|prod)\b/.exec(String(error));
+  return m ? proposeSecret(m[1], m[2], "this action again") : null;
+}
+
 /** The master password a new vault takes, as typed twice in the card; why not, in words the user reads. */
 export function newMaster(secrets: Record<string, string>): { password: string } | { why: "short" | "differ" } {
   const password = secrets.password ?? "";

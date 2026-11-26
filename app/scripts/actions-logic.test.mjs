@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Approved, canon, forAgent, newMaster, noVault, refused, secretsOf, vaultBlock, vaultNeeds } from "../src/lib/actions-logic.ts";
+import { Approved, canon, forAgent, newMaster, noVault, refused, secretMissing, secretsOf, vaultBlock, vaultNeeds } from "../src/lib/actions-logic.ts";
 
 const add = {
   id: "ops.add_connection",
@@ -103,4 +103,13 @@ test("a run stopped at the vault asks for it in a card, any other error goes bac
   assert.equal(vaultBlock("no secret ACME_REDIS_PASSWORD in the vault (prod)"), null);
   assert.equal(vaultBlock("wrong master password"), null);
   assert.equal(vaultBlock(undefined), null);
+});
+
+test("a run that misses a secret tells the agent to have the user type it in vault.set_secret's card", () => {
+  const next = secretMissing("no secret ACME_DEPLOY_TOKEN in the vault (prod)");
+  assert.match(next, /propose vault\.set_secret \{name: "ACME_DEPLOY_TOKEN", scope: "prod"\}/);
+  assert.match(next, /you never see it/);
+  assert.match(secretMissing(new Error("no secret REDIS_PASSWORD in the vault (staging, project acme or global)")), /scope: "staging"/);
+  assert.equal(secretMissing("the vault is locked"), null);
+  assert.equal(secretMissing("there is no vault yet: create it in the Vault view, then add X there"), null);
 });

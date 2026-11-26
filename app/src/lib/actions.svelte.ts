@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import { Approved, forAgent, refused, vaultBlock, type Args, type Spec } from "$lib/actions-logic";
+import { Approved, forAgent, refused, secretMissing, vaultBlock, type Args, type Spec } from "$lib/actions-logic";
 import { ask } from "$lib/ask.svelte";
 import { ciActions, ciHere } from "$lib/ci-actions";
 import { conversationActions } from "$lib/conversation-actions";
@@ -153,7 +153,8 @@ export async function perform(call: Call, secrets: Record<string, string>) {
     const need = vaultBlock(e);
     if (need) return waitVault({ n: ++waits, call, secrets, need }, action.label);
     toast(String(e), { kind: "error" });
-    await reply(call.id, null, String(e));
+    const next = secretMissing(e);
+    await reply(call.id, null, next ? `${String(e)}. ${next}` : String(e));
   }
 }
 

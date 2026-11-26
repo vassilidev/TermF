@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { noVault, type Args } from "$lib/actions-logic";
+import { noVault, proposeSecret, type Args } from "$lib/actions-logic";
 import type { Action } from "$lib/actions.svelte";
 import { t } from "$lib/i18n";
 import {
@@ -21,10 +21,6 @@ import type { VaultStatus } from "$lib/vault.svelte";
 
 /** The kinds an agent adds: a database TermF reads, an SSH server, or Redis. */
 const KINDS: Kind[] = ["ssh", "postgres", "mysql", "mariadb", "clickhouse", "sqlite", "redis"];
-
-/** What the agent proposes for a secret the vault lacks: the user types it in TermF's card. */
-const typeIt = (name: string, env: string, then: string) =>
-  `The vault has no ${name} (${env}) for this project: propose vault.set_secret {name: "${name}", scope: "${env}"}, whose card asks the user for its value (you never see it), then ${then}.`;
 
 const kindLabel = (k: Kind) => t(`opsKind${k[0].toUpperCase()}${k.slice(1)}` as Parameters<typeof t>[0]);
 const text = (v: unknown) => (typeof v === "string" ? v : undefined);
@@ -149,7 +145,7 @@ const testConnection: Action = {
     const ok = checks.every((c) => c.ok || c.warn);
     toast(t(ok ? "actOpsTested" : "actOpsTestFailed", { name: connection.name }), { kind: ok ? "ok" : "error" });
     const lacks = missingSecret(checks);
-    return { connection: connection.name, ok, checks, ...(lacks ? { next: typeIt(lacks, connection.env, "this test again") } : {}) };
+    return { connection: connection.name, ok, checks, ...(lacks ? { next: proposeSecret(lacks, connection.env, "this test again") } : {}) };
   },
 };
 
