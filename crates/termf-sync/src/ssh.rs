@@ -1,21 +1,23 @@
 //! The SSH keys scope, only on explicit request: each key pair of `~/.ssh` travels as one record, sealed by the
-//! sync's data key like every file, and `~/.ssh/config` whole as `ssh/config`, merged as any other file.
-//! A private key is never written in clear outside `~/.ssh`: the merge base keeps a digest of each pair, and a
-//! conflict shows public keys only. A key here is never replaced by another machine's: a different pair under
-//! the same name is a conflict, a deletion elsewhere is not applied.
+//! sync's data key like every file; `~/.ssh/config` as `ssh/config`, merged host by host (`lines.rs`), and
+//! `~/.ssh/known_hosts` as `ssh/known_hosts`, the lines of every machine together.
+//! A private key is never written in clear outside `~/.ssh`: the merge base keeps a digest of each pair. A key
+//! here is never replaced by another machine's: a different pair under the same name lands beside it under a
+//! free name, and a deletion elsewhere is not applied.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 use termf_ssh::{Pair, Ssh};
 use zeroize::Zeroizing;
 
 use crate::dev::{localize, portable};
 use crate::record::{self, Entry, Record};
-use crate::{Conflict, Resolution};
+use crate::{Renamed, Skipped};
 
 pub const CONFIG: &str = "ssh/config";
+pub const KNOWN_HOSTS: &str = "ssh/known_hosts";
 const KEYS: &str = "ssh/keys/";
 
 /// `ssh/config` as this machine has it, the home folder's paths made portable.
@@ -33,6 +35,41 @@ pub fn write_config(ssh: &Ssh, home: &std::path::Path, entry: Option<&Entry>) ->
 
 pub fn is_key(path: &str) -> bool {
     path.starts_with(KEYS)
+}
+
+/// `ssh/config` or `ssh/known_hosts`: a file of `~/.ssh` merged as text, not a key pair.
+pub fn is_file(path: &str) -> bool {
+    path == CONFIG || path == KNOWN_HOSTS
+}
+
+pub fn read_known_hosts(ssh: &Ssh) -> Result<Option<Entry>> {
+    Ok(ssh
+        .known_hosts_file()?
+        .map(|bytes| Entry { bytes, exec: false }))
+}
+
+/// Every line either side has, once, this machine's first: a host key learnt on one machine is known on all,
+/// and none is ever removed or replaced (hashed lines too, each as it is).
+pub fn known_hosts(local: Option<&Entry>, remote: Option<&Entry>) -> Option<Entry> {
+    let (Some(l), Some(r)) = (local, remote) else {
+        return local.or(remote).cloned();
+    };
+    fn lines(e: &Entry) -> impl Iterator<Item = &[u8]> {
+        e.bytes.split(|&b| b == b'\n').map(<[u8]>::trim_ascii)
+    }
+    let mut known: BTreeSet<&[u8]> = lines(l).collect();
+    let mut bytes = l.bytes.clone();
+    for line in lines(r) {
+        if line.is_empty() || !known.insert(line) {
+            continue;
+        }
+        if !bytes.is_empty() && !bytes.ends_with(b"\n") {
+            bytes.push(b'\n');
+        }
+        bytes.extend(line);
+        bytes.push(b'\n');
+    }
+    Some(Entry { bytes, exec: false })
 }
 
 /// A pair as one record: private key length and bytes, then the public key, if any.
@@ -68,50 +105,57 @@ fn digest(bytes: &[u8]) -> Entry {
     }
 }
 
-/// The public key, as a conflict shows it.
-fn describe(pair: &Pair) -> String {
-    match &pair.public {
-        Some(public) => String::from_utf8_lossy(public).trim().to_owned(),
-        None => format!(
-            "{} (no public key file) · SHA-256 {}",
-            pair.name,
-            &crate::crypto::hex(&Sha256::digest(&pair.private))[..16]
-        ),
-    }
+fn write(ssh: &Ssh, pair: &Pair, dry: bool) -> Result<()> {
+    if dry { Ok(()) } else { ssh.restore(pair) }
 }
 
+#[derive(Default)]
 pub struct Outcome {
     pub outgoing: Vec<Record>,
-    pub conflicts: Vec<Conflict>,
+    /// Another machine's pair kept beside this machine's under a free name.
+    pub renamed: Vec<Renamed>,
     /// Pairs that could not be written here (a file in the way).
-    pub skipped: Vec<crate::Skipped>,
+    pub skipped: Vec<Skipped>,
+}
+
+/// The first name free in `~/.ssh` for another machine's `name`: `name-2`, `name-3`…
+fn free_name(ssh: &Ssh, name: &str, taken: &BTreeSet<String>) -> Option<String> {
+    (2..100).map(|n| format!("{name}-{n}")).find(|n| {
+        termf_ssh::valid_name(n)
+            && !taken.contains(&format!("{KEYS}{n}"))
+            && [n.clone(), format!("{n}.pub")]
+                .iter()
+                .all(|f| std::fs::symlink_metadata(ssh.dir().join(f)).is_err())
+    })
 }
 
 /// Merges the key pairs: a new pair goes either way; a pair changed or deleted here is pushed; one that only
-/// exists elsewhere is written here; a different pair under a name taken here waits for the user's choice.
+/// exists elsewhere is written here; a different pair under a name taken here is written beside it, under a
+/// free name, and kept on this machine only. `dry`: nothing is written, the outcome says what would be.
 pub fn sync_keys(
     ssh: &Ssh,
     theirs: &BTreeMap<String, Record>,
     base: &mut BTreeMap<String, Record>,
     pulled: &mut BTreeSet<String>,
     device: &str,
+    dry: bool,
 ) -> Result<Outcome> {
     let mut mine: BTreeMap<String, Zeroizing<Vec<u8>>> = ssh
         .pairs()?
         .iter()
         .map(|p| (format!("{KEYS}{}", p.name), bundle(p)))
         .collect();
+    // What this machine already has, under any name: the same pair is never written twice.
+    let here: BTreeSet<Vec<u8>> = mine.values().map(|b| digest(b).bytes).collect();
     let paths: BTreeSet<String> = mine
         .keys()
         .chain(theirs.keys().filter(|p| is_key(p)))
         .chain(base.keys().filter(|p| is_key(p)))
         .cloned()
         .collect();
-    let mut outcome = Outcome {
-        outgoing: Vec::new(),
-        conflicts: Vec::new(),
-        skipped: Vec::new(),
-    };
+    // A copy's name is taken by no machine, so it never meets another key there.
+    let mut taken = paths.clone();
+    let mut outcome = Outcome::default();
     for path in paths {
         let name = &path[KEYS.len()..];
         if !termf_ssh::valid_name(name) {
@@ -144,7 +188,7 @@ pub fn sync_keys(
             let r = r.expect("changed remotely");
             match (&l, &r.entry) {
                 // New elsewhere, or changed elsewhere while deleted here: a change wins over a deletion.
-                (None, Some(e)) => match ssh.restore(&unbundle(name, &e.bytes)?) {
+                (None, Some(e)) => match write(ssh, &unbundle(name, &e.bytes)?, dry) {
                     Ok(()) => {
                         pulled.insert(path.clone());
                         base.insert(
@@ -156,19 +200,51 @@ pub fn sync_keys(
                             },
                         );
                     }
-                    Err(e) => outcome.skipped.push(crate::Skipped {
+                    Err(e) => outcome.skipped.push(Skipped {
                         path: path.clone(),
                         error: format!("{e:#}"),
                     }),
                 },
                 // Deleted elsewhere: kept here, offered again only once changed here.
                 (Some(_), None) if local_changed => outcome.outgoing.push(push(&r.clock)),
-                (Some(l), Some(e)) => outcome.conflicts.push(Conflict {
-                    path: path.clone(),
-                    keys: Vec::new(),
-                    local: Some(describe(&unbundle(name, l)?)),
-                    remote: Some(describe(&unbundle(name, &e.bytes)?)),
-                }),
+                // Same name, another pair: both stay. This machine's is not offered to the others; theirs lands
+                // beside it, unless this machine already has it.
+                (Some(_), Some(e)) => {
+                    let r_digest = r_digest.clone().expect("a pair");
+                    if !here.contains(&r_digest.bytes) {
+                        let Some(free) = free_name(ssh, name, &taken) else {
+                            bail!("no free name in ~/.ssh for another machine's {name}");
+                        };
+                        let pair = Pair {
+                            name: free.clone(),
+                            ..unbundle(name, &e.bytes)?
+                        };
+                        if let Err(e) = write(ssh, &pair, dry) {
+                            outcome.skipped.push(Skipped {
+                                path: path.clone(),
+                                error: format!("{e:#}"),
+                            });
+                            continue;
+                        }
+                        let copy = format!("{KEYS}{free}");
+                        taken.insert(copy.clone());
+                        pulled.insert(copy.clone());
+                        outcome.renamed.push(Renamed {
+                            path: path.clone(),
+                            to: copy.clone(),
+                        });
+                        // Known here as it is, so never sent: the other machine has it under its own name.
+                        base.insert(
+                            copy.clone(),
+                            Record {
+                                path: copy,
+                                entry: Some(r_digest),
+                                clock: r.clock.clone(),
+                            },
+                        );
+                    }
+                    base.insert(path.clone(), seen(r.clock.clone()));
+                }
                 _ => {
                     base.insert(path.clone(), seen(r.clock.clone()));
                 }
@@ -189,41 +265,4 @@ pub fn pushed(record: &Record) -> Record {
         entry: record.entry.as_ref().map(|e| digest(&e.bytes)),
         clock: record.clock.clone(),
     }
-}
-
-/// Settles a conflict on a key: `local` keeps this machine's pair here without offering it to the others,
-/// `remote` puts this machine's pair in `~/.ssh/.termf-trash/` and writes the other one.
-pub fn resolve(
-    ssh: &Ssh,
-    path: &str,
-    theirs: &Record,
-    resolution: &Resolution,
-    base: &mut BTreeMap<String, Record>,
-) -> Result<()> {
-    let name = &path[KEYS.len()..];
-    ensure!(termf_ssh::valid_name(name), "invalid key name {name}");
-    let mine = ssh.pairs()?.into_iter().find(|p| p.name == name);
-    let entry = match resolution {
-        Resolution::Local => mine.as_ref().map(|p| digest(&bundle(p))),
-        Resolution::Remote => {
-            let Some(remote) = &theirs.entry else {
-                bail!("the other version of {name} was deleted: keep this one");
-            };
-            if mine.is_some() {
-                ssh.trash(name)?;
-            }
-            ssh.restore(&unbundle(name, &remote.bytes)?)?;
-            Some(digest(&remote.bytes))
-        }
-        Resolution::Merged { .. } => bail!("a key cannot be merged: keep one of the two"),
-    };
-    base.insert(
-        path.into(),
-        Record {
-            path: path.into(),
-            entry,
-            clock: theirs.clock.clone(),
-        },
-    );
-    Ok(())
 }

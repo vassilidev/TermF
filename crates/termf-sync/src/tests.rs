@@ -1,6 +1,7 @@
 mod fake;
 mod home;
 mod props;
+mod reconcile;
 mod remotes;
 
 use std::collections::HashMap;
