@@ -68,6 +68,9 @@
     type Undone,
   } from "$lib/sync.svelte";
 
+  /** `embedded`: inside another screen (the first launch), which gives the title and scrolls. */
+  let { embedded = false }: { embedded?: boolean } = $props();
+
   const status = $derived(app.sync);
   const ready = $derived(!!status?.enabled && status.unlocked && !status.forgotten);
   const report = $derived(currentReport());
@@ -583,7 +586,8 @@
   </section>
 {/snippet}
 
-<section class="sync">
+<section class="sync" class:embedded>
+  {#if !embedded}
   <header class="head">
     <h2>{t("syncTitle")}</h2>
     <div class="actions">
@@ -600,6 +604,7 @@
       {/if}
     </div>
   </header>
+  {/if}
 
   {#if sync.error}
     <p class="notice error lines" role="alert"><CircleAlert size={14} aria-hidden="true" />{sync.error}</p>
@@ -1151,6 +1156,11 @@
 
   .sync > * {
     max-width: 820px;
+  }
+
+  .embedded {
+    padding: 0;
+    overflow: visible;
   }
 
   .head {

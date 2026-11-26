@@ -5957,6 +5957,27 @@ const fr = {
     "TermF : clé de récupération de la synchronisation chiffrée\n\n{key}\n\nÀ quoi elle sert : si tu oublies le mot de passe de la synchronisation, cette clé t'en fait choisir un nouveau sans rien perdre. Dans TermF : Réglages › Synchronisation chiffrée › Mot de passe oublié…\n\nGarde ce fichier hors de cet ordinateur (gestionnaire de mots de passe, impression) et ne le donne à personne : avec cette clé et l'accès à ta synchro, on lit tout ce que tu synchronises. Quand TermF t'en donne une nouvelle, celle-ci ne fonctionne plus.\n\nEnregistrée le {date}.\n",
   syncVisibleKeyFileVault:
     "TermF : clé de récupération du coffre\n\n{key}\n\nÀ quoi elle sert : elle ouvre ton coffre si tu oublies ton mot de passe maître ou perds ta clé de sécurité. Dans TermF : Coffre › Clé de sécurité perdue ou mot de passe oublié ?\n\nGarde ce fichier hors de cet ordinateur (gestionnaire de mots de passe, impression) et ne le donne à personne : quiconque l'a ouvre le coffre. Quand TermF t'en donne une nouvelle, celle-ci ne fonctionne plus.\n\nEnregistrée le {date}.\n",
+  obmMachine: "Sur cette machine",
+  obmMachineFirst: "C'est ma première machine avec TermF",
+  obmMachineFirstText: "On prépare ton environnement, ton coffre et la synchro.",
+  obmMachineOther: "J'ai déjà TermF sur une autre machine",
+  obmMachineOtherText: "On rejoint ta synchro : tes réglages, tes projets et ton coffre arrivent ici.",
+  obmSkipped: "Passée, à reprendre",
+  obmFinish: "Terminer",
+  obmEnvTitle: "Ce que tu utilises sur cette machine",
+  obmVaultTitle: "Ton coffre",
+  obmVaultKey: "Ton coffre est créé. Cette clé le rouvre si tu oublies ton mot de passe maître : note-la ou télécharge-la.",
+  obmVaultCreated: "Coffre créé, clé de récupération rangée",
+  obmVaultReady: "Ton coffre est sur cette machine",
+  obmVaultFromSync:
+    "Ton coffre est sur ton autre machine : la synchro l'apporte ici, avec le même mot de passe maître. Rejoins-la plutôt que d'en créer un nouveau.",
+  obmVaultJoinSync: "Rejoindre la synchro",
+  obmSyncTitle: "Tes réglages sur toutes tes machines",
+  obmSyncJoinTitle: "Rejoins ta synchro",
+  obmSyncDone: "La synchro est active : {remote}",
+  obmSyncRepos: "{n} dépôt(s) de tes projets manquent ici : Synchronisation chiffrée propose de les cloner.",
+  obmResumeText: "Il reste à préparer cette machine : {steps}.",
+  obmResume: "Reprendre",
 };
 
 type Key = keyof typeof fr;
@@ -11879,6 +11900,27 @@ const en: Record<Key, string> = {
     "TermF: encrypted sync recovery key\n\n{key}\n\nWhat it is for: if you forget the sync's password, this key lets you choose a new one without losing anything. In TermF: Settings › Encrypted sync › Forgot the password…\n\nKeep this file off this computer (a password manager, a printout) and give it to no one: with this key and access to your sync, anyone reads everything you sync. When TermF gives you a new one, this one stops working.\n\nSaved on {date}.\n",
   syncVisibleKeyFileVault:
     "TermF: vault recovery key\n\n{key}\n\nWhat it is for: it opens your vault if you forget your master password or lose your security key. In TermF: Vault › Lost your security key or forgot your password?\n\nKeep this file off this computer (a password manager, a printout) and give it to no one: whoever has it opens the vault. When TermF gives you a new one, this one stops working.\n\nSaved on {date}.\n",
+  obmMachine: "On this machine",
+  obmMachineFirst: "This is my first machine with TermF",
+  obmMachineFirstText: "We set up your environment, your vault and the sync.",
+  obmMachineOther: "I already use TermF on another machine",
+  obmMachineOtherText: "We join your sync: your settings, projects and vault come over.",
+  obmSkipped: "Skipped, to resume",
+  obmFinish: "Finish",
+  obmEnvTitle: "What you use on this machine",
+  obmVaultTitle: "Your vault",
+  obmVaultKey: "Your vault is created. This key opens it if you forget your master password: write it down or download it.",
+  obmVaultCreated: "Vault created, recovery key stored",
+  obmVaultReady: "Your vault is on this machine",
+  obmVaultFromSync:
+    "Your vault is on your other machine: the sync brings it here, with the same master password. Join it rather than create a new one.",
+  obmVaultJoinSync: "Join the sync",
+  obmSyncTitle: "Your settings on all your machines",
+  obmSyncJoinTitle: "Join your sync",
+  obmSyncDone: "Sync is on: {remote}",
+  obmSyncRepos: "{n} repositories of your projects are missing here: Encrypted sync offers to clone them.",
+  obmResumeText: "This machine is not fully set up yet: {steps}.",
+  obmResume: "Resume",
 };
 
 const messages = { fr, en };

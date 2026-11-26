@@ -26,7 +26,8 @@ export type VaultView = "vault" | "vaultAll";
 export type KeyInfo = { id: string; name: string; created: number };
 /** What this machine offers besides the password: TermF asks for a key's PIN (not on Windows), Touch ID, Windows Hello. */
 export type VaultMethods = { keyPin: boolean; biometry: "touchId" | "windowsHello" | null };
-export type RecoveryReason = "first" | "renewed" | "recovered";
+/** `created`: right after the vault itself (the first launch). */
+export type RecoveryReason = "first" | "renewed" | "recovered" | "created";
 
 /** Names and descriptions only: a value reaches the webview when the user reveals or copies it, and is dropped after. */
 export const vault = $state({

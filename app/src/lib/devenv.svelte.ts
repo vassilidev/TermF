@@ -27,8 +27,8 @@ export function showEnv(tab?: typeof devenv.tab) {
   void loadEnv();
 }
 
-/** The manifest; the first time it lists something, a detection follows, to tell what is missing here. */
-export async function loadEnv(): Promise<Manifest | null> {
+/** The manifest; the first time it lists something, a detection follows (`detect`), to tell what is missing here. */
+export async function loadEnv(detect = true): Promise<Manifest | null> {
   try {
     devenv.manifest = await invoke<Manifest>("env_manifest");
   } catch (e) {
@@ -36,7 +36,7 @@ export async function loadEnv(): Promise<Manifest | null> {
     return null;
   }
   // Its error shows on the screen (`devenv.error`).
-  if (devenv.manifest.entries.length && !devenv.scanned && !devenv.scanning) scan().catch(() => {});
+  if (detect && devenv.manifest.entries.length && !devenv.scanned && !devenv.scanning) scan().catch(() => {});
   return devenv.manifest;
 }
 

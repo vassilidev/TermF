@@ -30,6 +30,9 @@
 
   type Key = Parameters<typeof t>[0];
 
+  /** `only`: what the detection found, alone, inside another screen (the first launch), told when some were kept. */
+  let { only = false, onkept }: { only?: boolean; onkept?: (n: number) => void } = $props();
+
   const GROUP_LABEL: Record<Group, Key> = {
     languages: "myenvGroupLanguages",
     cli: "myenvGroupCli",
@@ -45,11 +48,12 @@
   const entries = $derived(devenv.manifest?.entries ?? []);
   const news = $derived(fresh(devenv.found, entries));
   const lacking = $derived(missing(entries, devenv.found, devenv.scanned));
-  const canAsk = $derived(askedProject() !== null);
+  // The ⌘I panel cannot open over another screen's dialog.
+  const canAsk = $derived(!only && askedProject() !== null);
 
   // ⌘I: the devops agent answers here, with the list and what the detection found, by name only.
   $effect(() =>
-    provide("env", {
+    only ? undefined : provide("env", {
       role: "devops",
       chips: [
         ...(entries.length ? [{ id: "env-manifest", kind: "object" as const, label: t("myenvChipManifest", { n: entries.length }), text: lines(entries) }] : []),
@@ -135,6 +139,7 @@
     const n = chosen.length;
     if (!(await attempt(() => addEntries(chosen)))) return;
     ticks = {};
+    if (onkept) return onkept(n);
     devenv.tab = "manifest";
     toast(t("myenvKept", { n }));
   }
@@ -217,7 +222,80 @@
   </span>
 {/snippet}
 
-<div class="env">
+{#snippet found()}
+  {#if !devenv.scanning && !devenv.scanned}
+    <EmptyState
+      icon={ScanSearch}
+      title={t("myenvFoundBefore")}
+      text={t("myenvFoundBeforeHelp")}
+      action={{ label: t("myenvDetect"), icon: ScanSearch, run: detect }}
+      onask={canAsk ? askTriage : undefined}
+      askLabel={t("myenvAsk")}
+    />
+  {:else}
+    {#if sources.length}
+      <ul class="sources" aria-label={t("myenvSources")} aria-live="polite">
+        {#each sources as [source, done] (source)}
+          <li class:fail={!!done?.error} title={done?.error ?? undefined}>
+            {#if !done}<LoaderCircle size={12} aria-hidden="true" class="spin" />{:else if done.error}<CircleX size={12} aria-hidden="true" />{:else}<Check size={12} aria-hidden="true" />{/if}
+            <span>{sourceName(source)}</span>
+            {#if done && !done.error}<span class="n">{done.found.length}</span>{/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    {#each sources.filter(([, done]) => done?.error) as [source, done] (source)}
+      <p class="notice error"><CircleX size={14} aria-hidden="true" /><span>{sourceName(source)} · {done?.error}</span></p>
+    {/each}
+
+    {#if news.length}
+      <div class="found-head">
+        <p class="help">{t("myenvFoundHelp")}</p>
+        <div class="row-actions">
+          {#if canAsk}<button class="btn sm" onclick={askTriage}><Sparkles size={14} aria-hidden="true" />{t("myenvAsk")}</button>{/if}
+          <button class="btn sm primary" onclick={keep} disabled={!chosen.length}><Check size={14} aria-hidden="true" />{t("myenvKeep", { n: chosen.length })}</button>
+        </div>
+      </div>
+      {#each GROUPS as group (group)}
+        {@const list = news.filter((f) => f.group === group)}
+        {#if list.length}
+          {@const all = list.every(ticked)}
+          <section class="group" aria-labelledby="env-found-{group}">
+            <h3 id="env-found-{group}">
+              {t(GROUP_LABEL[group])}<span class="count">{list.length}</span>
+              <button class="btn link" onclick={() => tickAll(list, !all)}>{all ? t("myenvUntickAll") : t("myenvTickAll")}</button>
+            </h3>
+            <ul class="rows">
+              {#each list as f (keyOf(f))}
+                <li>
+                  <input type="checkbox" checked={ticked(f)} onchange={(e) => (ticks[keyOf(f)] = e.currentTarget.checked)} aria-label={t("myenvKeepName", { name: f.name })} />
+                  <div class="main">
+                    {@render who(f)}
+                    {#if f.description}<p class="desc">{f.description}</p>{/if}
+                    {#if f.path}<p class="desc mono">{f.path}</p>{/if}
+                  </div>
+                </li>
+              {/each}
+            </ul>
+          </section>
+        {/if}
+      {/each}
+      {#if devenv.scanning}<Skeleton shape="list" rows={2} label={t("myenvScanning")} />{/if}
+    {:else if devenv.scanning}
+      <Skeleton shape="list" rows={6} label={t("myenvScanning")} />
+    {:else}
+      <EmptyState icon={Check} title={t("myenvFoundNone")} action={only ? undefined : { label: t("myenvTabManifest"), run: () => (devenv.tab = "manifest") }} />
+    {/if}
+  {/if}
+{/snippet}
+
+<div class="env" class:only>
+  {#if only}
+    <div class="body">
+      {#if devenv.error}<Banner kind="error" ondismiss={() => (devenv.error = "")}>{devenv.error}</Banner>{/if}
+      {@render found()}
+    </div>
+  {:else}
   <ViewHeader title={t("myenvView")} context={devenv.manifest ? shortPath(devenv.manifest.file) : ""} mono>
     {#snippet actions()}
       <button class="btn sm" onclick={detect} disabled={devenv.scanning}>
@@ -383,70 +461,7 @@
           {/if}
         {/if}
       {:else if devenv.tab === "found"}
-        {#if !devenv.scanning && !devenv.scanned}
-          <EmptyState
-            icon={ScanSearch}
-            title={t("myenvFoundBefore")}
-            text={t("myenvFoundBeforeHelp")}
-            action={{ label: t("myenvDetect"), icon: ScanSearch, run: detect }}
-            onask={canAsk ? askTriage : undefined}
-            askLabel={t("myenvAsk")}
-          />
-        {:else}
-          {#if sources.length}
-            <ul class="sources" aria-label={t("myenvSources")} aria-live="polite">
-              {#each sources as [source, done] (source)}
-                <li class:fail={!!done?.error} title={done?.error ?? undefined}>
-                  {#if !done}<LoaderCircle size={12} aria-hidden="true" class="spin" />{:else if done.error}<CircleX size={12} aria-hidden="true" />{:else}<Check size={12} aria-hidden="true" />{/if}
-                  <span>{sourceName(source)}</span>
-                  {#if done && !done.error}<span class="n">{done.found.length}</span>{/if}
-                </li>
-              {/each}
-            </ul>
-          {/if}
-          {#each sources.filter(([, done]) => done?.error) as [source, done] (source)}
-            <p class="notice error"><CircleX size={14} aria-hidden="true" /><span>{sourceName(source)} · {done?.error}</span></p>
-          {/each}
-
-          {#if news.length}
-            <div class="found-head">
-              <p class="help">{t("myenvFoundHelp")}</p>
-              <div class="row-actions">
-                {#if canAsk}<button class="btn sm" onclick={askTriage}><Sparkles size={14} aria-hidden="true" />{t("myenvAsk")}</button>{/if}
-                <button class="btn sm primary" onclick={keep} disabled={!chosen.length}><Check size={14} aria-hidden="true" />{t("myenvKeep", { n: chosen.length })}</button>
-              </div>
-            </div>
-            {#each GROUPS as group (group)}
-              {@const list = news.filter((f) => f.group === group)}
-              {#if list.length}
-                {@const all = list.every(ticked)}
-                <section class="group" aria-labelledby="env-found-{group}">
-                  <h3 id="env-found-{group}">
-                    {t(GROUP_LABEL[group])}<span class="count">{list.length}</span>
-                    <button class="btn link" onclick={() => tickAll(list, !all)}>{all ? t("myenvUntickAll") : t("myenvTickAll")}</button>
-                  </h3>
-                  <ul class="rows">
-                    {#each list as f (keyOf(f))}
-                      <li>
-                        <input type="checkbox" checked={ticked(f)} onchange={(e) => (ticks[keyOf(f)] = e.currentTarget.checked)} aria-label={t("myenvKeepName", { name: f.name })} />
-                        <div class="main">
-                          {@render who(f)}
-                          {#if f.description}<p class="desc">{f.description}</p>{/if}
-                          {#if f.path}<p class="desc mono">{f.path}</p>{/if}
-                        </div>
-                      </li>
-                    {/each}
-                  </ul>
-                </section>
-              {/if}
-            {/each}
-            {#if devenv.scanning}<Skeleton shape="list" rows={2} label={t("myenvScanning")} />{/if}
-          {:else if devenv.scanning}
-            <Skeleton shape="list" rows={6} label={t("myenvScanning")} />
-          {:else}
-            <EmptyState icon={Check} title={t("myenvFoundNone")} action={{ label: t("myenvTabManifest"), run: () => (devenv.tab = "manifest") }} />
-          {/if}
-        {/if}
+        {@render found()}
       {:else}
         <div class="toolbar">
           {#if scripts.length}
@@ -478,6 +493,7 @@
       {/if}
     </div>
   </Tabs>
+  {/if}
 </div>
 
 <ConfirmDialog
@@ -511,6 +527,14 @@
     gap: 12px;
     max-width: 980px;
     padding: 16px 20px 32px;
+  }
+
+  /* Inside another screen, which scrolls. */
+  .only,
+  .only .body {
+    height: auto;
+    padding: 0;
+    overflow: visible;
   }
 
   .toolbar {
