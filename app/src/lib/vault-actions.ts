@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { newMaster, vaultNeeds, type Args } from "$lib/actions-logic";
 import type { Action } from "$lib/actions.svelte";
+import { agentEnv, type Grant } from "$lib/agentenv.svelte";
 import { deploys } from "$lib/ci.svelte";
 import { t } from "$lib/i18n";
 import { ops } from "$lib/ops.svelte";
@@ -13,6 +14,17 @@ const SCOPES: Scope[] = ["dev", "staging", "prod"];
 
 const status = () => invoke<VaultStatus>("vault_status");
 const open = async () => vaultNeeds(await status());
+/** Open, with its secrets' names read for the card's warning when one is replaced, whatever the screen. */
+async function opened(_a: Args, project: string) {
+  agentEnv.given[project] = (await invoke<{ grants: Grant[] }>("agentenv_grants", { project })).grants;
+  const why = await open();
+  if (!why && !vault.secrets.length) vault.secrets = await invoke<SecretInfo[]>("vault_list");
+  return why;
+}
+
+/** The project's agents that get this secret in their environment, by variable (`[agents.secrets]`). */
+const givenAs = (a: Args, project: string) =>
+  (agentEnv.given[project] ?? []).filter((g) => g.secret === String(a.name ?? "").trim() && g.scope === a.scope).map((g) => g.variable);
 const projectName = (id: string) => app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
 /** Where a secret goes: the project, or every project (`everywhere`). */
 const where = (a: Args, project: string) => (a.everywhere ? t("vaultGlobal") : projectName(project));
@@ -99,7 +111,7 @@ const lock: Action = {
 const setSecret: Action = {
   id: "vault.set_secret",
   description:
-    "Adds a secret to the vault, or replaces the value of one, as the Vault view does: for the project (or every project with `everywhere`), in an environment. The user types its value in TermF's card; you never see it. With `reference` (op://… of 1Password, a Bitwarden or Keychain reference), the vault keeps where to read it instead. prod asks the master password again, in the same card.",
+    "Adds a secret to the vault, or replaces the value of one, from any screen, as the Vault view does: for the project (or every project with `everywhere`), in an environment. Propose it whenever an action or a test says the vault lacks a secret (a connection's password, a token): the user types its value in TermF's card, you never see it, never ask for it in the conversation, and say in `hints.value` where they find it. With `reference` (op://… of 1Password, a Bitwarden or Keychain reference), the vault keeps where to read it instead. prod asks the master password again, in the same card.",
   fields: {
     name: { type: "string", description: "As the agents' environment names it: STRIPE_SECRET_KEY." },
     scope: { type: "string", description: "The environment it belongs to.", enum: SCOPES },
@@ -119,7 +131,11 @@ const setSecret: Action = {
   },
   loses: (a, project) =>
     vault.secrets.some((s) => s.name === a.name && s.scope === a.scope && s.project === owner(a, project)) ? t("actVaultReplaceLoses") : "",
-  needs: open,
+  gives: (a, project) => {
+    const variables = givenAs(a, project);
+    return variables.length ? t("vaultCardsGiven", { variables: variables.join(", ") }) : "";
+  },
+  needs: opened,
   async run(a, secrets, project) {
     const name = named(a);
     const args = { name, scope: a.scope, project: owner(a, project), description: typeof a.description === "string" ? a.description.trim() || null : null };
@@ -173,6 +189,6 @@ export async function vaultHere(project: string) {
   };
 }
 
-export const vaultActions: Action[] = [setSecret, deleteSecret];
-/** Offered from every screen: an action elsewhere may need the vault first. */
-export const vaultAnywhere: Action[] = [create, unlock, lock];
+export const vaultActions: Action[] = [deleteSecret];
+/** Offered from every screen: an action elsewhere may need the vault first, or a secret it lacks. */
+export const vaultAnywhere: Action[] = [create, unlock, lock, setSecret];

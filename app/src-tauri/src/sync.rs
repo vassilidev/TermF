@@ -43,6 +43,7 @@ pub const WRITES: &[&str] = &[
     "conventions_apply",
     "conventions_switch",
     "vault_auto_lock_set",
+    "vault_lock_on_leave_set",
     // The vault's file, when its scope is synced.
     "vault_init",
     "vault_set",

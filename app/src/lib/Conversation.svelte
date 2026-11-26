@@ -27,6 +27,7 @@
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import Images from "@lucide/svelte/icons/images";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import LockKeyhole from "@lucide/svelte/icons/lock-keyhole";
   import Megaphone from "@lucide/svelte/icons/megaphone";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
@@ -40,7 +41,8 @@
   import X from "@lucide/svelte/icons/x";
   import Action from "$lib/Action.svelte";
   import ActionAsk from "$lib/ActionAsk.svelte";
-  import { actionOf, agentActions, approve, askFirst, perform, refuse, type Call } from "$lib/actions.svelte";
+  import ActionVault from "$lib/ActionVault.svelte";
+  import { actionOf, agentActions, approve, askFirst, perform, refuse, resume, type Call } from "$lib/actions.svelte";
   import StreamSteps, { type Step } from "$lib/ui/StreamSteps.svelte";
   import { toast } from "$lib/ui/toast.svelte";
   import { afterChange, changeOf, diffOf, question, within } from "$lib/ask-logic";
@@ -1181,6 +1183,19 @@
             <ShieldCheck size={14} aria-hidden="true" />{t("chatAllow")}
           </button>
         </div>
+      </div>
+    {/each}
+    {#each agentActions.vault.filter((w) => w.call.session === session.id) as wait (wait.n)}
+      {@const label = actionOf(wait.call.session, wait.call.action)?.label}
+      <!-- An approved action stopped at the vault: TermF asks for it here, then runs it again. -->
+      <div class="ask" role="group" aria-label={t("vaultCardsTitle", { who })}>
+        <p class="ask-title"><LockKeyhole size={16} aria-hidden="true" />{t("vaultCardsTitle", { who })}</p>
+        <ActionVault
+          need={wait.need}
+          text={(need) => t(need === "reauth" ? "vaultCardsReauthText" : "vaultCardsUnlockText", { action: label ? t(label) : String(wait.call.action) })}
+          onopen={() => resume(wait)}
+          onrefuse={() => refuse(wait.call, "")}
+        />
       </div>
     {/each}
     {#if thinking}

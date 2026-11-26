@@ -12,6 +12,8 @@ export type SecretRequest = {
   signupUrl: string | null;
   agent: { session: number; run: number | null; title: string; role: string | null };
   at: number;
+  /** The project's agents already get the key, but the vault is locked: the user only opens it. */
+  vault: boolean;
 };
 
 /** A variable the project's agents get from the vault; `found`: null while the vault is locked. */
@@ -22,6 +24,8 @@ export const agentEnv = $state({
   requests: [] as SecretRequest[],
   /** Grants given here: the Vault view reads its list again. */
   granted: 0,
+  /** What each project's agents get from the vault, read for a card that writes a secret they may get. */
+  given: {} as Record<string, Grant[]>,
 });
 
 /** Listened to from the start, so the Home lists them whatever view is open. */

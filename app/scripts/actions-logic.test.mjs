@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Approved, canon, forAgent, newMaster, refused, secretsOf, vaultNeeds } from "../src/lib/actions-logic.ts";
+import { Approved, canon, forAgent, newMaster, noVault, refused, secretMissing, secretsOf, takeWait, vaultBlock, vaultNeeds } from "../src/lib/actions-logic.ts";
 
 const add = {
   id: "ops.add_connection",
@@ -92,4 +92,37 @@ test("an action that needs the vault names the action that settles it", () => {
   assert.match(vaultNeeds({ initialized: false, unlocked: false }), /propose vault\.create first/);
   assert.match(vaultNeeds({ initialized: true, unlocked: false }), /locked: propose vault\.unlock first/);
   assert.equal(vaultNeeds({ initialized: true, unlocked: true }), null);
+  assert.match(noVault(null), /propose vault\.create first/);
+  assert.equal(noVault({ initialized: true, unlocked: false }), null, "a locked vault opens in TermF's card when the action runs");
+});
+
+test("a run stopped at the vault asks for it in a card, any other error goes back to the agent", () => {
+  assert.equal(vaultBlock("the vault is locked"), "unlock");
+  assert.equal(vaultBlock(new Error("no secret ACME_REDIS_PASSWORD in the vault (prod): the vault is locked")), "unlock");
+  assert.equal(vaultBlock("the prod scope needs the master password again"), "reauth");
+  assert.equal(vaultBlock("no secret ACME_REDIS_PASSWORD in the vault (prod)"), null);
+  assert.equal(vaultBlock("wrong master password"), null);
+  assert.equal(vaultBlock(undefined), null);
+});
+
+test("a vault card answered after its wait ended runs nothing: the agent was told it did not run", () => {
+  const a = { n: 1, call: { id: 7 } };
+  const b = { n: 2, call: { id: 8 } };
+  const [kept, rest] = takeWait([a, b], 1);
+  assert.equal(kept, a);
+  assert.deepEqual(rest, [b]);
+  // Timed out or its caller gone: dropped from the list, so the late password or Touch ID finds nothing to run.
+  const [late, same] = takeWait(rest, 1);
+  assert.equal(late, undefined);
+  assert.deepEqual(same, [b]);
+  assert.equal(takeWait([], 3)[0], undefined);
+});
+
+test("a run that misses a secret tells the agent to have the user type it in vault.set_secret's card", () => {
+  const next = secretMissing("no secret ACME_DEPLOY_TOKEN in the vault (prod)");
+  assert.match(next, /propose vault\.set_secret \{name: "ACME_DEPLOY_TOKEN", scope: "prod"\}/);
+  assert.match(next, /you never see it/);
+  assert.match(secretMissing(new Error("no secret REDIS_PASSWORD in the vault (staging, project acme or global)")), /scope: "staging"/);
+  assert.equal(secretMissing("the vault is locked"), null);
+  assert.equal(secretMissing("there is no vault yet: create it in the Vault view, then add X there"), null);
 });
