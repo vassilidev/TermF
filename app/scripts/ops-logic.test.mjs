@@ -11,7 +11,10 @@ import {
   relations,
   ticks,
   timeOf,
-  bounded,
+  connectionTree,
+  inEnv,
+  referencedBy,
+  schemaGroups,
   clean,
   completions,
   copyName,
@@ -231,11 +234,53 @@ test("a target reads as the approval card says it", () => {
   assert.equal(target({ name: "dd", kind: "datadog", env: "prod" }, []), "api.datadoghq.com");
 });
 
-test("queries and streams have their own tabs", () => {
-  const p = (type) => ({ name: "x", type, description: "", required: false });
-  assert.ok(bounded({ name: "logs-tail", params: [p("text")] }));
-  assert.ok(!bounded({ name: "sql-readonly", params: [p("sql")] }));
-  assert.ok(!bounded({ name: "logs-follow", params: [], follow: true }));
+test("the connections stand by machine: bastion, then server, then its databases and Redis", () => {
+  const c = (name, kind, env, more = {}) => ({ name, kind, env, ...more });
+  const all = [
+    c("prod-db", "mysql", "prod", { via: "web" }),
+    c("staging-db", "mysql", "staging", { via: "web" }),
+    c("cache", "redis", "prod", { via: "web" }),
+    c("web", "ssh", "prod", { host: "web.acme.dev", jump: "bastion" }),
+    c("bastion", "ssh", "prod", { host: "bastion.acme.dev" }),
+    c("vm", "ssh", "staging", { host: "10.0.0.5", jump: "deploy@web.acme.dev:22" }),
+    c("logs", "loki", "prod", { url: "https://loki.acme.dev" }),
+  ];
+  const shape = (tree) => tree.map((n) => (n.children.length ? { [n.conn.name]: shape(n.children) } : n.conn.name));
+  // A jump names its bastion by name, or by host with a user and a port; machines come first.
+  assert.deepEqual(shape(connectionTree(all)), [{ bastion: [{ web: ["vm", "prod-db", "staging-db", "cache"] }] }, "logs"]);
+  // Staging: what runs there, under the machines it goes through, kept as context.
+  const staging = inEnv(connectionTree(all), "staging");
+  assert.deepEqual(shape(staging), [{ bastion: [{ web: ["vm", "staging-db"] }] }]);
+  assert.equal(staging[0].context, true);
+  assert.equal(staging[0].children[0].children[0].context, undefined);
+  assert.equal(inEnv(connectionTree(all), "dev").length, 0);
+  assert.equal(inEnv(connectionTree(all), null).length, 2);
+});
+
+test("a loop of bastions, a jump to itself or to a missing connection never hides one", () => {
+  const ssh = (name, jump) => ({ name, kind: "ssh", env: "prod", host: `${name}.acme.dev`, jump });
+  const names = (tree) => tree.flatMap((n) => [n.conn.name, ...names(n.children)]);
+  const loop = connectionTree([ssh("a", "b"), ssh("b", "c"), ssh("c", "a"), ssh("d", "b")]);
+  assert.deepEqual(names(loop).sort(), ["a", "b", "c", "d"]);
+  assert.deepEqual(loop.map((n) => n.conn.name), ["a"]);
+  assert.deepEqual(connectionTree([ssh("self", "self.acme.dev")]).map((n) => n.conn.name), ["self"]);
+  const orphans = connectionTree([{ name: "db", kind: "postgres", env: "prod", via: "gone" }, ssh("web", "outside.example.com")]);
+  assert.deepEqual(orphans.map((n) => [n.conn.name, n.children.length]), [["web", 0], ["db", 0]]);
+});
+
+test("a schema reads by schema, its tables sorted, each with the keys pointing at it", () => {
+  const col = (name, more = {}) => ({ name, type: "int", nullable: false, key: "", ...more });
+  const tables = [
+    { schema: "public", name: "orders", columns: [col("id", { key: "pk" }), col("customer_id", { key: "fk", references: { schema: "public", table: "customers", column: "id" } })], indexes: [] },
+    { schema: "audit", name: "events", columns: [col("customer_id", { key: "fk", references: { schema: "public", table: "customers", column: "" } })], indexes: [] },
+    { schema: "public", name: "customers", columns: [col("id", { key: "pk" })], indexes: [] },
+  ];
+  assert.deepEqual(
+    schemaGroups(tables).map((g) => [g.schema, g.tables.map((t) => t.name)]),
+    [["audit", ["events"]], ["public", ["customers", "orders"]]],
+  );
+  assert.deepEqual(referencedBy(tables).get("public.customers"), ["public.orders.customer_id", "audit.events.customer_id"]);
+  assert.equal(referencedBy(tables).get("public.orders"), undefined);
 });
 
 test("a query's rows sort as numbers or text, NULL last", () => {

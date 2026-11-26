@@ -4,7 +4,7 @@
 </script>
 
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { save } from "@tauri-apps/plugin-dialog";
   import { basicSetup } from "codemirror";
@@ -14,11 +14,13 @@
   import { languages } from "@codemirror/language-data";
   import { tags } from "@lezer/highlight";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import Bookmark from "@lucide/svelte/icons/bookmark";
   import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Copy from "@lucide/svelte/icons/copy";
+  import Database from "@lucide/svelte/icons/database";
   import Download from "@lucide/svelte/icons/download";
   import Gauge from "@lucide/svelte/icons/gauge";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
@@ -31,6 +33,7 @@
   import OpsDiagram from "$lib/OpsDiagram.svelte";
   import OpsSaved from "$lib/OpsSaved.svelte";
   import OpsSchema from "$lib/OpsSchema.svelte";
+  import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { isMac } from "$lib/files.svelte";
@@ -57,7 +60,8 @@
 
   const recipeFor = sqlRecipe;
   const databases = $derived(ops.connections.filter((c) => recipeFor(c)));
-  const conn = $derived(databases.find((c) => c.name === ops.sql.connection) ?? databases[0]);
+  // None until picked: the databases show first, at the top.
+  const conn = $derived(databases.find((c) => c.name === ops.sql.connection));
   const recipe = $derived(recipeFor(conn));
   const param = $derived(recipe?.params.find((p) => p.type === "sql")?.name ?? "query");
   const rows = $derived(recipe?.limits.rows ?? 500);
@@ -88,10 +92,6 @@
     if (!r) return String(e);
     return reasons[r.code] ? t(reasons[r.code], { subject: r.subject }) : r.message;
   }
-
-  $effect(() => {
-    if (conn && ops.sql.connection !== conn.name) untrack(() => { ops.sql.connection = conn.name; });
-  });
 
   // The schema of the database shown, once per session; a locked vault asks for its password, then reads it.
   $effect(() => {
@@ -403,6 +403,14 @@
   }
 
   let dba = $state<ReturnType<typeof OpsDba>>();
+  let dbaPane = $state<HTMLElement>();
+
+  /** The DBA's conversation in sight, its field ready. */
+  async function askDba() {
+    ops.studio.aside = "dba";
+    await tick();
+    dbaPane?.querySelector("textarea")?.focus();
+  }
   const tabs = [
     { id: "dba", label: "opsdbAsideDba" },
     { id: "saved", label: "opsdbAsideSaved" },
@@ -412,47 +420,48 @@
 
 {#if !databases.length}
   <p class="notice none">{t("opssqlNoDatabase")}</p>
+{:else if !conn}
+  <div class="pick"><EmptyState icon={Database} text={t("opstidyPickDb")} /></div>
 {:else}
   <div class="host">
-    <div class="studio" class:wide={ops.studio.view === "schema"}>
-      {#if ops.studio.view === "query"}
-        <aside class="left">
-          {#if conn}<OpsSchema {project} connection={conn.name} oninsert={insert} />{/if}
-        </aside>
-      {/if}
+    <div class="studio">
+      <aside class="left">
+        <OpsSchema
+          {project}
+          connection={conn.name}
+          oninsert={insert}
+          diagram={ops.studio.view === "schema"}
+          ondiagram={() => (ops.studio.view = ops.studio.view === "schema" ? "query" : "schema")}
+        />
+      </aside>
       <div class="main">
-        {#if ops.studio.view === "query"}<p class="intro muted">{t("opssqlIntro")}</p>{/if}
-        <div class="bar">
-          <label class="inline">
-            <span>{t("opssqlConnection")}</span>
-            <select class="field" bind:value={ops.sql.connection}>
-              {#each databases as c (c.name)}<option value={c.name}>{c.name} · {c.env}</option>{/each}
-            </select>
-          </label>
-          {#if conn}<span class="badge env" class:prod={conn.env === "prod"}>{conn.env}</span>{/if}
-          <span class="muted limits">{t("opssqlLimits", { rows, seconds: recipe?.limits.timeout_s ?? 15 })}</span>
-          <div class="segmented end" role="group" aria-label={t("sqlcsMain")}>
-            <button aria-pressed={ops.studio.view === "query"} onclick={() => (ops.studio.view = "query")}>{t("sqlcsQuery")}</button>
-            <button aria-pressed={ops.studio.view === "schema"} onclick={() => (ops.studio.view = "schema")}>{t("opsdbSchema")}</button>
-          </div>
-        </div>
         {#if ops.studio.view === "schema"}
-          {#if conn}
-            {@const read = ops.studio.schemas[`${project}/${conn.name}`]}
-            {#if read === "loading" || read === undefined}
-              <Skeleton rows={6} />
-            {:else if !Array.isArray(read)}
-              <p class="notice error">{t("opsdbSchemaError", { error: read.error })}</p>
-            {:else if !read.length}
-              <p class="muted">{t("opsdbSchemaEmpty")}</p>
-            {:else}
-              {#key `${project}/${conn.name}`}<OpsDiagram tables={read} onquery={queryTable} onask={askTable} />{/key}
-            {/if}
+          {@const read = ops.studio.schemas[`${project}/${conn.name}`]}
+          <div class="bar">
+            <button class="btn sm quiet back" onclick={() => (ops.studio.view = "query")}><ArrowLeft size={14} aria-hidden="true" />{t("sqlcsQuery")}</button>
+          </div>
+          {#if read === "loading" || read === undefined}
+            <Skeleton rows={6} />
+          {:else if !Array.isArray(read)}
+            <p class="notice error">{t("opsdbSchemaError", { error: read.error })}</p>
+          {:else if !read.length}
+            <p class="muted">{t("opsdbSchemaEmpty")}</p>
+          {:else}
+            {#key `${project}/${conn.name}`}<OpsDiagram tables={read} onquery={queryTable} onask={askTable} />{/key}
           {/if}
         {:else}
-          {#if writes && conn}<p class="notice warn">{t("opsCheckReadonlyWarn", { subject: conn.user ?? "" })}</p>{/if}
+          <div class="bar">
+            <b class="mono">{conn.name}</b>
+            <span class="badge env" class:prod={conn.env === "prod"}>{conn.env}</span>
+            <span class="muted">{t("opssqlLimits", { rows, seconds: recipe?.limits.timeout_s ?? 15 })}</span>
+          </div>
+          <p class="intro muted">{t("opssqlIntro")}</p>
+          {#if writes}<p class="notice warn">{t("opsCheckReadonlyWarn", { subject: conn.user ?? "" })}</p>{/if}
           <div class="editor" use:editor></div>
           <div class="tools">
+            <button class="btn sm" class:primary={!ops.sql.query.trim()} onclick={askDba}>
+              <Sparkles size={13} aria-hidden="true" />{t("opsdbAsk")}
+            </button>
             <div class="buttons">
               <button class="btn sm" disabled={!plan} onclick={() => dba?.ask("explain", ops.sql.query)}>
                 <MessageCircleQuestion size={13} aria-hidden="true" />{t("opsdbExplain")}
@@ -464,7 +473,7 @@
                 <Bookmark size={13} aria-hidden="true" />{t("opsdbSave")}
               </button>
               <span class="muted keys">{t("opssqlRunHint", { keys: isMac ? "⌘↵" : "Ctrl+↵" })}</span>
-              <button class="btn primary" disabled={running || !plan} onclick={run}>
+              <button class="btn" class:primary={!!ops.sql.query.trim()} disabled={running || !plan} onclick={run}>
                 {#if running}<LoaderCircle size={14} aria-hidden="true" class="spin" />{t("opssqlRunning")}{:else}<Play
                     size={14}
                     aria-hidden="true"
@@ -603,7 +612,7 @@
           {/each}
         </div>
         {#if conn}
-          <div class="pane-dba" hidden={ops.studio.aside !== "dba"}>
+          <div class="pane-dba" hidden={ops.studio.aside !== "dba"} bind:this={dbaPane}>
             {#key `${project}/${conn.name}`}
               <OpsDba
                 bind:this={dba}
@@ -661,15 +670,16 @@
     margin: 20px 28px;
   }
 
+  .pick {
+    flex: 1;
+    overflow-y: auto;
+  }
+
   .studio {
     display: grid;
     flex: 1;
     grid-template-columns: 232px minmax(0, 1fr) 340px;
     min-height: 0;
-  }
-
-  .studio.wide {
-    grid-template-columns: minmax(0, 1fr) 340px;
   }
 
   .left,
@@ -717,17 +727,6 @@
     align-items: center;
     gap: 10px;
     font-size: var(--text-sm);
-  }
-
-  .inline {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 500;
-  }
-
-  .inline select {
-    min-width: 220px;
   }
 
   .end {
@@ -1117,10 +1116,6 @@
     .studio {
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 2fr);
-    }
-
-    .studio.wide {
-      grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
     }
 
     .left {

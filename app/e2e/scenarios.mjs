@@ -1446,7 +1446,7 @@ export const scenarios = [
       const saved = read(join(box.configDir, "projects", "acme.toml"));
       check(saved.includes("acme-staging") && saved.includes("staging.acme.test"), `the connection is not in acme.toml:\n${saved}`);
       // The recipes in cards: one that runs on an SSH server now starts from its card, into its form.
-      await s.click(`${pane} [role="tab"]`, 1);
+      await s.click(`${pane} [role="tab"][data-tab="recipes"]`);
       await s.click(`${pane} [data-recipe="logs-tail"] .btn:not([disabled])`);
       await s.waitFor(`${pane} form.run`);
       await t.clean();
