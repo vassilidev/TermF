@@ -421,6 +421,27 @@ impl AgentEnv {
             .collect()
     }
 
+    /// The names in `all` that no agent gets, sorted, for the Settings page to offer: never a value. TermF's own
+    /// variables and those a shell sets itself are left out; nothing with `inherit`.
+    pub fn withheld(&self, all: &[(OsString, OsString)]) -> Vec<String> {
+        if self.inherit {
+            return Vec::new();
+        }
+        let mut names: Vec<String> = all
+            .iter()
+            .map(|(k, _)| k.to_string_lossy().into_owned())
+            .filter(|k| {
+                !matches("TERMF_*", k)
+                    && !crate::claude::SESSION_MARKERS.contains(&k.as_str())
+                    && !["PWD", "OLDPWD", "SHLVL", "_"].contains(&k.as_str())
+                    && Tool::ALL.iter().all(|t| !self.keeps(Some(*t), k, all))
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     /// `cmd` starts with what [`AgentEnv::keep`] keeps of TermF's environment, plus what was set on it.
     pub fn apply(&self, cmd: &mut Command, tool: Option<Tool>) {
         if self.inherit {
@@ -636,6 +657,43 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("projects")).unwrap();
         dir
+    }
+
+    #[test]
+    fn settings_name_what_no_agent_gets_of_the_shell() {
+        let shell = vars(&[
+            ("PATH", "x"),
+            ("LC_ALL", "x"),
+            ("GITHUB_TOKEN", "x"),
+            ("AWS_PROFILE", "x"),
+            ("ACME_ONE", "x"),
+            ("CORP_TOKEN", "x"),
+            ("CORP_TOKEN_2", "x"),
+            ("ANTHROPIC_API_KEY", "x"),
+            ("OPENAI_API_KEY", "x"),
+            ("GEMINI_API_KEY", "x"),
+            ("TERMF_SOCKET", "x"),
+            ("CLAUDECODE", "x"),
+            ("PWD", "x"),
+            ("SHLVL", "x"),
+        ]);
+        let policy = AgentEnv {
+            allow: vec!["ACME_*".into(), "CORP_TOKEN".into()],
+            ..AgentEnv::default()
+        };
+        assert_eq!(
+            policy.withheld(&shell),
+            ["AWS_PROFILE", "CORP_TOKEN_2", "GITHUB_TOKEN"]
+        );
+        // On Bedrock, Claude Code signs in with the AWS variables.
+        let mut bedrock = shell.clone();
+        bedrock.extend(vars(&[("CLAUDE_CODE_USE_BEDROCK", "1")]));
+        assert_eq!(policy.withheld(&bedrock), ["CORP_TOKEN_2", "GITHUB_TOKEN"]);
+        let all = AgentEnv {
+            inherit: true,
+            ..AgentEnv::default()
+        };
+        assert!(all.withheld(&shell).is_empty());
     }
 
     #[test]

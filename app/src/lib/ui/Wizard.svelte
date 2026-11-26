@@ -1,9 +1,9 @@
 <script lang="ts" module>
   /**
    * A step and, once answered, its answer in a few words; `hint`: what to know of it before (current or to come);
-   * `live`: what is running for it now, in a few words.
+   * `live`: what is running for it now, in a few words; `skipped`: left behind without an answer, to do later.
    */
-  export type WizardStep = { id: string; label: string; answer?: string; hint?: string; live?: string };
+  export type WizardStep = { id: string; label: string; answer?: string; hint?: string; live?: string; skipped?: boolean };
 </script>
 
 <script lang="ts">
@@ -11,13 +11,14 @@
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import Check from "@lucide/svelte/icons/check";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import Minus from "@lucide/svelte/icons/minus";
   import { t } from "$lib/i18n";
   import { fixed } from "$lib/keymap.svelte";
 
   /**
    * Several decisions before anything is written, one per screen. On the left the steps with the answers already given
    * (a click goes back to change one); at the bottom Back and Continue, always visible; Enter continues, outside a
-   * multi-line field and a button.
+   * multi-line field, a button and a form of the page's own.
    */
   let {
     title,
@@ -76,7 +77,7 @@
   function onkeydown(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
     if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.defaultPrevented) return;
-    if (target.closest("textarea, button, a, summary, [contenteditable]")) return;
+    if (target.closest("textarea, button, a, summary, [contenteditable], form")) return;
     if (!canContinue || busy) return;
     e.preventDefault();
     oncontinue();
@@ -94,12 +95,13 @@
           <button
             class="step"
             class:done
+            class:skipped={done && step.skipped}
             class:current={i === current}
             aria-current={i === current ? "step" : undefined}
             disabled={i > Math.max(current, reached)}
             onclick={() => onstep(i)}
           >
-            <span class="n" aria-hidden="true">{#if done}<Check size={12} strokeWidth={2.5} />{:else}{i + 1}{/if}</span>
+            <span class="n" aria-hidden="true">{#if done && step.skipped}<Minus size={12} strokeWidth={2.5} />{:else if done}<Check size={12} strokeWidth={2.5} />{:else}{i + 1}{/if}</span>
             <span class="text">
               <span class="label">{step.label}</span>
               {#if done && step.answer}
@@ -129,7 +131,7 @@
     </button>
     <span class="grow"></span>
     <span class="progress" role="img" aria-label={t("uiF1StepOf", { n: current + 1, total: steps.length })}>
-      {#each steps as step, i (step.id)}<i class:d={i < current} class:c={i === current}></i>{/each}
+      {#each steps as step, i (step.id)}<i class:d={i < current} class:s={i < current && step.skipped} class:c={i === current}></i>{/each}
     </span>
     <span class="grow"></span>
     {@render secondary?.()}
@@ -219,6 +221,11 @@
     border-color: transparent;
     background: var(--done-soft);
     color: var(--done);
+  }
+
+  .skipped .n {
+    background: var(--well);
+    color: var(--muted);
   }
 
   .current .n {
@@ -362,6 +369,10 @@
 
   .progress i.d {
     background: var(--done);
+  }
+
+  .progress i.s {
+    background: var(--border-strong);
   }
 
   .progress i.c {

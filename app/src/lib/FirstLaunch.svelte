@@ -1,28 +1,37 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Check from "@lucide/svelte/icons/check";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Copy from "@lucide/svelte/icons/copy";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
+  import FolderSync from "@lucide/svelte/icons/folder-sync";
+  import Laptop from "@lucide/svelte/icons/laptop";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Lock from "@lucide/svelte/icons/lock";
   import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import UsersRound from "@lucide/svelte/icons/users-round";
+  import EnvView from "$lib/EnvView.svelte";
+  import SyncView from "$lib/SyncView.svelte";
+  import VaultRecoveryKey from "$lib/VaultRecoveryKey.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import Wizard from "$lib/ui/Wizard.svelte";
+  import { loadEnv } from "$lib/devenv.svelte";
   import { isMac } from "$lib/files.svelte";
   import { t } from "$lib/i18n";
+  import { introSteps, isSetup, nextStep, putOff, type Done, type IntroStep, type Machine } from "$lib/intro-logic";
   import { keys } from "$lib/keymap.svelte";
   import { talkCto } from "$lib/home.svelte";
   import { newProject } from "$lib/newproject.svelte";
   import { installs, osOf, type Tools } from "$lib/release-logic";
   import { app } from "$lib/state.svelte";
-  import { endTour, pauseTour, tour } from "$lib/tour.svelte";
+  import { remoteText, sync } from "$lib/sync.svelte";
+  import { SETUP_LABEL, chooseMachine, endTour, loadSetup, pauseTour, setup, setupDone, tour } from "$lib/tour.svelte";
   import { billingText } from "$lib/usage.svelte";
   import type { Billing } from "$lib/usage-logic";
+  import { failed, setStatus, vault, type VaultStatus } from "$lib/vault.svelte";
 
   type Key = Parameters<typeof t>[0];
   type Line = { state: "now" | "ok" | "warn" | "fail"; title: string; text: string };
@@ -30,25 +39,48 @@
   let dialog: HTMLDialogElement;
   const projects = $derived(app.workspace?.projects ?? []);
   const os = osOf(navigator.platform);
+  const none: Done = { env: false, vault: false, sync: false };
+
+  /** What was set up when the introduction opened, left out of it; null until read. */
+  let opened = $state<Done | null>(null);
+  let loaded = $state(false);
+  const done = $derived(setupDone() ?? none);
+  const ids = $derived(introSteps(setup.machine, opened ?? none, tour.only));
+  const id = $derived(tour.step ?? ids[0]);
+  const current = $derived(Math.max(0, ids.indexOf(id)));
 
   /** Claude Code, checked live, one line after the other: installed, signed in, its agents followed. */
   let checks = $state<(Line | null)[]>([null, null, null]);
   let checking = $state(false);
   let copied = $state(false);
   let version = $state("");
-  const answers = $derived([t("wsIntroWelcomeDone"), version, projects[0]?.name ?? "", "", ""]);
-  const steps = $derived(
-    (
-      [
-        ["welcome", "wsIntroWelcome"],
-        ["claude", "wsIntroClaude"],
-        ["project", "wsIntroProject"],
-        ["cto", "wsIntroCto"],
-        ["help", "wsIntroHelp"],
-      ] as [string, Key][]
-    ).map(([id, label], i) => ({ id, label: t(label), answer: answers[i] })),
-  );
-  const step = $derived(tour.step ?? 0);
+  /** Entries of the environment kept from the detection, here. */
+  let kept = $state(0);
+  let password = $state("");
+  let again = $state("");
+  let creating = $state(false);
+  let created = $state(false);
+  let vaultError = $state("");
+
+  const label: Record<IntroStep, Key> = {
+    welcome: "wsIntroWelcome",
+    claude: "wsIntroClaude",
+    ...SETUP_LABEL,
+    project: "wsIntroProject",
+    cto: "wsIntroCto",
+    help: "wsIntroHelp",
+  };
+  function answer(step: IntroStep): string {
+    if (isSetup(step) && !done[step]) return t("obmSkipped");
+    if (step === "welcome") return t("wsIntroWelcomeDone");
+    if (step === "claude") return version;
+    if (step === "env") return kept ? t("myenvKept", { n: kept }) : "";
+    if (step === "vault") return t(created ? "obmVaultCreated" : "obmVaultReady");
+    if (step === "sync") return app.sync?.remote ? remoteText(app.sync.remote) : "";
+    if (step === "project") return projects[0]?.name ?? "";
+    return "";
+  }
+  const steps = $derived(ids.map((s) => ({ id: s, label: t(label[s]), answer: answer(s), skipped: isSetup(s) && !done[s] })));
 
   async function check() {
     checking = true;
@@ -82,25 +114,75 @@
     checking = false;
   }
 
+  /** The vault rides with the sync once there is one, and on a second machine it is what comes over. */
+  function suggest() {
+    sync.suggested = setup.machine === "other" || done.vault ? "vault" : null;
+  }
+  if (tour.step === "sync") suggest();
+
   onMount(() => {
     dialog.showModal();
+    loadSetup(true).then(() => (loaded = true));
     return () => dialog.open && dialog.close();
   });
 
+  // Read once: the facts may come in one after the other.
   $effect(() => {
-    if (step === 1 && checks[0] === null && !checking) check();
+    if (loaded && !opened) opened = setupDone();
   });
 
-  // Enter continues: the keyboard waits on Continue, or on the page while the checks run.
+  // Resumed for a step done meanwhile: the next one, or nothing left to do.
   $effect(() => {
-    void step;
+    if (!opened || ids.includes(id)) return;
+    untrack(() => {
+      if (ids.length) tour.step = ids[0];
+      else close();
+    });
+  });
+
+  $effect(() => {
+    if (id === "claude" && checks[0] === null && !checking) check();
+  });
+
+  // Enter continues: the keyboard waits on Continue, on the page while the checks run, or on the machine's choice;
+  // the vault's password is typed at once.
+  $effect(() => {
+    void id;
     const busy = checking;
-    tick().then(() => (dialog.querySelector<HTMLElement>("footer .primary:not(:disabled)") ?? (busy ? dialog : null))?.focus());
+    tick().then(() =>
+      (
+        dialog.querySelector<HTMLElement>(".vault-form input") ??
+        dialog.querySelector<HTMLElement>("footer .primary:not(:disabled)") ??
+        (busy ? dialog : dialog.querySelector<HTMLElement>(".machine input"))
+      )?.focus(),
+    );
   });
 
-  function go(to: number) {
-    if (to >= steps.length) endTour();
-    else if (to >= 0) tour.step = to;
+  /** The vault opened here locks once left, as from its own view, unless the user turned that off. */
+  function leave() {
+    if (id === "vault" && vault.status?.unlocked) invoke<VaultStatus>("vault_leave").then(setStatus, () => {});
+  }
+
+  function show(to: IntroStep) {
+    leave();
+    if (to === "sync") suggest();
+    // The sync may have brought the list.
+    if (to === "env") loadEnv(false);
+    tour.step = to;
+  }
+
+  /** Finished, skipped or left for the CTO: what is not set up waits to be resumed. */
+  function close() {
+    leave();
+    endTour(putOff(setup.passed, ids, done));
+  }
+
+  async function next() {
+    // Joining the sync may have brought the vault.
+    if (id === "sync") await invoke<VaultStatus>("vault_status").then(setStatus, () => {});
+    const to = nextStep(ids, id, setupDone() ?? none);
+    if (to) show(to);
+    else close();
   }
 
   function createProject() {
@@ -109,7 +191,7 @@
   }
 
   function cto() {
-    endTour();
+    close();
     talkCto();
   }
 
@@ -119,22 +201,85 @@
     setTimeout(() => (copied = false), 1500);
   }
 
+  /** The recovery key made here is on screen. */
+  let keyShown = $state(false);
+
+  async function newKey() {
+    vault.recoveryKey = { key: await invoke<string>("vault_recovery_new"), reason: "created" };
+    keyShown = true;
+    setStatus(await invoke<VaultStatus>("vault_status"));
+  }
+
+  // The key's own Continue, once it is stored, goes on to the next step.
+  $effect(() => {
+    if (!keyShown || vault.recoveryKey) return;
+    keyShown = false;
+    if (untrack(() => id) === "vault") untrack(next);
+  });
+
+  async function createVault(e: SubmitEvent) {
+    e.preventDefault();
+    vaultError = "";
+    if (password !== again) {
+      vaultError = t("vaultPasswordsDiffer");
+      return;
+    }
+    creating = true;
+    try {
+      setStatus(await invoke<VaultStatus>("vault_init", { password, remember: false }));
+      created = true;
+      await newKey();
+    } catch (e) {
+      vaultError = failed(e);
+    } finally {
+      password = again = "";
+      creating = false;
+    }
+  }
+
+  async function retryKey() {
+    vaultError = "";
+    creating = true;
+    await newKey().catch((e) => (vaultError = failed(e)));
+    creating = false;
+  }
+
+  const last = $derived(current === ids.length - 1);
   const continueLabel = $derived(
-    step === 4 ? t("wsIntroStart") : step === 2 && !projects.length ? t("wsIntroLater") : undefined,
+    (isSetup(id) && !done[id]) || (id === "project" && !projects.length)
+      ? t("wsIntroLater")
+      : last
+        ? t(tour.only ? "obmFinish" : "wsIntroStart")
+        : undefined,
   );
+  const canContinue = $derived(
+    id === "welcome"
+      ? !!setup.machine || !!opened?.sync
+      : id === "claude"
+        ? !checking
+        : id === "vault"
+          ? !creating && !vault.recoveryKey
+          : id === "sync"
+            ? !sync.recoveryKey && !sync.busy
+            : true,
+  );
+  const machines: [Machine, typeof Laptop, Key, Key][] = [
+    ["first", Laptop, "obmMachineFirst", "obmMachineFirstText"],
+    ["other", FolderSync, "obmMachineOther", "obmMachineOtherText"],
+  ];
 </script>
 
 <!-- Escape skips it, as the button does: the introduction is remembered as seen either way. -->
-<dialog bind:this={dialog} class="intro" tabindex="-1" aria-labelledby="intro-title" oncancel={(e) => (e.preventDefault(), endTour())}>
+<dialog bind:this={dialog} class="intro" tabindex="-1" aria-labelledby="intro-title" oncancel={(e) => (e.preventDefault(), close())}>
   <Wizard
     title={t("wsIntroTitle")}
     {steps}
-    current={step}
-    onstep={go}
-    onback={() => go(step - 1)}
-    oncontinue={() => go(step + 1)}
-    canContinue={step !== 1 || !checking}
-    busy={step === 1 && checking}
+    {current}
+    onstep={(i) => show(ids[i])}
+    onback={() => current > 0 && show(ids[current - 1])}
+    oncontinue={next}
+    {canContinue}
+    busy={id === "claude" && checking}
     {continueLabel}
   >
     {#snippet head()}
@@ -157,10 +302,10 @@
     {/snippet}
     {#snippet tail()}{t("wsIntroTail")}{/snippet}
     {#snippet skip()}
-      <button class="btn quiet skip" onclick={endTour}>{t("wsIntroSkip")}</button>
+      <button class="btn quiet skip" onclick={close}>{t("wsIntroSkip")}</button>
     {/snippet}
 
-    {#if step === 0}
+    {#if id === "welcome"}
       <h1 id="intro-title" class="h-display">{t("wsIntroWelcomeTitle")}</h1>
       <p class="lead">{t("wsIntroWelcomeLead")}</p>
       <ul class="points">
@@ -168,7 +313,19 @@
         <li><span class="ic"><UsersRound size={16} aria-hidden="true" /></span><div><b>{t("wsIntroPoint2")}</b><p>{t("wsIntroPoint2Text")}</p></div></li>
         <li><span class="ic"><Lock size={16} aria-hidden="true" /></span><div><b>{t("wsIntroPoint3")}</b><p>{t("wsIntroPoint3Text")}</p></div></li>
       </ul>
-    {:else if step === 1}
+      {#if !opened?.sync}
+        <fieldset class="machine">
+          <legend>{t("obmMachine")}</legend>
+          {#each machines as [m, Icon, title, text] (m)}
+            <label class="choice" class:on={setup.machine === m}>
+              <input type="radio" name="intro-machine" value={m} checked={setup.machine === m} onchange={() => chooseMachine(m)} />
+              <span class="ic"><Icon size={16} aria-hidden="true" /></span>
+              <span class="what"><b>{t(title)}</b><span>{t(text)}</span></span>
+            </label>
+          {/each}
+        </fieldset>
+      {/if}
+    {:else if id === "claude"}
       <h1 id="intro-title" class="h-display">{t("wsIntroClaudeTitle")}</h1>
       <p class="lead">{t("wsIntroClaudeLead")}</p>
       <ul class="checks" aria-live="polite">
@@ -201,7 +358,62 @@
         <button class="btn sm again" onclick={check}><RefreshCw size={14} aria-hidden="true" />{t("releaseRecheck")}</button>
       {/if}
       <p class="note"><Lock size={14} aria-hidden="true" /><span>{t("wsIntroNothingWritten")}</span></p>
-    {:else if step === 2}
+    {:else if id === "env"}
+      <h1 id="intro-title" class="h-display">{t("obmEnvTitle")}</h1>
+      <p class="lead">{t("myenvEmptyHelp")}</p>
+      {#if kept}<p class="done-line" role="status"><Check size={16} aria-hidden="true" />{t("myenvKept", { n: kept })}</p>{/if}
+      <div class="embed"><EnvView only onkept={(n) => (kept += n)} /></div>
+    {:else if id === "vault"}
+      <h1 id="intro-title" class="h-display">{t("obmVaultTitle")}</h1>
+      {#if vault.recoveryKey}
+        <div class="embed key"><VaultRecoveryKey /></div>
+      {:else if done.vault}
+        <p class="lead">{t("vaultCreateText")}</p>
+        <p class="done-line" role="status"><Check size={16} aria-hidden="true" />{t(created ? "obmVaultCreated" : "obmVaultReady")}</p>
+        {#if created && !vault.status?.recovery}
+          <button class="btn" onclick={retryKey} disabled={creating}>
+            {#if creating}<LoaderCircle size={14} class="spin" aria-hidden="true" />{/if}{t("vault2RecoveryCreate")}
+          </button>
+          {#if vaultError}<p class="notice error" role="alert">{vaultError}</p>{/if}
+        {/if}
+      {:else if setup.machine === "other" && !done.sync && ids.includes("sync")}
+        <p class="lead">{t("vaultCreateText")}</p>
+        <p class="note"><FolderSync size={14} aria-hidden="true" /><span>{t("obmVaultFromSync")}</span></p>
+        <button class="btn primary from-sync" onclick={() => show("sync")}><FolderSync size={14} aria-hidden="true" />{t("obmVaultJoinSync")}</button>
+      {:else}
+        <p class="lead">{t("vaultCreateText")}</p>
+        <form class="vault-form" onsubmit={createVault}>
+          <label class="labelled">
+            {t("vaultNewMasterPassword")}
+            <input class="field" type="password" autocomplete="new-password" minlength={8} bind:value={password} required />
+          </label>
+          <label class="labelled">
+            {t("vaultPasswordAgain")}
+            <input class="field" type="password" autocomplete="new-password" bind:value={again} required />
+          </label>
+          {#if vaultError}<p class="notice error" role="alert">{vaultError}</p>{/if}
+          <div>
+            <button type="submit" class="btn primary" disabled={creating || !password}>
+              {#if creating}<LoaderCircle size={14} class="spin" aria-hidden="true" />{/if}{t("vaultCreate")}
+            </button>
+          </div>
+          <p class="hint">{t("vaultCreateWarning")}</p>
+        </form>
+      {/if}
+    {:else if id === "sync"}
+      <h1 id="intro-title" class="h-display">{t(setup.machine === "other" ? "obmSyncJoinTitle" : "obmSyncTitle")}</h1>
+      {#if done.sync && !sync.recoveryKey}
+        <p class="lead">{t("syncIntro")}</p>
+        <p class="done-line" role="status">
+          <Check size={16} aria-hidden="true" /><span>{t("obmSyncDone", { remote: app.sync?.remote ? remoteText(app.sync.remote) : "" })}</span>
+        </p>
+        {#if app.sync?.missingRepos.length}
+          <p class="note"><FolderSync size={14} aria-hidden="true" /><span>{t("obmSyncRepos", { n: app.sync.missingRepos.length })}</span></p>
+        {/if}
+      {:else}
+        <div class="embed"><SyncView embedded /></div>
+      {/if}
+    {:else if id === "project"}
       <h1 id="intro-title" class="h-display">{t("wsIntroProjectTitle")}</h1>
       <p class="lead">{t("wsIntroProjectLead")}</p>
       {#if projects.length}
@@ -210,7 +422,7 @@
       {:else}
         <button class="btn primary lg" onclick={createProject}><FolderPlus size={16} aria-hidden="true" />{t("wsIntroCreateProject")}</button>
       {/if}
-    {:else if step === 3}
+    {:else if id === "cto"}
       <h1 id="intro-title" class="h-display">{t("wsIntroCtoTitle")}</h1>
       <p class="lead">{t("wsIntroCtoLead")}</p>
       <p class="keys"><kbd>{keys.cto}</kbd><span>{t("wsIntroCtoKey")}</span></p>
@@ -301,7 +513,8 @@
     color: var(--soft);
   }
 
-  .points .ic {
+  .points .ic,
+  .choice .ic {
     display: grid;
     flex-shrink: 0;
     place-items: center;
@@ -310,6 +523,67 @@
     border-radius: var(--radius-md);
     background: var(--accent-soft);
     color: var(--accent-ink);
+  }
+
+  .machine {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 28px 0 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .machine legend {
+    margin-bottom: 10px;
+    padding: 0;
+    font-weight: 600;
+  }
+
+  .choice {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+  }
+
+  .choice:hover {
+    background: var(--hover);
+  }
+
+  .choice.on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .choice:has(input:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* The card is the control; the radio stays for the keyboard and screen readers. */
+  .choice input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .what {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: var(--soft);
+    font-size: var(--text-sm);
+  }
+
+  .what b {
+    color: var(--text);
+    font-size: var(--text-md);
   }
 
   .checks {
@@ -418,6 +692,42 @@
     flex-shrink: 0;
     margin-top: 2px;
     color: var(--muted);
+  }
+
+  .done-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 20px 0 0;
+    font-weight: 500;
+  }
+
+  .done-line :global(svg) {
+    flex-shrink: 0;
+    color: var(--done);
+  }
+
+  .embed {
+    margin-top: 20px;
+  }
+
+  /* The key's own screen, without the margins it takes as a page of the vault. */
+  .key :global(.recovery) {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .vault-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 420px;
+    margin-top: 24px;
+  }
+
+  .from-sync {
+    margin-top: 16px;
   }
 
   .have {

@@ -8,7 +8,7 @@
   import { shortPath } from "$lib/state.svelte";
   import { copy, vault } from "$lib/vault.svelte";
 
-  const lead = { first: "vault2KeyFirst", renewed: "vault2KeyRenewed", recovered: "vault2KeyRecovered" } as const;
+  const lead = { first: "vault2KeyFirst", renewed: "vault2KeyRenewed", recovered: "vault2KeyRecovered", created: "obmVaultKey" } as const;
   let stored = $state(false);
   let saved = $state("");
 

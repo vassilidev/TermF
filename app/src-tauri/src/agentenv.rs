@@ -530,6 +530,19 @@ pub fn agentenv_settings(state: State<AgentEnvState>) -> Settings {
     settings(&state.config_dir)
 }
 
+/// The names of the user's shell variables no agent gets, never their values: read from an interactive login shell,
+/// where the agents start, else from TermF's own environment.
+#[tauri::command]
+pub async fn agentenv_withheld(state: State<'_, AgentEnvState>) -> CmdResult<Vec<String>> {
+    let config_dir = state.config_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let all = termf_core::shell::login_env().unwrap_or_else(|| std::env::vars_os().collect());
+        agent_env::load(&config_dir, None).withheld(&all)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn agentenv_allow_set(state: State<AgentEnvState>, allow: Vec<String>) -> CmdResult<Settings> {
     let allow: Vec<String> = allow
