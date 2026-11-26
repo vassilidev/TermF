@@ -936,6 +936,13 @@ impl Engine {
         look.run(&mut state, false, true)
     }
 
+    /// What a sync would do now, without doing it: what it would receive (`pulled`), send (`pushed`), combine
+    /// (`merged`) and find in conflict. Nothing is written, here or on the remote; `last_error` is left as it is.
+    pub fn compare(&self) -> Result<Report> {
+        let (_lock, mut state) = self.locked()?;
+        self.run(&mut state, true, true)
+    }
+
     /// Takes the password on a machine that lost it (changed elsewhere, no keychain).
     pub fn unlock(&self, password: &str) -> Result<()> {
         let (_lock, mut state) = self.locked()?;
@@ -1139,16 +1146,10 @@ impl Engine {
             }
             if state.scopes.contains(&Scope::Vault)
                 && let Some(dir) = &self.vault_dir
+                && let Some(record) =
+                    sync_vault(dir, &theirs, &mut base, &mut pulled, &state.device_id, dry)?
             {
-                if dry {
-                    if theirs.get(VAULT_PATH).is_some_and(|r| r.entry.is_some()) {
-                        pulled.insert(VAULT_PATH.into());
-                    }
-                } else if let Some(record) =
-                    sync_vault(dir, &theirs, &mut base, &mut pulled, &state.device_id)?
-                {
-                    outgoing.push(record);
-                }
+                outgoing.push(record);
             }
             let mut renamed = Vec::new();
             if let Some((ssh, _)) = &ssh {
@@ -1652,14 +1653,16 @@ fn vault_lock(dir: &Path) -> Result<File> {
 
 /// Leaves another machine's version of the vault beside it (readable by the user only), or returns this
 /// machine's to push: only once the vault merged what came before, so the remote always holds every change.
+/// `dry`: writes nothing, says what it would do.
 fn sync_vault(
     dir: &Path,
     theirs: &BTreeMap<String, Record>,
     base: &mut BTreeMap<String, Record>,
     pulled: &mut BTreeSet<String>,
     device: &str,
+    dry: bool,
 ) -> Result<Option<Record>> {
-    let _lock = vault_lock(dir)?;
+    let _lock = if dry { None } else { Some(vault_lock(dir)?) };
     let b = base.get(VAULT_PATH);
     let b_entry = b.and_then(|r| r.entry.as_ref());
     let mine = match fs::read(dir.join(VAULT_FILE)) {
@@ -1673,15 +1676,17 @@ fn sync_vault(
     {
         let bytes = &r.entry.as_ref().expect("filtered").bytes;
         if mine.as_ref() != Some(bytes) {
-            let tmp = dir.join(format!(".{VAULT_INCOMING}.tmp"));
-            let mut options = fs::OpenOptions::new();
-            options.write(true).create(true).truncate(true);
-            #[cfg(unix)]
-            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-            let mut out = options.open(&tmp)?;
-            std::io::Write::write_all(&mut out, bytes)?;
-            out.sync_all()?;
-            fs::rename(&tmp, dir.join(VAULT_INCOMING))?;
+            if !dry {
+                let tmp = dir.join(format!(".{VAULT_INCOMING}.tmp"));
+                let mut options = fs::OpenOptions::new();
+                options.write(true).create(true).truncate(true);
+                #[cfg(unix)]
+                std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+                let mut out = options.open(&tmp)?;
+                std::io::Write::write_all(&mut out, bytes)?;
+                out.sync_all()?;
+                fs::rename(&tmp, dir.join(VAULT_INCOMING))?;
+            }
             pulled.insert(VAULT_PATH.into());
         }
         base.insert(VAULT_PATH.into(), r.clone());

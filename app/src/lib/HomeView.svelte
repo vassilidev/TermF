@@ -33,6 +33,7 @@
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
+  import SyncInvite from "$lib/SyncInvite.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import Action from "$lib/Action.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
@@ -460,6 +461,7 @@
       <Banner kind="error" ondismiss={() => (error = "")}>{error}</Banner>
     </div>
   {/if}
+  <SyncInvite text="syncVisibleInviteHome" />
 
   {#if project}
     {@const working = tiles.filter((s) => s.status === "working").length + headless.filter((a) => a.state === "working").length}

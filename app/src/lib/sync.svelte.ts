@@ -73,7 +73,48 @@ export const sync = $state({
   /** The command in progress, or "". */
   busy: "",
   error: "",
+  /** What a sync would do now (`sync_compare`): read when the sync page opens, after each sync and on demand. */
+  compare: null as Report | null,
+  compareError: "",
+  comparing: false,
+  /** Ticked when the setup opens, after the invitation of the screen it belongs to (the vault's). */
+  suggested: null as Scope | null,
 });
+
+export async function compareSync() {
+  if (sync.comparing) return;
+  sync.comparing = true;
+  try {
+    sync.compare = await invoke<Report>("sync_compare");
+    sync.compareError = "";
+  } catch (e) {
+    sync.compareError = String(e);
+  } finally {
+    sync.comparing = false;
+  }
+}
+
+const INVITE = "termf.syncInvite";
+
+function inviteDismissed(): boolean {
+  try {
+    return localStorage.getItem(INVITE) === "dismissed";
+  } catch {
+    return false;
+  }
+}
+
+/** The invitation to turn sync on, until it is on or put away (once, everywhere). */
+export const invite = $state({ dismissed: inviteDismissed() });
+
+export function dismissInvite() {
+  invite.dismissed = true;
+  try {
+    localStorage.setItem(INVITE, "dismissed");
+  } catch {
+    // Storage off: back at the next launch.
+  }
+}
 
 export function showSync() {
   showSettings("sync");
@@ -157,6 +198,24 @@ export function summary(status: SyncStatus | null): { tone: "ok" | "off" | "atte
   if (status.lastError) return { tone: "error", text: t("syncFailed") };
   if (status.lastSync === null) return { tone: "ok", text: t("syncNever") };
   return { tone: "ok", text: t("syncDone", { ago: ago(status.lastSync) }) };
+}
+
+/** The sync's state on this machine for an agent (`termf mcp`'s `actions`): what the navigation shows, no secret. */
+export function syncFacts() {
+  const s = app.sync;
+  if (!s) return null;
+  return {
+    enabled: s.enabled,
+    unlocked: s.unlocked,
+    state: summary(s).text,
+    lastSync: s.lastSync ? new Date(s.lastSync * 1000).toISOString() : null,
+    lastError: s.lastError,
+    scopes: s.scopes,
+    conflicts: s.conflicts.map((c) => c.path),
+    // As of the sync page's last comparison; null before one.
+    toSend: sync.compare?.pushed ?? null,
+    toReceive: sync.compare?.pulled ?? null,
+  };
 }
 
 export function remoteText(remote: Remote): string {

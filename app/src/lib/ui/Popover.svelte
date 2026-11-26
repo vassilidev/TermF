@@ -9,6 +9,7 @@
     point,
     label,
     align = "start",
+    above = false,
     width,
     closeOutside = true,
     children,
@@ -22,6 +23,8 @@
     label: string;
     /** Which edge of the trigger the popover lines up with. */
     align?: "start" | "end";
+    /** Opens over the trigger: for a trigger at the bottom of the window. */
+    above?: boolean;
     width?: number;
     /** A form with unsaved input keeps its popover open on a click elsewhere. */
     closeOutside?: boolean;
@@ -45,7 +48,10 @@
       }
       const r = at.getBoundingClientRect();
       const side = align === "start" ? `left: ${r.left}px` : `right: ${innerWidth - r.right}px`;
-      style = `${side}; top: ${r.bottom + 4}px; max-height: ${innerHeight - r.bottom - 12}px;${width ? ` width: ${width}px;` : ""}`;
+      const edge = above
+        ? `bottom: ${innerHeight - r.top + 4}px; max-height: ${r.top - 12}px;`
+        : `top: ${r.bottom + 4}px; max-height: ${innerHeight - r.bottom - 12}px;`;
+      style = `${side}; ${edge}${width ? ` width: ${width}px;` : ""}`;
     };
     place();
     addEventListener("resize", place);

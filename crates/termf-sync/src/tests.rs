@@ -636,6 +636,61 @@ fn a_disabled_scope_is_not_synced() {
 }
 
 #[test]
+fn comparing_says_what_to_send_and_receive_and_writes_nothing() {
+    let sandbox = Sandbox::new("compare");
+    let remote = sandbox.folder();
+    let (mut a, mut b) = (sandbox.machine("a"), sandbox.machine("b"));
+    let vault = |m: &mut Machine| {
+        let dir = m.dir.join("vault-data");
+        fs::create_dir_all(&dir).unwrap();
+        m.engine.vault_dir = Some(dir.clone());
+        dir
+    };
+    let (a_vault, b_vault) = (vault(&mut a), vault(&mut b));
+    a.put("projects/acme.toml", "name = \"Acme\"\n");
+    fs::write(a_vault.join(VAULT_FILE), "sealed by a").unwrap();
+    // What the vault does with another machine's version: merges it, then drops it.
+    let merge = |dir: &Path, text: &str| {
+        fs::write(dir.join(VAULT_FILE), text).unwrap();
+        fs::remove_file(dir.join(VAULT_INCOMING)).unwrap();
+    };
+    a.setup(&remote);
+    b.setup(&remote);
+    merge(&b_vault, "sealed by a and b");
+    b.push();
+    a.push();
+    merge(&a_vault, "sealed by a and b");
+    let same = a.engine.compare().unwrap();
+    assert!(
+        same.pulled.is_empty() && same.pushed.is_empty() && same.merged.is_empty(),
+        "{same:?}"
+    );
+    assert!(same.conflicts.is_empty());
+
+    a.put("projects/acme.toml", "name = \"Acme Inc\"\n");
+    b.put("library/commands/b.md", "from b\n");
+    fs::write(b_vault.join(VAULT_FILE), "sealed by b again").unwrap();
+    b.push();
+    let shared = sandbox.root.join("shared");
+    let (remote_before, a_before) = (all_files(&shared), all_files(&a.dir));
+    let diff = a.engine.compare().unwrap();
+    assert_eq!(diff.pushed, ["projects/acme.toml"]);
+    assert_eq!(diff.pulled, ["library/commands/b.md", VAULT_PATH]);
+    assert_eq!(all_files(&shared), remote_before);
+    assert_eq!(all_files(&a.dir), a_before);
+    assert!(!a_vault.join(VAULT_INCOMING).exists());
+    assert_eq!(a.engine.status().unwrap().last_error, None);
+
+    a.push();
+    merge(&a_vault, "sealed by a, merged");
+    let after = a.engine.compare().unwrap();
+    assert_eq!(
+        (after.pulled, after.pushed),
+        (vec![], vec![VAULT_PATH.to_owned()])
+    );
+}
+
+#[test]
 fn without_a_keychain_the_key_stays_in_memory() {
     let sandbox = Sandbox::new("no-keychain");
     let remote = sandbox.folder();

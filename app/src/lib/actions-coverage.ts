@@ -160,6 +160,7 @@ export const READS: string[] = [
   "ssh_host_delete_preview",
   "ssh_inventory",
   "ssh_test",
+  "sync_compare",
   "sync_devices",
   "sync_probe",
   "sync_status",
@@ -235,7 +236,7 @@ export const EXCLUDED: [why: string, commands: string[]][] = [
   ],
   [
     "A secret in clear (a value revealed, copied, generated or written to a .env) goes to the user only, never to an agent.",
-    ["vault_reveal", "vault_item_reveal", "vault_generate", "keys_reveal", "ops_reveal", "ops_env_copy", "ops_env_write", "claude_setting_reveal", "vault_export_csv"],
+    ["vault_reveal", "vault_item_reveal", "vault_generate", "keys_reveal", "ops_reveal", "ops_env_copy", "ops_env_write", "claude_setting_reveal", "vault_export_csv", "recovery_key_save"],
   ],
   [
     "The vault's own security (master password, keys, recovery, Touch ID, auto-lock, another machine's versions, exports and imports) is the user's alone.",

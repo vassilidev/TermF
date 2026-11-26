@@ -16,6 +16,7 @@ import { projectActions } from "$lib/project-actions";
 import { schedulerActions, schedulerHere } from "$lib/scheduler-actions";
 import { settingsActions } from "$lib/settings-actions";
 import { setupActions } from "$lib/setup-actions";
+import { syncFacts } from "$lib/sync.svelte";
 import { ticketActions, ticketsHere } from "$lib/tickets-actions";
 import { toast } from "$lib/ui/toast.svelte";
 import { vaultActions, vaultAnywhere, vaultHere } from "$lib/vault-actions";
@@ -210,7 +211,7 @@ async function answer(call: Call) {
     const screen = screenOf(call.session);
     const holds = screen ? HERE[screen] : undefined;
     const shown = holds ? await holds(call.project).catch((e) => `unread: ${String(e)}`) : undefined;
-    return reply(call.id, { screen, ...(shown === undefined ? {} : { here: shown }), actions: here.map(forAgent) }, null);
+    return reply(call.id, { screen, ...(shown === undefined ? {} : { here: shown }), sync: syncFacts(), actions: here.map(forAgent) }, null);
   }
   const action = here.find((a) => a.id === call.action);
   if (!action) return reply(call.id, null, `No action ${call.action} here: actions lists those you may do from the user's screen.`);

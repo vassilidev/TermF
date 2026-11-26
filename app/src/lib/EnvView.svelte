@@ -19,6 +19,7 @@
   import Segments from "$lib/ui/Segments.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
+  import SyncInvite from "$lib/SyncInvite.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { toast } from "$lib/ui/toast.svelte";
   import { askAI, askedProject, provide } from "$lib/ask.svelte";
@@ -231,6 +232,7 @@
       </button>
     {/snippet}
   </ViewHeader>
+  <SyncInvite text="syncVisibleInviteEnv" />
 
   <Tabs
     id="env"

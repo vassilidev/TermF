@@ -5921,6 +5921,39 @@ const fr = {
   tbfSpaces: "Espaces",
   tbfMoveIn: "À la livraison, dans {space}, passer le ticket à",
   tbfStatesFailed: "Les statuts n'ont pas pu être lus : {error}",
+  // Sync and keep awake in sight: the navigation's indicators, the comparison with the sync, the invitation, the recovery key's file.
+  syncVisibleNavOpen: "Ouvrir la synchro",
+  syncVisibleNavEnable: "Activer la synchro",
+  syncVisibleCompareTitle: "Cette machine et la synchro",
+  syncVisibleCompareCheck: "Comparer",
+  syncVisibleComparing: "Comparaison avec la synchro…",
+  syncVisibleSame: "Identique à la synchro",
+  syncVisibleSameHelp: "Rien à envoyer ni à recevoir.",
+  syncVisibleDiffersHelp:
+    "La prochaine synchro s'en charge, dans les 5 minutes au plus, ou tout de suite avec « Synchroniser maintenant ».",
+  syncVisibleScopeSame: "Identique",
+  syncVisibleSend: "À envoyer",
+  syncVisibleReceive: "À recevoir",
+  syncVisibleMerge: "À combiner",
+  syncVisibleCountSend: "{count} à envoyer",
+  syncVisibleCountReceive: "{count} à recevoir",
+  syncVisibleCountMerge: "{count} à combiner",
+  syncVisibleCountConflict: "{count} en conflit",
+  syncVisibleInviteHome: "Retrouve ta config et tes projets sur tes autres machines avec la synchronisation chiffrée.",
+  syncVisibleInviteVault:
+    "Retrouve ce coffre sur tes autres machines avec la synchronisation chiffrée : il part chiffré, toi seul peux l'ouvrir.",
+  syncVisibleInviteEnv: "Avec la synchronisation chiffrée, cette liste te suit sur tes autres machines.",
+  syncVisibleInviteAction: "Activer",
+  syncVisibleAwakeAgents: "Veille bloquée : des agents travaillent",
+  syncVisibleAwakeAlways: "Veille bloquée : toujours",
+  syncVisibleAwakeFree: "Veille possible : aucun agent ne travaille",
+  syncVisibleAwakeNever: "Veille possible : jamais bloquée",
+  syncVisibleKeyDownload: "Télécharger",
+  syncVisibleKeySaved: "Enregistrée dans {path}",
+  syncVisibleKeyFileSync:
+    "TermF : clé de récupération de la synchronisation chiffrée\n\n{key}\n\nÀ quoi elle sert : si tu oublies le mot de passe de la synchronisation, cette clé t'en fait choisir un nouveau sans rien perdre. Dans TermF : Réglages › Synchronisation chiffrée › Mot de passe oublié…\n\nGarde ce fichier hors de cet ordinateur (gestionnaire de mots de passe, impression) et ne le donne à personne : avec cette clé et l'accès à ta synchro, on lit tout ce que tu synchronises. Quand TermF t'en donne une nouvelle, celle-ci ne fonctionne plus.\n\nEnregistrée le {date}.\n",
+  syncVisibleKeyFileVault:
+    "TermF : clé de récupération du coffre\n\n{key}\n\nÀ quoi elle sert : elle ouvre ton coffre si tu oublies ton mot de passe maître ou perds ta clé de sécurité. Dans TermF : Coffre › Clé de sécurité perdue ou mot de passe oublié ?\n\nGarde ce fichier hors de cet ordinateur (gestionnaire de mots de passe, impression) et ne le donne à personne : quiconque l'a ouvre le coffre. Quand TermF t'en donne une nouvelle, celle-ci ne fonctionne plus.\n\nEnregistrée le {date}.\n",
 };
 
 type Key = keyof typeof fr;
@@ -11810,6 +11843,36 @@ const en: Record<Key, string> = {
   tbfSpaces: "Spaces",
   tbfMoveIn: "On delivery, in {space}, move the ticket to",
   tbfStatesFailed: "The statuses could not be read: {error}",
+  syncVisibleNavOpen: "Open sync",
+  syncVisibleNavEnable: "Turn sync on",
+  syncVisibleCompareTitle: "This machine and the sync",
+  syncVisibleCompareCheck: "Compare",
+  syncVisibleComparing: "Comparing with the sync…",
+  syncVisibleSame: "Same as the sync",
+  syncVisibleSameHelp: "Nothing to send or receive.",
+  syncVisibleDiffersHelp: "The next sync takes care of it, within 5 minutes, or right away with “Sync now”.",
+  syncVisibleScopeSame: "Same",
+  syncVisibleSend: "To send",
+  syncVisibleReceive: "To receive",
+  syncVisibleMerge: "To combine",
+  syncVisibleCountSend: "{count} to send",
+  syncVisibleCountReceive: "{count} to receive",
+  syncVisibleCountMerge: "{count} to combine",
+  syncVisibleCountConflict: "{count} in conflict",
+  syncVisibleInviteHome: "Find your config and projects on your other machines with encrypted sync.",
+  syncVisibleInviteVault: "Find this vault on your other machines with encrypted sync: it leaves encrypted, only you can open it.",
+  syncVisibleInviteEnv: "With encrypted sync, this list follows you to your other machines.",
+  syncVisibleInviteAction: "Turn on",
+  syncVisibleAwakeAgents: "Sleep blocked: agents are working",
+  syncVisibleAwakeAlways: "Sleep blocked: always",
+  syncVisibleAwakeFree: "Sleep allowed: no agent is working",
+  syncVisibleAwakeNever: "Sleep allowed: never blocked",
+  syncVisibleKeyDownload: "Download",
+  syncVisibleKeySaved: "Saved to {path}",
+  syncVisibleKeyFileSync:
+    "TermF: encrypted sync recovery key\n\n{key}\n\nWhat it is for: if you forget the sync's password, this key lets you choose a new one without losing anything. In TermF: Settings › Encrypted sync › Forgot the password…\n\nKeep this file off this computer (a password manager, a printout) and give it to no one: with this key and access to your sync, anyone reads everything you sync. When TermF gives you a new one, this one stops working.\n\nSaved on {date}.\n",
+  syncVisibleKeyFileVault:
+    "TermF: vault recovery key\n\n{key}\n\nWhat it is for: it opens your vault if you forget your master password or lose your security key. In TermF: Vault › Lost your security key or forgot your password?\n\nKeep this file off this computer (a password manager, a printout) and give it to no one: whoever has it opens the vault. When TermF gives you a new one, this one stops working.\n\nSaved on {date}.\n",
 };
 
 const messages = { fr, en };
