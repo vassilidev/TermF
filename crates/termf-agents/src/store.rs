@@ -386,8 +386,7 @@ mod tests {
 
     #[test]
     fn search_finds_the_latest_mention_of_each_conversation() {
-        let root =
-            std::env::temp_dir().join(format!("termf-agents-search-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("termf-agents-search-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let store = Store::open(&root).unwrap();
         let spec = SessionSpec::default();
