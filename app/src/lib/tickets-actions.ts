@@ -3,7 +3,7 @@ import type { Args } from "$lib/actions-logic";
 import type { Action } from "$lib/actions.svelte";
 import { t } from "$lib/i18n";
 import { editProject } from "$lib/project.svelte";
-import { boardColumns, laneOf, mcpName } from "$lib/tickets-logic";
+import { boardColumns, laneOf, mcpName, withDone } from "$lib/tickets-logic";
 import { loadInbox, tickets, type BrowsePage } from "$lib/tickets.svelte";
 import { toast } from "$lib/ui/toast.svelte";
 
@@ -33,7 +33,15 @@ const sourceId = (a: Args, trackers?: Trackers) =>
       : String(a.kind);
 
 /** `[trackers]` as `tickets_sources` gives it; each source's shape is the project editor's (`TicketSources`). */
-type Site = { site: string; email: string; jql: string | null; spaces: string[]; comment: boolean; transition: string | null };
+type Site = {
+  site: string;
+  email: string;
+  jql: string | null;
+  spaces: string[];
+  comment: boolean;
+  transition: string | null;
+  transitions: Record<string, string>;
+};
 type Trackers = Record<string, unknown> & { github: Record<string, unknown> | null; jira: Site[]; mcp?: Record<string, Record<string, unknown>> };
 
 const hostOf = (site: unknown) =>
@@ -72,7 +80,7 @@ function added(trackers: Trackers, a: Args): Trackers {
       const was = trackers.jira.find((j) => hostOf(j.site) === hostOf(site));
       // A site already read gains the spaces given.
       if (was) return { ...trackers, jira: trackers.jira.map((j) => (j === was ? { ...j, spaces: [...new Set([...j.spaces, ...keysOf(a.spaces)])] } : j)) };
-      return { ...trackers, jira: [...trackers.jira, { site, email: need("email"), jql: s("jql"), spaces: keysOf(a.spaces), comment: false, transition: null }] };
+      return { ...trackers, jira: [...trackers.jira, { site, email: need("email"), jql: s("jql"), spaces: keysOf(a.spaces), comment: false, transition: null, transitions: {} }] };
     }
     case "gitlab":
       return { ...trackers, gitlab: { host: s("host") ?? "gitlab.com", repo: s("repo"), mine: true, comment: false } };
@@ -98,19 +106,23 @@ function edited(trackers: Trackers, a: Args): Trackers {
   if (kind === "jira") {
     const was = siteOf(trackers, a)!;
     const spaces = Array.isArray(a.spaces) ? { spaces: keysOf(a.spaces) } : {};
-    return { ...trackers, jira: trackers.jira.map((j) => (j === was ? { ...j, ...given(["email", "jql"]), ...spaces } : j)) };
+    const space = keysOf([a.space ?? ""])[0];
+    const to = value(a, "transition") ?? "";
+    // As the editor does: one space's status, each space's written down; without a space, the whole site's.
+    const done = typeof a.transition !== "string" ? {} : space ? withDone(was, [...new Set([...was.spaces, space])], space, to) : { transition: to || null, transitions: {} };
+    return { ...trackers, jira: trackers.jira.map((j) => (j === was ? { ...j, ...given(["email", "jql"]), ...spaces, ...done } : j)) };
   }
   switch (kind) {
     case "github":
       return { ...trackers, github: { ...github, ...given(["repo"]) } };
     case "githubProject":
-      return { ...trackers, github: { ...github, ...given(["project"]) } };
+      return { ...trackers, github: { ...github, ...given(["project", "transition"]) } };
     case "gitlab":
       return { ...trackers, gitlab: { ...current, ...given(["host", "repo"]) } };
     case "linear":
-      return { ...trackers, linear: { ...current, ...given(["workspace", "team"]) } };
+      return { ...trackers, linear: { ...current, ...given(["workspace", "team", "transition"]) } };
     case "azure":
-      return { ...trackers, azure: { ...current, ...given(["organization", "project"]) } };
+      return { ...trackers, azure: { ...current, ...given(["organization", "project", "transition"]) } };
     case "mcp": {
       const name = String(a.name);
       return { ...trackers, mcp: { ...trackers.mcp, [name]: { ...trackers.mcp?.[name], ...given(["server", "prompt"]) } } };
@@ -215,6 +227,12 @@ const editSource: Action = {
     "Changes one of the project's ticket sources, as its editor's Tickets section does: the fields given (as tickets.add_source names them) replace its own; a Jira site by its `site`, an mcp source by its `name`. With `new_token`, TermF asks the user for a new token, kept in the keychain.",
   fields: {
     ...sourceFields,
+    transition: {
+      type: "string",
+      description:
+        "jira, githubProject, linear, azure: the state a delivered run moves its ticket to, as the tracker names it (tickets.board lists them); empty: left as it is.",
+    },
+    space: { type: "string", description: "jira: the space `transition` is for (APP); without it, every space of the site." },
     name: nameField,
     new_token: { type: "boolean", description: "Replace its token (gitlab, jira, linear, azure)." },
     token: addSource.fields.token,

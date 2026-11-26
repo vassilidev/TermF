@@ -10,6 +10,7 @@
   import { toast } from "$lib/ui/toast.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
+  import { doneOf, pickable, withDone } from "$lib/tickets-logic";
 
   type GithubTracker = {
     repo: string | null;
@@ -27,6 +28,7 @@
     spaces: string[];
     comment: boolean;
     transition: string | null;
+    transitions: Record<string, string>;
   };
   type LinearTracker = {
     workspace: string;
@@ -70,6 +72,8 @@
   type McpServer = { name: string; status: string; tools: string[] };
   type TicketSummary = { key: string; url: string; title: string; state: string };
   type Test = { busy: boolean; error?: string; tickets?: TicketSummary[] };
+  /** A source's real states, by Jira space (`space` null: the whole source). */
+  type SpaceStates = { space: string | null; states: string[] };
 
   const DEFAULT_JQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC";
   const DEFAULT_WIQL =
@@ -239,7 +243,48 @@
     if (!on && !trackers!.github!.issues) trackers!.github = null;
   }
 
-  const blankSite = (): JiraTracker => ({ site: "", email: trackers?.jira[0]?.email ?? "", jql: null, spaces: [], comment: false, transition: null });
+  const blankSite = (): JiraTracker => ({
+    site: "",
+    email: trackers?.jira[0]?.email ?? "",
+    jql: null,
+    spaces: [],
+    comment: false,
+    transition: null,
+    transitions: {},
+  });
+
+  /** Each source's real states, read for what `key` says of it (site, e-mail and spaces; board; team). */
+  let states = $state<Record<string, { key: string; lanes: SpaceStates[] | null; error: string }>>({});
+
+  /** The states of a source read as a whole (a GitHub board, a Linear team). */
+  const whole = (source: string) => states[source]?.lanes?.[0]?.states ?? [];
+
+  function readStates(source: string, key: string) {
+    if (states[source]?.key === key) return;
+    states[source] = { key, lanes: null, error: "" };
+    const kept = (lanes: SpaceStates[], error: string) => {
+      if (states[source]?.key === key) states[source] = { key, lanes, error };
+    };
+    invoke<SpaceStates[]>("tickets_source_states", { trackers: $state.snapshot(trackers), source }).then(
+      (lanes) => kept(lanes, ""),
+      (e) => kept([], String(e)),
+    );
+  }
+
+  // Read once the fields settle: a board's or a team's name is typed a letter at a time.
+  $effect(() => {
+    if (!trackers) return;
+    const wanted: [string, string][] = [];
+    trackers.jira.forEach((j, i) => {
+      if (j.spaces.length && tokenFor(j, i)) wanted.push([jiraId(j), `${j.site} ${j.email} ${j.spaces.join()}`]);
+    });
+    const board = trackers.github?.project?.trim();
+    if (board) wanted.push(["githubProject", board]);
+    const lin = trackers.linear;
+    if (lin?.team?.trim() && hasToken("linear")) wanted.push(["linear", `${lin.workspace} ${lin.team}`]);
+    const timer = setTimeout(() => wanted.forEach(([source, key]) => readStates(source, key)), 400);
+    return () => clearTimeout(timer);
+  });
 
   function setJira(on: boolean) {
     trackers!.jira = on ? [blankSite()] : [];
@@ -375,6 +420,21 @@
   {/if}
 {/snippet}
 
+{#snippet doneField(label: string, list: string[], current: string, set: (to: string) => void)}
+  {@const pick = pickable(list, current)}
+  <label>
+    <span>{label}</span>
+    <select class="field" value={pick.value} onchange={(e) => set(e.currentTarget.value)}>
+      <option value="">{t("ticketsLeaveAsIs")}</option>
+      {#each pick.options as state (state)}<option value={state}>{state}</option>{/each}
+    </select>
+  </label>
+{/snippet}
+
+{#snippet statesFailed(source: string)}
+  {#if states[source]?.error}<p class="help">{t("tbfStatesFailed", { error: states[source].error })}</p>{/if}
+{/snippet}
+
 {#snippet secret(kind: Kind, label: Key, help: Key)}
   <div class="token">
     <span class="label">{t(label)}</span>
@@ -492,10 +552,17 @@
             <input type="checkbox" bind:checked={gh.mine} />
             {t("ticketsMine")}
           </label>
-          <label>
-            <span>{t("ticketsBoardMoveTo")}</span>
-            <input class="field" bind:value={gh.transition} placeholder={t("ticketsLeaveAsIs")} />
-          </label>
+          {#if whole("githubProject").length}
+            {@render doneField(t("ticketsBoardMoveTo"), whole("githubProject"), gh.transition ?? "", (to) => {
+              gh.transition = to || null;
+            })}
+          {:else}
+            <label>
+              <span>{t("ticketsBoardMoveTo")}</span>
+              <input class="field" bind:value={gh.transition} placeholder={t("ticketsLeaveAsIs")} />
+            </label>
+            {@render statesFailed("githubProject")}
+          {/if}
           {#if !gh.issues}
             <label class="check">
               <input type="checkbox" bind:checked={gh.comment} />
@@ -651,10 +718,19 @@
             <input type="checkbox" bind:checked={jira.comment} />
             {t("ticketsJiraLink")}
           </label>
-          <label>
-            <span>{t("ticketsJiraMoveTo")}</span>
-            <input class="field" bind:value={jira.transition} placeholder={t("ticketsLeaveAsIs")} />
-          </label>
+          {#each states[jiraId(jira)]?.lanes ?? [] as lane (lane.space)}
+            {@const space = lane.space ?? ""}
+            {@const spaces = (states[jiraId(jira)]?.lanes ?? []).map((l) => l.space ?? "")}
+            {@render doneField(t("tbfMoveIn", { space }), lane.states, doneOf(jira, space), (to) =>
+              Object.assign(jira, withDone(jira, spaces, space, to)),
+            )}
+          {:else}
+            <label>
+              <span>{t("ticketsJiraMoveTo")}</span>
+              <input class="field" bind:value={jira.transition} placeholder={t("ticketsLeaveAsIs")} />
+            </label>
+            {@render statesFailed(jiraId(jira))}
+          {/each}
           {@render result(jiraId(jira))}
         </div>
       {/each}
@@ -718,10 +794,17 @@
             <input type="checkbox" bind:checked={lin.comment} />
             {t("ticketsJiraLink")}
           </label>
-          <label>
-            <span>{t("ticketsJiraMoveTo")}</span>
-            <input class="field" bind:value={lin.transition} placeholder={t("ticketsLeaveAsIs")} />
-          </label>
+          {#if lin.team?.trim() && whole("linear").length}
+            {@render doneField(t("ticketsJiraMoveTo"), whole("linear"), lin.transition ?? "", (to) => {
+              lin.transition = to || null;
+            })}
+          {:else}
+            <label>
+              <span>{t("ticketsJiraMoveTo")}</span>
+              <input class="field" bind:value={lin.transition} placeholder={t("ticketsLeaveAsIs")} />
+            </label>
+            {@render statesFailed("linear")}
+          {/if}
           {@render result("linear")}
         </div>
       {/if}

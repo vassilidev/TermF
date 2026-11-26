@@ -5892,6 +5892,13 @@ const fr = {
   convsProjects: "Projets affichés",
   convsProjectsCount: "{count} projets",
   convsNoMatch: "Aucune conversation ne correspond.",
+  // tickets/board-first
+  tbfShow: "Tickets montrés",
+  tbfTodo: "À moi, à traiter",
+  tbfEverything: "Tous",
+  tbfSpaces: "Espaces",
+  tbfMoveIn: "À la livraison, dans {space}, passer le ticket à",
+  tbfStatesFailed: "Les statuts n'ont pas pu être lus : {error}",
 };
 
 type Key = keyof typeof fr;
@@ -11752,6 +11759,13 @@ const en: Record<Key, string> = {
   convsProjects: "Projects shown",
   convsProjectsCount: "{count} projects",
   convsNoMatch: "No conversation matches.",
+  // tickets/board-first
+  tbfShow: "Tickets shown",
+  tbfTodo: "Mine, to do",
+  tbfEverything: "All",
+  tbfSpaces: "Spaces",
+  tbfMoveIn: "On delivery, in {space}, move the ticket to",
+  tbfStatesFailed: "The statuses could not be read: {error}",
 };
 
 const messages = { fr, en };

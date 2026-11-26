@@ -1950,6 +1950,97 @@ fn jira_answers(r: &Request) -> (u16, String) {
     (200, answer.to_string())
 }
 
+/// [`jira_answers`], and each space's workflow.
+fn workflow_answers(r: &Request) -> (u16, String) {
+    let status =
+        |name: &str, category: &str| json!({ "name": name, "statusCategory": { "key": category } });
+    let statuses = match r.path.as_str() {
+        "/rest/api/3/project/ACME/statuses" => {
+            vec![
+                status("Done", "done"),
+                status("To Do", "new"),
+                status("In Review", "indeterminate"),
+            ]
+        }
+        "/rest/api/3/project/OPS/statuses" => {
+            vec![status("Open", "new"), status("Shipped", "done")]
+        }
+        _ => return jira_answers(r),
+    };
+    if r.auth != BASIC {
+        return (401, "{}".into());
+    }
+    (
+        200,
+        json!([{ "name": "Task", "statuses": statuses }]).to_string(),
+    )
+}
+
+#[test]
+fn each_jira_space_has_its_own_done_status_picked_among_its_statuses() {
+    let sb = Sandbox::new("jira-done");
+    let (url, _) = fake_jira(workflow_answers);
+    let file = sb.root.join("config/projects/acme.toml");
+    // As written before: one status for the whole site.
+    sb.project(
+        "acme",
+        &format!("name = \"Acme\"\n[trackers.jira]\nsite = {url:?}\nemail = \"me@acme.test\"\nspaces = [\"ACME\", \"OPS\"]\ntransition = \"In Review\"\n"),
+    );
+    let t = sb.tickets();
+    let ticket = |key: &str| TicketRef {
+        provider: "jira".into(),
+        key: key.into(),
+        url: format!("{url}/browse/{key}"),
+    };
+    let done = |key: &str| t.writes_at("acme", &ticket(key)).1;
+    assert_eq!(done("OPS-3").as_deref(), Some("In Review"));
+
+    t.save_jira_token(&url, "me@acme.test", TOKEN).unwrap();
+    let states = t
+        .source_states(t.trackers("acme").unwrap(), "jira")
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&states).unwrap(),
+        json!([
+            { "space": "ACME", "states": ["To Do", "In Review", "Done"] },
+            { "space": "OPS", "states": ["Open", "Shipped"] },
+        ])
+    );
+
+    // Each space's own, as the editor writes them once one is picked.
+    let mut trackers = t.trackers("acme").unwrap();
+    trackers.jira[0].transition = None;
+    trackers.jira[0].transitions = [
+        ("ACME".to_owned(), "In Review".to_owned()),
+        ("OPS".to_owned(), "Shipped".to_owned()),
+    ]
+    .into();
+    t.save_sources("acme", &trackers).unwrap();
+    let text = fs::read_to_string(&file).unwrap();
+    assert!(
+        text.contains("transitions = { ACME = \"In Review\", OPS = \"Shipped\" }")
+            && !text.contains("transition = "),
+        "{text}"
+    );
+    assert_eq!(t.trackers("acme").unwrap(), trackers);
+    assert_eq!(done("OPS-3").as_deref(), Some("Shipped"));
+    assert_eq!(done("acme-1").as_deref(), Some("In Review"));
+
+    // A space without one is left as it is; the site's, when there is one, stands for it.
+    trackers.jira[0].transitions.remove("OPS");
+    t.save_sources("acme", &trackers).unwrap();
+    assert_eq!(done("OPS-3"), None);
+    trackers.jira[0].transition = Some("Done".into());
+    t.save_sources("acme", &trackers).unwrap();
+    assert_eq!(done("OPS-3").as_deref(), Some("Done"));
+    assert_eq!(done("ACME-1").as_deref(), Some("In Review"));
+
+    trackers.jira[0]
+        .transitions
+        .insert("not a key".into(), "Done".into());
+    assert!(t.save_sources("acme", &trackers).is_err());
+}
+
 /// Every file under `dir`, as bytes.
 fn files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     let mut found = Vec::new();
@@ -2877,6 +2968,7 @@ fn saves_sources_and_keeps_the_rest_of_the_file() {
             spaces: vec!["ACME".into()],
             comment: true,
             transition: Some("In Review".into()),
+            transitions: Default::default(),
         }],
         linear: None,
         gitlab: None,
@@ -3080,6 +3172,8 @@ fn linear_answers(r: &Request) -> (u16, String) {
                 "pageInfo": { "hasNextPage": false, "endCursor": null },
             }}),
         }
+    } else if query.contains("workflowStates(") {
+        json!({ "workflowStates": { "nodes": [{ "name": "Todo" }, { "name": "In Review" }, { "name": "Done" }] } })
     } else if query.contains("states(") {
         json!({ "issue": { "team": { "states": { "nodes": [
             { "id": "s1", "name": "Todo" }, { "id": "s2", "name": "In Review" },
@@ -3267,6 +3361,19 @@ fn reads_and_writes_linear() {
         t.writes("acme", "linear"),
         (true, Some("in review".to_owned()))
     );
+    // The team's states, to pick the one a delivery moves its tickets to.
+    let states = t
+        .source_states(t.trackers("acme").unwrap(), "linear")
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&states).unwrap(),
+        json!([{ "space": null, "states": ["Todo", "In Review", "Done"] }])
+    );
+    let asked = bodies(&requests).pop().unwrap();
+    assert_eq!(asked["variables"], json!({ "team": "ENG" }));
+    let mut teamless = t.trackers("acme").unwrap();
+    teamless.linear.as_mut().unwrap().team = None;
+    assert!(t.source_states(teamless, "linear").unwrap().is_empty());
     t.forget_token("linear", "acme").unwrap();
     assert!(!t.has_token("linear", "acme").unwrap());
 }

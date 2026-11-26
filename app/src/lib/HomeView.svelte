@@ -214,7 +214,7 @@
     for (const a of headless) if (a.state === "working") track(a.id);
   });
 
-  function showAll(tab: "inbox" | "runs") {
+  function showAll(tab: "browse" | "runs") {
     tickets.tab = tab;
     showTickets();
   }
@@ -566,7 +566,7 @@
             <section aria-labelledby="home-tickets">
               <h3 id="home-tickets" class="sec">
                 {t("aigTicketsTodo")} <span class="n">{inbox.length}</span>
-                {@render more(t("ux3t1Inbox"), () => showAll("inbox"))}
+                {@render more(t("ux3t1Inbox"), () => showAll("browse"))}
               </h3>
               <div class="list">
                 {#if tickets.inbox === null && tickets.loading}<Skeleton shape="list" rows={2} />{/if}

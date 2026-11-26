@@ -1,5 +1,13 @@
 <script lang="ts" module>
-  export type JiraTracker = { site: string; email: string; jql: string | null; spaces: string[]; comment: boolean; transition: string | null };
+  export type JiraTracker = {
+    site: string;
+    email: string;
+    jql: string | null;
+    spaces: string[];
+    comment: boolean;
+    transition: string | null;
+    transitions: Record<string, string>;
+  };
   export type McpTracker = { server: string; tools: string[]; prompt: string | null };
   /** What the wizard connects: Jira sites through the API, or an MCP source on the user's Atlassian server. */
   export type Connected = { jira: JiraTracker[] } | { mcp: { name: string; tracker: McpTracker } };
@@ -226,7 +234,7 @@
           : {
               jira: read.map((site) => {
                 const was = configured.find((c) => host(c.site) === site);
-                return { site, email: email.trim(), jql: was?.jql ?? null, spaces: keys(site), comment: was?.comment ?? false, transition: was?.transition ?? null };
+                return { site, email: email.trim(), jql: was?.jql ?? null, spaces: keys(site), comment: was?.comment ?? false, transition: was?.transition ?? null, transitions: was?.transitions ?? {} };
               }),
             },
       );
