@@ -75,8 +75,6 @@ export type Recipe = {
 
 /** A recipe of the SQL console: it takes a query. */
 export const isSql = (r: Recipe) => r.params.some((p) => p.type === "sql");
-/** A recipe of the Recipes tab: neither a query nor a stream. */
-export const bounded = (r: Recipe) => !isSql(r) && !r.follow;
 
 export type Plan = {
   recipe: string;
@@ -203,6 +201,59 @@ export function target(c: Connection, all: Connection[]): string {
     case "datadog":
       return `api.${c.site ?? "datadoghq.com"}`;
   }
+}
+
+/** A connection and those that go through it: the databases tunnelled through a server, the servers behind a bastion.
+ * `context`: kept by an environment filter only for what goes through it. */
+export type ConnNode = { conn: Connection; children: ConnNode[]; context?: boolean };
+
+/** The SSH connection `c` goes through: its `via`, or the bastion its `jump` names (the last hop), by name or host. */
+function through(c: Connection, all: Connection[]): Connection | undefined {
+  if (c.via) return all.find((x) => x.kind === "ssh" && x.name === c.via);
+  if (c.kind !== "ssh" || !c.jump) return undefined;
+  const hop = c.jump.split(",").pop()!.trim().replace(/^[^@]*@/, "").replace(/:\d+$/, "");
+  return all.find((x) => x.kind === "ssh" && (x.name === hop || x.host === hop));
+}
+
+/** The connections by machine: each under the one it goes through, the machines before the rest, else the file's order.
+ * One that names a connection the project lacks stays at the top. */
+export function connectionTree(all: Connection[]): ConnNode[] {
+  const parent = new Map<Connection, Connection>();
+  for (const c of all) {
+    const p = through(c, all);
+    if (p) parent.set(c, p);
+  }
+  // A loop of bastions (a → b → a) is cut at its first connection in the file's order.
+  for (const c of all) {
+    const seen = new Set([c]);
+    for (let p = parent.get(c); p; p = parent.get(p)) {
+      if (p === c) {
+        parent.delete(c);
+        break;
+      }
+      if (seen.has(p)) break;
+      seen.add(p);
+    }
+  }
+  const nodes = new Map(all.map((c) => [c, { conn: c, children: [] as ConnNode[] }]));
+  const roots: ConnNode[] = [];
+  for (const c of all) (parent.has(c) ? nodes.get(parent.get(c)!)!.children : roots).push(nodes.get(c)!);
+  const order = (list: ConnNode[]) => {
+    list.sort((a, b) => Number(b.conn.kind === "ssh") - Number(a.conn.kind === "ssh"));
+    list.forEach((n) => order(n.children));
+    return list;
+  };
+  return order(roots);
+}
+
+/** The tree of one environment: its connections, and the machines they go through as context. */
+export function inEnv(tree: ConnNode[], env: Env | null): ConnNode[] {
+  if (!env) return tree;
+  return tree.flatMap((n) => {
+    const children = inEnv(n.children, env);
+    if (n.conn.env === env) return [{ conn: n.conn, children }];
+    return children.length ? [{ conn: n.conn, children, context: true }] : [];
+  });
 }
 
 /** Only what the kind takes, without empty values: what gets saved. */
@@ -731,6 +782,22 @@ export function relations(tables: SchemaTable[]): Relation[] {
       return [{ from: tableName(t), fromRow, to: tableName(target), toRow }];
     }),
   );
+}
+
+/** The tables by schema, schemas and tables sorted by name. */
+export function schemaGroups(tables: SchemaTable[]): { schema: string; tables: SchemaTable[] }[] {
+  const groups = new Map<string, SchemaTable[]>();
+  const sorted = [...tables].sort((a, b) => a.schema.localeCompare(b.schema) || a.name.localeCompare(b.name));
+  for (const t of sorted) groups.set(t.schema, [...(groups.get(t.schema) ?? []), t]);
+  return [...groups].map(([schema, tables]) => ({ schema, tables }));
+}
+
+/** Each table's foreign keys pointing at it, as `table.column`. */
+export function referencedBy(tables: SchemaTable[]): Map<string, string[]> {
+  const byName = new Map(tables.map((t) => [tableName(t), t]));
+  const out = new Map<string, string[]>();
+  for (const r of relations(tables)) out.set(r.to, [...(out.get(r.to) ?? []), `${r.from}.${byName.get(r.from)!.columns[r.fromRow].name}`]);
+  return out;
 }
 
 /** The diagram's measures, in pixels: the cards are drawn with them too. */

@@ -4,6 +4,7 @@
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Copy from "@lucide/svelte/icons/copy";
+  import Database from "@lucide/svelte/icons/database";
   import History from "@lucide/svelte/icons/history";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Pencil from "@lucide/svelte/icons/pencil";
@@ -21,16 +22,18 @@
   import OpsParams from "$lib/OpsParams.svelte";
   import OpsRequest from "$lib/OpsRequest.svelte";
   import OpsSql from "$lib/OpsSql.svelte";
+  import OpsStores from "$lib/OpsStores.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import Card from "$lib/ui/Card.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import NextStep from "$lib/ui/NextStep.svelte";
+  import Segments from "$lib/ui/Segments.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import Tabs from "$lib/ui/Tabs.svelte";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { ago, t } from "$lib/i18n";
-  import { bounded, isSql, runsOn, target, type Check, type Connection, type Kind, type Plan, type Ran } from "$lib/ops-logic";
+  import { ENVS, connectionTree, inEnv, isSql, runsOn, target, type Check, type ConnNode, type Connection, type Kind, type Plan, type Ran } from "$lib/ops-logic";
   import { loadHistory, loadOps, ops, said, stopFollow, type OpsTab } from "$lib/ops.svelte";
   import { newProject } from "$lib/newproject.svelte";
   import { app, onScreen } from "$lib/state.svelte";
@@ -44,7 +47,7 @@
   // The ⌘I panel: the DBA on the SQL console, devops elsewhere; a connection goes by its name, never its secrets.
   $effect(() => {
     const sql = ops.tab === "sql";
-    const name = sql ? ops.sql.connection : ops.connection;
+    const name = sql ? ops.sql.connection : ops.tab === "redis" ? ops.redis.connection : ops.connection;
     const query = sql ? ops.sql.query.trim() : "";
     return provide("ops", {
       role: sql ? "dba" : "devops",
@@ -67,6 +70,9 @@
         ops.result = null;
         ops.proposal = null;
         ops.sql.result = null;
+        // The same name in another project is another server: nothing stays picked.
+        ops.sql.connection = "";
+        ops.redis.connection = "";
         stopFollow();
         ops.live.lines = [];
         ops.live.ended = null;
@@ -81,8 +87,10 @@
   const access = (c: Connection) =>
     t(c.ai_access === "full" ? "opsAccessFull" : c.ai_access === "redacted" ? "opsAccessRedacted" : "opsAccessNone");
 
-  // Connections.
-  const current = $derived(ops.connections.find((c) => c.name === ops.connection) ?? (ops.editing === null ? ops.connections[0] : undefined));
+  // Connections, by machine, of one environment or all.
+  const envs = $derived(ENVS.filter((e) => ops.connections.some((c) => c.env === e)));
+  const tree = $derived(inEnv(connectionTree(ops.connections), ops.env && envs.includes(ops.env) ? ops.env : null));
+  const current = $derived(ops.connections.find((c) => c.name === ops.connection) ?? (ops.editing === null ? tree[0]?.conn : undefined));
   let checks = $state<Check[] | null>(null);
   let testing = $state(false);
   let deleting = $state(false);
@@ -158,26 +166,25 @@
       if (connection) ops.sql.connection = connection;
       return;
     }
+    ops.tab = "recipes";
+    ops.recipe = name;
     if (r?.follow) {
-      ops.tab = "live";
       ops.live.recipe = name;
       if (connection && ops.live.id === null) ops.live.connection = connection;
       return;
     }
-    ops.tab = "recipes";
-    ops.recipe = name;
     ops.proposal = null;
     ops.result = null;
     ops.form = { connection: connection ?? "", params: {} };
   }
 
-  // Recipes: a query goes to the SQL console, a stream to the live logs.
-  const listed = $derived(ops.recipes.filter(bounded));
+  // Recipes: a query goes to the SQL console; a stream follows in its recipe.
+  const listed = $derived(ops.recipes.filter((r) => !isSql(r)));
   const recipe = $derived(listed.find((r) => r.name === ops.recipe));
   // The recipes that can run here first; the last run of each from the history, events apart.
   const usable = (r: (typeof listed)[number]) => ops.connections.some((c) => runsOn(r, c));
   const cards = $derived([...listed].sort((a, b) => Number(usable(b)) - Number(usable(a))));
-  const lastRun = (name: string) => ops.history.find((h) => h.recipe === name && h.event === null);
+  const lastRun = (name: string) => ops.history.find((h) => h.recipe === name && (h.event === null || h.event === "follow"));
   const fitting = $derived(recipe ? ops.connections.filter((c) => runsOn(recipe, c)) : []);
   $effect(() => {
     if (fitting.length && !fitting.some((c) => c.name === ops.form.connection)) {
@@ -313,6 +320,25 @@
   };
 </script>
 
+{#snippet branch(nodes: ConnNode[])}
+  {#each nodes as n (n.conn.name)}
+    {@const c = n.conn}
+    <li>
+      <div class="row" class:current={c === current && ops.editing === null} class:context={n.context}>
+        <button class="pick" aria-current={c === current} onclick={() => pick(c.name)}>
+          <span class="name mono">{c.name}</span>
+          <span class="desc">{kindLabel(c.kind)}</span>
+        </button>
+        {#if failures[failKey(c.name)] !== undefined}
+          <span class="failed" title={t("restOpsTestFailedBadge")}><CircleAlert size={14} aria-hidden="true" /><span class="sr-only">{t("restOpsTestFailedBadge")}</span></span>
+        {/if}
+        <span class="badge env" class:prod={c.env === "prod"}>{c.env}</span>
+      </div>
+      {#if n.children.length}<ul>{@render branch(n.children)}</ul>{/if}
+    </li>
+  {/each}
+{/snippet}
+
 {#snippet passwordForm()}
   {#if needs}
     <form
@@ -367,11 +393,11 @@
       label={t("opsView")}
       tabs={[
         { id: "connections", label: t("opsTabConnections"), count: ops.connections.length },
-        { id: "recipes", label: t("opsTabRecipes"), count: listed.length },
         { id: "sql", label: t("opssqlTab") },
-        { id: "live", label: t("opssqlLive") },
+        { id: "redis", label: t("opsmoreRedis") },
         { id: "forge", label: t("opsforgeTab") },
         { id: "history", label: t("opsTabHistory") },
+        { id: "recipes", label: t("opsTabRecipes"), count: listed.length },
       ]}
       selected={ops.tab}
       onselect={(tab) => (ops.tab = tab as OpsTab)}
@@ -404,20 +430,24 @@
           </div>
         {:else}
           <div class="split">
-            <ul class="list" aria-label={t("opsTabConnections")}>
-              {#each ops.connections as c (c.name)}
-                <li class="row" class:current={c === current && ops.editing === null}>
-                  <button class="pick" aria-current={c === current} onclick={() => pick(c.name)}>
-                    <span class="name mono">{c.name}</span>
-                    <span class="desc">{kindLabel(c.kind)}</span>
-                  </button>
-                  {#if failures[failKey(c.name)] !== undefined}
-                    <span class="failed" title={t("restOpsTestFailedBadge")}><CircleAlert size={14} aria-hidden="true" /><span class="sr-only">{t("restOpsTestFailedBadge")}</span></span>
-                  {/if}
-                  <span class="badge env" class:prod={c.env === "prod"}>{c.env}</span>
-                </li>
-              {/each}
-            </ul>
+            <div class="list">
+              {#if envs.length > 1}
+                <div class="envs">
+                  <Segments
+                    label={t("opstidyEnv")}
+                    options={[
+                      { id: "", label: t("opstidyEnvAll"), count: ops.connections.length },
+                      ...envs.map((e) => ({ id: e, label: e, count: ops.connections.filter((c) => c.env === e).length })),
+                    ]}
+                    selected={ops.env && envs.includes(ops.env) ? ops.env : ""}
+                    onselect={(e) => {
+                      ops.env = (e || null) as typeof ops.env;
+                    }}
+                  />
+                </div>
+              {/if}
+              <ul class="tree" aria-label={t("opsTabConnections")}>{@render branch(tree)}</ul>
+            </div>
             <section class="detail" aria-live="polite">
               {#if ops.editing !== null}
                 {@render passwordForm()}
@@ -523,6 +553,16 @@
               {/each}
             </ul>
           </div>
+        {:else if recipe?.follow}
+          <div class="follow-pane">
+            <div class="follow-head">
+              <button class="btn sm quiet back" onclick={() => (ops.recipe = null)}><ArrowLeft size={14} aria-hidden="true" />{t("restOpsAll")}</button>
+              <h2 class="mono">{recipe.name}</h2>
+              <span class="muted">{said(recipe.description)}</span>
+            </div>
+            {#if needs}<div class="asking">{@render passwordForm()}</div>{/if}
+            <OpsFollow project={project.id} ask={askPassword} />
+          </div>
         {:else}
         <div class="pane run-pane">
           <button class="btn sm quiet back" onclick={() => ((ops.recipe = null), (ops.proposal = null))}><ArrowLeft size={14} aria-hidden="true" />{t("restOpsAll")}</button>
@@ -621,12 +661,32 @@
             <input class="field mono" bind:value={typed} placeholder={plan?.env ?? ""} />
           </label>
         </ConfirmDialog>
-      {:else if ops.tab === "sql" || ops.tab === "live"}
+      {:else if ops.tab === "sql" || ops.tab === "redis"}
+        <OpsStores />
         {#if needs}<div class="asking">{@render passwordForm()}</div>{/if}
         {#if ops.tab === "sql"}
           <OpsSql project={project.id} ask={askPassword} />
         {:else}
-          <OpsFollow project={project.id} ask={askPassword} />
+          {@const redis = ops.connections.find((c) => c.kind === "redis" && c.name === ops.redis.connection)}
+          <div class="pane redis-pane">
+            {#if !ops.connections.some((c) => c.kind === "redis")}
+              <EmptyState
+                icon={Database}
+                text={t("opstidyNoRedis")}
+                action={{ label: t("opsAdd"), icon: Plus, run: () => ((ops.tab = "connections"), (ops.editing = "")) }}
+              />
+            {:else if !redis}
+              <EmptyState icon={Database} text={t("opstidyPickRedis")} />
+            {:else}
+              {#key redis.name}
+                <header>
+                  <h2 class="mono">{redis.name}</h2>
+                  <p class="muted"><span class="badge env" class:prod={redis.env === "prod"}>{redis.env}</span><span class="mono">{target(redis, ops.connections)}</span></p>
+                </header>
+                <OpsRedis project={project.id} conn={redis} ask={askPassword} browse />
+              {/key}
+            {/if}
+          </div>
         {/if}
       {:else if ops.tab === "forge"}
         {#key project.id}<OpsForge project={project.id} ask={askPassword} />{/key}
@@ -698,6 +758,68 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+  }
+
+  .envs {
+    padding: 2px 2px 8px;
+  }
+
+  .envs :global(.segmented) {
+    display: flex;
+  }
+
+  .envs :global(.segmented button) {
+    flex: 1;
+    padding: 0 6px;
+  }
+
+  .tree,
+  .tree ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* What goes through a machine hangs under it, a line on its left. */
+  .tree ul {
+    margin-left: 13px;
+    padding-left: 5px;
+    border-left: 1px solid var(--border);
+  }
+
+  .row.context .name {
+    color: var(--muted);
+  }
+
+  .follow-pane {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .follow-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    padding: 8px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: var(--text-sm);
+  }
+
+  .follow-head h2 {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: 600;
+  }
+
+  .redis-pane {
+    padding: 20px 28px 32px;
+  }
+
+  .redis-pane > :global(*) {
+    max-width: 1080px;
   }
 
   .row .failed + .badge {

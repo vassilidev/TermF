@@ -3,15 +3,23 @@
   import KeyRound from "@lucide/svelte/icons/key-round";
   import Link2 from "@lucide/svelte/icons/link-2";
   import ListTree from "@lucide/svelte/icons/list-tree";
+  import Network from "@lucide/svelte/icons/network";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Table2 from "@lucide/svelte/icons/table-2";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
-  import type { SchemaTable } from "$lib/ops-logic";
+  import { referencedBy, schemaGroups, type SchemaTable } from "$lib/ops-logic";
   import { loadSchema, ops } from "$lib/ops.svelte";
 
-  /** A database's tables, their columns, keys and indexes; a click on a name puts it in the query. */
-  let { project, connection, oninsert }: { project: string; connection: string; oninsert: (name: string) => void } = $props();
+  /** A database's tables by schema, sorted, their columns, keys, indexes and the keys pointing at them; a click on a name
+   * puts it in the query. `ondiagram`: the whole schema drawn, `diagram` while it is. */
+  let {
+    project,
+    connection,
+    oninsert,
+    diagram,
+    ondiagram,
+  }: { project: string; connection: string; oninsert: (name: string) => void; diagram: boolean; ondiagram: () => void } = $props();
 
   const read = $derived(ops.studio.schemas[`${project}/${connection}`]);
   const tables = $derived(Array.isArray(read) ? read : []);
@@ -25,6 +33,8 @@
         tb.columns.some((c) => c.name.toLowerCase().includes(filter.trim().toLowerCase())),
     ),
   );
+  const groups = $derived(schemaGroups(shown));
+  const incoming = $derived(referencedBy(tables));
   const named = (tb: SchemaTable) => (tb.schema ? `${tb.schema}.${tb.name}` : tb.name);
   const keyLabel = { pk: "opsdbKeyPk", fk: "opsdbKeyFk", unique: "opsdbKeyUnique", index: "opsdbKeyIndex" } as const;
 </script>
@@ -33,6 +43,16 @@
   <div class="head">
     <h3>{t("opsdbSchema")}</h3>
     {#if tables.length}<span class="muted count">{t("opsdbSchemaCount", { count: tables.length })}</span>{/if}
+    <button
+      class="icon-btn end"
+      title={t("opstidyDiagram")}
+      aria-label={t("opstidyDiagram")}
+      aria-pressed={diagram}
+      disabled={!tables.length}
+      onclick={ondiagram}
+    >
+      <Network size={13} aria-hidden="true" />
+    </button>
     <button
       class="icon-btn"
       title={t("opsdbSchemaRefresh")}
@@ -56,49 +76,55 @@
     <p class="muted small">{t("opsdbSchemaNoMatch")}</p>
   {:else}
     <ul class="tables">
-      {#each shown as tb (named(tb))}
-        {@const id = named(tb)}
-        <li>
-          <div class="table-row">
-            <button
-              class="toggle"
-              aria-expanded={!!open[id]}
-              aria-label={id}
-              onclick={() => (open[id] = !open[id])}
-            >
-              <ChevronRight size={12} aria-hidden="true" class={open[id] ? "turned" : ""} />
-            </button>
-            <button class="name" title={t("opsdbSchemaInsert", { name: id })} onclick={() => oninsert(id)}>
-              <Table2 size={13} aria-hidden="true" /><span>{id}</span>
-            </button>
-          </div>
-          {#if open[id]}
-            <ul class="columns">
-              {#each tb.columns as c (c.name)}
-                <li>
-                  <button class="col" title={t("opsdbSchemaInsert", { name: c.name })} onclick={() => oninsert(c.name)}>
-                    <span class="key" title={c.key ? t(keyLabel[c.key]) : undefined}>
-                      {#if c.key === "pk"}<KeyRound size={11} aria-label={t("opsdbKeyPk")} />{:else if c.key === "fk"}<Link2
-                          size={11}
-                          aria-label={t("opsdbKeyFk")}
-                        />{:else if c.key}<ListTree size={11} aria-label={t(keyLabel[c.key])} />{/if}
-                    </span>
-                    <span class="cname">{c.name}</span>
-                    <span class="ctype">{c.type}</span>
-                  </button>
-                </li>
-              {/each}
-            </ul>
-            {#if tb.indexes.length}
-              <p class="idx-head muted">{t("opsdbIndexes")}</p>
-              <ul class="indexes">
-                {#each tb.indexes as ix (ix.name)}
-                  <li title={ix.columns}><span>{ix.name}</span>{#if ix.unique}<span class="badge">{t("opsdbKeyUnique")}</span>{/if}</li>
+      {#each groups as g (g.schema)}
+        {#if groups.length > 1}<li class="group muted">{g.schema}</li>{/if}
+        {#each g.tables as tb (named(tb))}
+          {@const id = named(tb)}
+          {@const from = incoming.get(id) ?? []}
+          <li>
+            <div class="table-row">
+              <button class="toggle" aria-expanded={!!open[id]} aria-label={id} onclick={() => (open[id] = !open[id])}>
+                <ChevronRight size={12} aria-hidden="true" class={open[id] ? "turned" : ""} />
+              </button>
+              <button class="name" title={t("opsdbSchemaInsert", { name: id })} onclick={() => oninsert(id)}>
+                <Table2 size={13} aria-hidden="true" /><span>{tb.name}</span><small class="muted">{tb.columns.length}</small>
+              </button>
+            </div>
+            {#if open[id]}
+              <ul class="columns">
+                {#each tb.columns as c (c.name)}
+                  <li>
+                    <button class="col" title={t("opsdbSchemaInsert", { name: c.name })} onclick={() => oninsert(c.name)}>
+                      <span class="key" title={c.key ? t(keyLabel[c.key]) : undefined}>
+                        {#if c.key === "pk"}<KeyRound size={11} aria-label={t("opsdbKeyPk")} />{:else if c.key === "fk"}<Link2
+                            size={11}
+                            aria-label={t("opsdbKeyFk")}
+                          />{:else if c.key}<ListTree size={11} aria-label={t(keyLabel[c.key])} />{/if}
+                      </span>
+                      <span class="cname">{c.name}</span>
+                      <span class="ctype">{c.type}</span>
+                      {#if c.references}<span class="ref">→ {c.references.table}{c.references.column ? `.${c.references.column}` : ""}</span>{/if}
+                    </button>
+                  </li>
                 {/each}
               </ul>
+              {#if tb.indexes.length}
+                <p class="idx-head muted">{t("opsdbIndexes")}</p>
+                <ul class="indexes">
+                  {#each tb.indexes as ix (ix.name)}
+                    <li title={ix.columns}><span>{ix.name}</span>{#if ix.unique}<span class="badge">{t("opsdbKeyUnique")}</span>{/if}</li>
+                  {/each}
+                </ul>
+              {/if}
+              {#if from.length}
+                <p class="idx-head muted">{t("opstidyReferencedBy")}</p>
+                <ul class="indexes">
+                  {#each from as f (f)}<li><Link2 size={11} aria-hidden="true" /><span>{f}</span></li>{/each}
+                </ul>
+              {/if}
             {/if}
-          {/if}
-        </li>
+          </li>
+        {/each}
       {/each}
     </ul>
   {/if}
@@ -134,12 +160,32 @@
     place-items: center;
     width: 24px;
     height: 24px;
-    margin-left: auto;
     border: 0;
     border-radius: var(--radius);
     background: none;
     color: var(--muted);
     cursor: pointer;
+  }
+
+  .icon-btn.end {
+    margin-left: auto;
+  }
+
+  .icon-btn[aria-pressed="true"] {
+    background: var(--selected);
+    color: var(--text);
+  }
+
+  .group {
+    margin: 8px 0 2px;
+    padding-left: 6px;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .group:first-child {
+    margin-top: 0;
   }
 
   .icon-btn:hover:not(:disabled) {
@@ -213,6 +259,11 @@
     text-align: left;
   }
 
+  .name small {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+
   .name span {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -255,6 +306,14 @@
 
   .cname {
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ref {
+    grid-column: 2 / -1;
+    overflow: hidden;
+    color: var(--accent-ink);
     text-overflow: ellipsis;
     white-space: nowrap;
   }

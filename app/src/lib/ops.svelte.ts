@@ -9,6 +9,7 @@ import {
   shippedTexts,
   streamed,
   type Connection,
+  type Env,
   type Plan,
   type Query,
   type Ran,
@@ -24,7 +25,7 @@ import { ui } from "$lib/state.svelte";
 export const said = (text: string) =>
   Object.hasOwn(shippedTexts, text) ? t(shippedTexts[text] as Parameters<typeof t>[0]) : text;
 
-export type OpsTab = "connections" | "recipes" | "sql" | "live" | "forge" | "history";
+export type OpsTab = "connections" | "sql" | "redis" | "forge" | "history" | "recipes";
 
 /** Names and outputs only, already masked; a value of the vault reaches the webview by `ops_reveal`, on demand. */
 export const ops = $state({
@@ -39,6 +40,8 @@ export const ops = $state({
   /** What the agents wait for, every project. */
   requests: [] as Request[],
   tab: "connections" as OpsTab,
+  /** The connections of one environment only, or all. */
+  env: null as Env | null,
   /** The connection shown, or `""` for a new one being added. */
   connection: null as string | null,
   editing: null as string | null,
@@ -48,8 +51,10 @@ export const ops = $state({
   result: null as Ran | null,
   /** The proposal the run form answers. */
   proposal: null as number | null,
-  /** The SQL console: its database, the query typed, its last result. */
+  /** The SQL console: its database (none until picked), the query typed, its last result. */
   sql: { connection: "", query: "", result: null as (Ran & { query?: string }) | null },
+  /** The Redis browsed, none until picked. */
+  redis: { connection: "" },
   /** The project's saved queries. */
   queries: [] as Query[],
   /** Saved queries that do not read, left out. */
@@ -65,7 +70,7 @@ export const ops = $state({
     /** The saved query being written: a new one (`previous` null) or one being changed. */
     editing: null as { query: Query; previous: string | null } | null,
   },
-  /** The live logs: what is followed, and the lines received (masked), the last ones kept. */
+  /** The live logs of a recipe that follows: what is followed, and the lines received (masked), the last ones kept. */
   live: {
     recipe: "",
     connection: "",
@@ -111,11 +116,12 @@ export async function runRecipe(
   return ran;
 }
 
-/** Follows a log file of an SSH connection in the Live tab. */
+/** Follows a log file of an SSH connection, in its recipe of the Recipes tab. */
 export async function followFile(project: string, connection: string, file: string) {
   if (ops.live.id !== null) await stopFollow();
   Object.assign(ops.live, { recipe: "logs-follow", connection, params: { file, lines: "100" } });
-  ops.tab = "live";
+  ops.tab = "recipes";
+  ops.recipe = "logs-follow";
   await startFollow(project, "logs-follow", connection, ops.live.params);
 }
 

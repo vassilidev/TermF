@@ -56,6 +56,8 @@ const RESTING = {
   libraryEmpty: "the kind filters right above list only the kinds that have items",
   opsforgeNone: "servers are made in Forge; reading the account again is in the header",
   tjdNone: "the filters and the search are right above",
+  opstidyPickDb: "the databases to pick are right above",
+  opstidyPickRedis: "the Redis servers to pick are right above",
 };
 
 test("an empty state says what to do next: an action, asking the AI, or its own buttons", () => {
