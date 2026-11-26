@@ -201,12 +201,15 @@ impl Default for MemorySettings {
 pub struct VaultSettings {
     /// The vault locks after this many minutes without use, 1 to 1440.
     pub auto_lock_minutes: u32,
+    /// The vault locks as soon as its view is left.
+    pub lock_on_leave: bool,
 }
 
 impl Default for VaultSettings {
     fn default() -> Self {
         Self {
             auto_lock_minutes: 10,
+            lock_on_leave: true,
         }
     }
 }
@@ -221,8 +224,13 @@ fn vault_settings<'de, D: serde::Deserializer<'de>>(
         .get("auto_lock_minutes")
         .and_then(toml::Value::as_integer)
         .map(|m| m.clamp(1, 24 * 60) as u32);
+    let default = VaultSettings::default();
     Ok(VaultSettings {
-        auto_lock_minutes: minutes.unwrap_or(VaultSettings::default().auto_lock_minutes),
+        auto_lock_minutes: minutes.unwrap_or(default.auto_lock_minutes),
+        lock_on_leave: value
+            .get("lock_on_leave")
+            .and_then(toml::Value::as_bool)
+            .unwrap_or(default.lock_on_leave),
     })
 }
 
@@ -608,6 +616,12 @@ pub fn save_vault_auto_lock(config_dir: &Path, minutes: u32) -> Result<()> {
     edit_settings(config_dir, |doc| {
         table_in(doc.as_table_mut(), "vault")
             .insert("auto_lock_minutes", value(i64::from(minutes)));
+    })
+}
+
+pub fn save_vault_lock_on_leave(config_dir: &Path, on: bool) -> Result<()> {
+    edit_settings(config_dir, |doc| {
+        table_in(doc.as_table_mut(), "vault").insert("lock_on_leave", value(on));
     })
 }
 
@@ -1496,6 +1510,41 @@ mod tests {
         fs::write(dir.join("termf.toml"), "vault = \"odd\"\n").unwrap();
         save_vault_auto_lock(&dir, 25).unwrap();
         assert_eq!(load_settings(&dir).unwrap().vault.auto_lock_minutes, 25);
+    }
+
+    #[test]
+    fn locks_the_vault_on_leaving_its_view_unless_turned_off() {
+        let on = |text: &str| {
+            toml::from_str::<Settings>(text)
+                .unwrap()
+                .vault
+                .lock_on_leave
+        };
+        assert!(on(""));
+        assert!(on("[vault]\nauto_lock_minutes = 30\n"));
+        assert!(!on("[vault]\nlock_on_leave = false\n"));
+        assert!(
+            on("[vault]\nlock_on_leave = \"no\"\n"),
+            "unreadable: the safe default"
+        );
+
+        let dir = temp_dir("vault-leave");
+        fs::write(
+            dir.join("termf.toml"),
+            "[vault]\nauto_lock_minutes = 5 # mine\n",
+        )
+        .unwrap();
+        save_vault_lock_on_leave(&dir, false).unwrap();
+        let settings = load_settings(&dir).unwrap().vault;
+        assert!(!settings.lock_on_leave);
+        assert_eq!(settings.auto_lock_minutes, 5);
+        assert!(
+            fs::read_to_string(dir.join("termf.toml"))
+                .unwrap()
+                .contains("# mine")
+        );
+        save_vault_lock_on_leave(&dir, true).unwrap();
+        assert!(load_settings(&dir).unwrap().vault.lock_on_leave);
     }
 
     #[test]

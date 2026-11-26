@@ -115,11 +115,22 @@
       if (bad.length) failures[key] = bad.map((x) => `${x.code}: failed${x.hint ? ` (${x.hint})` : ""}`).join("\n");
       else delete failures[key];
     } catch (e) {
-      busyError = String(e);
+      if (!askPassword(e, () => test(c))) busyError = String(e);
       failures[key] = "the test did not run";
     } finally {
       testing = false;
     }
+  }
+
+  /** A secret the test found missing, typed under it: to the vault (the connection's environment, this project), then tested again. */
+  async function fill(c: Connection, name: string, value: string) {
+    try {
+      await invoke("vault_set", { name, scope: c.env, project: project?.id, value, description: null });
+    } catch (e) {
+      if (!askPassword(e, () => fill(c, name, value))) busyError = String(e);
+      return;
+    }
+    await test(c);
   }
 
   function whyFailed(name: string) {
@@ -446,7 +457,7 @@
                   <button class="btn sm" onclick={() => (deleting = true)}><Trash2 size={14} aria-hidden="true" />{t("opsDelete")}</button>
                 </div>
                 {@render passwordForm()}
-                {#if checks}<div class="gap"><OpsChecks {checks} /></div>{/if}
+                {#if checks}<div class="gap"><OpsChecks {checks} fill={(name, value) => fill(current, name, value)} /></div>{/if}
                 {#key current.name}
                   {#if current.kind === "ssh"}
                     <OpsServer project={project.id} conn={current} ask={askPassword} />

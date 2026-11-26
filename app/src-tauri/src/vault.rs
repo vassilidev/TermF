@@ -48,15 +48,16 @@ pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path) -> VaultStat
     let vault = Arc::new(vault);
     let (background, config) = (vault.clone(), config_dir.clone());
     std::thread::spawn(move || {
-        // `[vault]` changes by hand or through the sync too: applied whenever termf.toml does.
-        let mut seen = None;
+        // `[vault]` changes by hand or through the sync too: read whenever termf.toml changes.
+        let (mut seen, mut started) = (None, false);
         loop {
             let file = config.join("termf.toml");
             let modified = fs::metadata(&file).and_then(|m| m.modified()).ok();
             if modified != seen {
                 seen = modified;
                 if let Ok(settings) = termf_core::load_settings(&config) {
-                    let _ = background.set_auto_lock(settings.vault.auto_lock_minutes);
+                    apply(&background, &settings.vault, !started);
+                    started = true;
                 }
             }
             background.check();
@@ -67,6 +68,20 @@ pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path) -> VaultStat
         vault,
         config_dir,
         imported: Arc::default(),
+    }
+}
+
+/// `[vault]` of termf.toml: all of it at startup. Changed while TermF runs (by hand, or by the sync), only what
+/// tightens the vault (a shorter delay, locking on leave): loosening takes the app's own commands, or a restart.
+fn apply(vault: &Vault, settings: &termf_core::VaultSettings, startup: bool) {
+    let Ok(now) = vault.status() else {
+        return;
+    };
+    if startup || settings.auto_lock_minutes < now.auto_lock_minutes {
+        let _ = vault.set_auto_lock(settings.auto_lock_minutes);
+    }
+    if startup || settings.lock_on_leave {
+        vault.set_lock_on_leave(settings.lock_on_leave);
     }
 }
 
@@ -246,6 +261,12 @@ pub async fn vault_lock(state: State<'_, VaultState>) -> CmdResult<Status> {
     blocking(&state, |v| v.lock(&Actor::human())).await
 }
 
+/// The vault's view is off screen: it locks, unless `[vault] lock_on_leave` is off.
+#[tauri::command]
+pub async fn vault_leave(state: State<'_, VaultState>) -> CmdResult<Status> {
+    blocking(&state, |v| v.leave()).await
+}
+
 #[tauri::command]
 pub async fn vault_reauth(state: State<'_, VaultState>, password: String) -> CmdResult<Status> {
     let password = Secret::new(password);
@@ -350,6 +371,17 @@ pub async fn vault_auto_lock_set(state: State<'_, VaultState>, minutes: u32) -> 
     blocking(&state, move |v| {
         v.set_auto_lock(minutes)?;
         termf_core::save_vault_auto_lock(&config_dir, minutes)?;
+        v.status()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vault_lock_on_leave_set(state: State<'_, VaultState>, on: bool) -> CmdResult<Status> {
+    let config_dir = state.config_dir.clone();
+    blocking(&state, move |v| {
+        termf_core::save_vault_lock_on_leave(&config_dir, on)?;
+        v.set_lock_on_leave(on);
         v.status()
     })
     .await

@@ -772,6 +772,8 @@ pub fn run() {
             vault::vault_audit_verify,
             vault::vault_audit_export,
             vault::vault_auto_lock_set,
+            vault::vault_lock_on_leave_set,
+            vault::vault_leave,
             vault::vault_items,
             vault::vault_item_save,
             vault::vault_item_delete,

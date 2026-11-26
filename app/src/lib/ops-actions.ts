@@ -1,16 +1,26 @@
 import { invoke } from "@tauri-apps/api/core";
-import { vaultNeeds, type Args } from "$lib/actions-logic";
+import { noVault, proposeSecret, type Args } from "$lib/actions-logic";
 import type { Action } from "$lib/actions.svelte";
 import { t } from "$lib/i18n";
-import { ENVS, SSLMODES, clean, isServer, passwordName, target, type Check, type Connection, type Kind, type Query } from "$lib/ops-logic";
+import {
+  ENVS,
+  SSLMODES,
+  asksPassword,
+  clean,
+  missingSecret,
+  passwordName,
+  target,
+  type Check,
+  type Connection,
+  type Kind,
+  type Query,
+} from "$lib/ops-logic";
 import { loadOps, ops, runSql } from "$lib/ops.svelte";
 import { toast } from "$lib/ui/toast.svelte";
 import type { VaultStatus } from "$lib/vault.svelte";
 
 /** The kinds an agent adds: a database TermF reads, an SSH server, or Redis. */
 const KINDS: Kind[] = ["ssh", "postgres", "mysql", "mariadb", "clickhouse", "sqlite", "redis"];
-/** A password the card asks for, kept in the vault. */
-const locked = (k: Kind) => isServer(k) || k === "redis";
 
 const kindLabel = (k: Kind) => t(`opsKind${k[0].toUpperCase()}${k.slice(1)}` as Parameters<typeof t>[0]);
 const text = (v: unknown) => (typeof v === "string" ? v : undefined);
@@ -37,11 +47,9 @@ function connectionOf(a: Args): Connection {
     database: text(a.database),
     sslmode: text(a.sslmode),
     path: text(a.path),
-    ...(locked(kind) && a.no_password !== true ? { secrets: { password: passwordName(name) } } : {}),
+    ...(asksPassword(a) ? { secrets: { password: passwordName(name) } } : {}),
   });
 }
-
-const asksPassword = (a: Args) => locked(a.kind as Kind) && a.no_password !== true;
 
 /** The fields an edit changes, as the card lists them. */
 const changes = (a: Args, skip: string[]) =>
@@ -73,27 +81,30 @@ function connectionNamed(name: unknown): Connection {
 const addConnection: Action = {
   id: "ops.add_connection",
   description:
-    "Adds a connection to the project's Ops: a database TermF reads (postgres, mysql, mariadb, clickhouse, sqlite) or an SSH server. A database server's password is asked to the user by TermF and kept in the vault; a database behind SSH names the project's SSH connection in `via` (add that one first), its `host` then as that server sees it (127.0.0.1, or a managed database's host).",
+    "Adds a connection to the project's Ops: a database TermF reads (postgres, mysql, mariadb, clickhouse, sqlite), Redis, or an SSH server. The password of a database server or of Redis is asked to the user in TermF's card and kept in the vault, never given by you: say in `hints.password` where they find it (REDIS_PASSWORD in the server's .env); pass `no_password` only when it surely takes none. A database or Redis behind SSH names the project's SSH connection in `via` (add that one first), its `host` then as that server sees it (127.0.0.1, or a managed database's host).",
   fields: {
     name: { type: "string", description: "Letters, digits, _ . -, starting with a letter: acme-prod-db." },
     kind: { type: "string", description: "What it reaches.", enum: KINDS },
     env: { type: "string", description: "The environment it belongs to.", enum: ENVS },
-    host: { type: "string", description: "SSH: an alias of ~/.ssh/config or a host name. A database server: its host (as the `via` server sees it)." },
+    host: { type: "string", description: "SSH: an alias of ~/.ssh/config or a host name. A database server or Redis: its host (as the `via` server sees it)." },
     port: { type: "integer", description: "When not the default one." },
-    user: { type: "string", description: "SSH: the login. A database: its user." },
+    user: { type: "string", description: "SSH: the login. A database: its user. Redis: its ACL user, if it has one." },
     jump: { type: "string", description: "SSH only: a bastion (ProxyJump)." },
-    via: { type: "string", description: "A database server: the project's SSH connection to tunnel through." },
+    via: { type: "string", description: "A database server or Redis: the project's SSH connection to tunnel through." },
     database: { type: "string", description: "A database's name; SQLite: the absolute path of its file; Redis: its number (0 by default)." },
     path: { type: "string", description: "SSH only: a Laravel site's folder on the server (/home/forge/acme.com), for its recipes." },
-    sslmode: { type: "string", description: "A database server's TLS, in Postgres' words.", enum: [...SSLMODES] },
+    sslmode: { type: "string", description: "A database server's or Redis' TLS, in Postgres' words.", enum: [...SSLMODES] },
     description: { type: "string", description: "One line on what it is." },
     ai_access: { type: "string", description: "What agents may see of its output: none (default), redacted, full.", enum: ["none", "redacted", "full"] },
-    no_password: { type: "boolean", description: "A database server that takes no password: none is asked, no vault needed." },
-    password: { type: "string", secret: true, description: "A database server's password." },
+    no_password: {
+      type: "boolean",
+      description: "A database server or Redis that surely takes no password (a local Redis without requirepass): none is asked, no vault needed.",
+    },
+    password: { type: "string", secret: true, description: "The password of a database server, or of Redis (its requirepass, or its ACL user's)." },
   },
   required: ["name", "kind", "env"],
   asks: (a) => (asksPassword(a) ? ["password"] : []),
-  needs: async (a) => (asksPassword(a) ? vaultNeeds(await invoke<VaultStatus>("vault_status")) : null),
+  needs: async (a) => (asksPassword(a) ? noVault(await invoke<VaultStatus>("vault_status")) : null),
   label: "actOpsAdd",
   labels: { password: "opsSecretPassword" },
   describe: (a) => {
@@ -107,9 +118,10 @@ const addConnection: Action = {
     const password = secrets.password?.trim() || null;
     ops.connections = await invoke<Connection[]>("ops_connection_save", { project, connection, previous: null, password, found: null, replace: false });
     toast(t("actOpsAdded", { name: connection.name }));
+    const secret = connection.secrets?.password;
     return {
       added: connection,
-      password: locked(connection.kind) ? (password ? "kept in the vault" : "not given: the user adds it in the vault before it connects") : undefined,
+      password: secret ? (password ? "kept in the vault" : `not given in the card: if the vault lacks ${secret}, the test says how the user types it`) : undefined,
       next: "Test it with ops.test_connection.",
     };
   },
@@ -132,7 +144,8 @@ const testConnection: Action = {
     const checks = await invoke<Check[]>("ops_test", { project, connection, previous: connection.name });
     const ok = checks.every((c) => c.ok || c.warn);
     toast(t(ok ? "actOpsTested" : "actOpsTestFailed", { name: connection.name }), { kind: ok ? "ok" : "error" });
-    return { connection: connection.name, ok, checks };
+    const lacks = missingSecret(checks);
+    return { connection: connection.name, ok, checks, ...(lacks ? { next: proposeSecret(lacks, connection.env, "this test again") } : {}) };
   },
 };
 

@@ -26,7 +26,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
@@ -235,6 +235,8 @@ pub struct Status {
     /// The key is in the system keychain: unlocking on this machine needs no password.
     pub remembered: bool,
     pub auto_lock_minutes: u32,
+    /// It locks as soon as the user leaves its view ([`Vault::leave`]).
+    pub lock_on_leave: bool,
     /// Until when (Unix seconds) the prod scope needs no password; `None`: its next use asks for it.
     pub prod_until: Option<u64>,
     /// Security keys enrolled: with any, the master password alone no longer opens the vault.
@@ -774,6 +776,7 @@ pub struct Vault {
     /// `PATH` and the variables each manager needs, which an app opened from the Finder or a desktop menu lacks.
     path: Option<OsString>,
     auto_lock: AtomicU64,
+    lock_on_leave: AtomicBool,
     session: Mutex<Option<Session>>,
     on_lock: Option<Told>,
     keys: Box<dyn SecurityKeys>,
@@ -794,6 +797,7 @@ impl Vault {
             clock,
             path: None,
             auto_lock: AtomicU64::new(u64::from(DEFAULT_AUTO_LOCK_MINUTES) * 60),
+            lock_on_leave: AtomicBool::new(true),
             session: Mutex::new(None),
             on_lock: None,
             keys: Box::new(fido::Unavailable),
@@ -966,6 +970,27 @@ impl Vault {
         Ok(())
     }
 
+    pub fn set_lock_on_leave(&self, on: bool) {
+        self.lock_on_leave.store(on, Ordering::Relaxed);
+    }
+
+    /// The user left the vault's view: it locks, unless that is turned off. Never refused, like a lock.
+    pub fn leave(&self) -> Result<Status> {
+        let left = self.lock_on_leave.load(Ordering::Relaxed)
+            && self.session.lock().unwrap().take().is_some();
+        if left {
+            let _ = self.record(Event {
+                detail: Some("left".into()),
+                ..Event::new(&Actor::termf(), Action::Lock)
+            });
+        }
+        let status = self.status()?;
+        if let (true, Some(told)) = (left, &self.on_lock) {
+            told(&status);
+        }
+        Ok(status)
+    }
+
     pub fn status(&self) -> Result<Status> {
         self.check();
         // A synced vault that cannot be taken here yet (a newer TermF): unlocking says so.
@@ -980,6 +1005,7 @@ impl Vault {
             unlocked: session.is_some(),
             remembered: file.as_ref().is_some_and(|f| f.remembered),
             auto_lock_minutes: (self.auto_lock.load(Ordering::Relaxed) / 60) as u32,
+            lock_on_leave: self.lock_on_leave.load(Ordering::Relaxed),
             prod_until: session.as_ref().and_then(|s| fresh(s.prod, now)),
             keys: file
                 .as_ref()

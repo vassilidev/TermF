@@ -37,6 +37,7 @@
     }
   });
   const lost = $derived(action?.loses?.(args, project) ?? "");
+  const gives = $derived(action?.gives?.(args, project) ?? "");
   const asked = $derived(action && !problem ? secretsOf(action, args) : []);
 </script>
 
@@ -59,7 +60,7 @@
     </label>
     {#if call.hints?.[field]}<p class="muted small">{t("actHint", { who, hint: call.hints[field] })}</p>{/if}
   {/each}
-  {#if asked.length}<p class="muted small">{t("actSecretsKept")}</p>{/if}
+  {#if gives}<p class="notice warn"><TriangleAlert size={14} aria-hidden="true" />{gives}</p>{:else if asked.length}<p class="muted small">{t("actSecretsKept")}</p>{/if}
 {:else}
   <p class="notice error">{t("actUnknown", { action: String(call.action ?? "") })}</p>
 {/if}
