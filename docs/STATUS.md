@@ -111,6 +111,25 @@ Règles communes des agents et outillage de captures : `.claude/reviews/tools/br
 
 **Demandes du propriétaire des 2026-11-21 et 22 : toutes livrées** (voir §1 : Git intégré, skills des outils CLI, navigateur des agents, gestionnaire de mots de passe, rôles créatifs, spécialistes et de recherche, vue Design system, discipline de l'équipe, setup et projet de zéro, Ops, synchro complète, équipe proportionnée, README et site). Le panneau « ponytail » dans Claude Code vient du plugin ponytail de l'utilisateur (pas de TermF) : se désactive par `/plugin`.
 
+**Prochain travail : les issues GitHub ouvertes au 2026-11-26 (#180 à #208), dans cet ordre.** Chaque issue a une section « Liens » avec ses dépendances.
+
+- **Bugs** : #180 (Forge), #181 (Redis), #196 et #197 (Mon environnement), #200 (clés SSH dans la synchro).
+- **Synchro** : #208 (réconcilier plusieurs machines sans rien écraser, aperçu avant raccordement, sauvegarde avant d'appliquer), puis #203, puis #199 et #201, puis #198 (premier lancement).
+- **Écrans**, indépendants entre eux : Conversations (#184, #185, #194, #195 en un seul passage), Tickets (#186, #187), Ops (#188, puis #189 après #181), puis #190, #191, #192, #193, #204, #205.
+- **Autorisations des agents** : #182 et #202 ensemble.
+- **Site** : #207 (thème sombre amélioré, ou retiré en attendant si c'est trop compliqué).
+- **Film** : #206 en dernier (il montre les écrans refaits ; sa version sombre suit #207).
+
+Décisions du propriétaire (2026-11-26) :
+- #182 et #202 : lire, lister et tester passent sans carte ; une modification demande une carte avec « Toujours autoriser dans cette conversation » (révocable) ; une écriture en prod, une suppression, le coffre et les réglages qui touchent aux droits des agents demandent toujours une carte.
+- #204 : garder la protection et refaire la page.
+- #194 et #184 : le CTO et l'expert s'ouvrent en grand dans Conversations ; le panneau de droite reste pour les rôles d'un écran, avec « Agrandir » visible et un raccourci, et se replie dans la vue Conversations.
+- #207 : refaire le thème sombre du site et de la doc seulement ; le thème clair et l'app ne changent pas.
+- #183 : le coffre se verrouille dès qu'on quitte sa vue, activé par défaut et désactivable.
+- #208 : `~/.ssh/known_hosts` se synchronise avec les clés SSH, en réunion des lignes (rien n'est retiré ni remplacé).
+- Merge : après CI verte sur les 3 OS (plus une relecture si sécurité ou données), sans attendre ; revue groupée des avant/après à la fin. #206 et #207 sont validées par le propriétaire avant merge.
+- Choisi sans lui (évident) : #198, sur une deuxième machine l'accueil propose de récupérer la synchro existante ; #193, le CTO garde `--strict-mcp-config` (§12.4), les connecteurs vont aux rôles choisis, en lecture seule par défaut.
+
 1. **Publier une version** : PR « Release X.Y.Z: version, changelog and status », puis `git tag vX.Y.Z && git push origin vX.Y.Z` ; attendre que chaque `.dmg` soit dans le brouillon (sinon `notarized.yml` le remet dès qu'Apple l'accepte), coller la section de `CHANGELOG.md` avec la section Install de la release précédente, publier avec `--latest`, vérifier `install.sh` / `install.ps1`, `latest.json`, `SHA256SUMS` et la page de téléchargement (§5).
 2. **Signature** : Apple (Developer ID et notarisation : compte Apple Developer payant, certificat et identifiants dans les secrets de la CI, `signingIdentity` à changer) et Windows (certificat de signature de code ou Azure Trusted Signing). Jusque-là, une étape de plus au premier lancement d'un fichier téléchargé par un navigateur (README) ; la signature débloque aussi la passkey du coffre et un vrai lien biométrique pour Touch ID (`SecAccessControl`, keychain-access-group).
 3. **Essayer pour de vrai ce qui ne l'a jamais été** (détail au §4) :
