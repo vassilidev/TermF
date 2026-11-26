@@ -3778,6 +3778,7 @@ const fr = {
   sync2SshWarn:
     "Tes clés privées et tout ton ~/.ssh/config partent sur le remote, chiffrés par la clé de la synchro : qui a le mot de passe de synchro peut les lire. Une clé protégée par une phrase de passe le reste. Une clé de même nom mais différente n'est jamais remplacée : tu choisis laquelle garder. Si ~/.ssh/config change sur deux machines, tu choisis aussi, côte à côte.",
   sync2SshConfirm: "Synchroniser mes clés SSH",
+  syncSshScopeSent: "Clés SSH envoyées : {names}",
   syncDevScope: "Config de dev",
   syncDevScopeHelp:
     "~/.claude : CLAUDE.md, settings.json (plugins activés et marketplaces compris), keybindings.json, skills, agents, commandes, styles, hooks et la mémoire auto des projets présents ici ; les serveurs MCP de ~/.claude.json ; ~/.gitconfig et son fichier d'exclusions. Jamais les identifiants, les conversations, les caches ni les copies des plugins.",
@@ -9622,6 +9623,7 @@ const en: Record<Key, string> = {
   sync2SshWarn:
     "Your private keys and all of your ~/.ssh/config go to the remote, encrypted by the sync's key: whoever has the sync password can read them. A key protected by a passphrase stays protected. A different key with the same name is never replaced: you choose which one to keep. If ~/.ssh/config changes on two machines, you choose there too, side by side.",
   sync2SshConfirm: "Sync my SSH keys",
+  syncSshScopeSent: "SSH keys sent: {names}",
   syncDevScope: "Dev config",
   syncDevScopeHelp:
     "~/.claude: CLAUDE.md, settings.json (enabled plugins and marketplaces included), keybindings.json, skills, agents, commands, styles, hooks and the auto memory of the projects found here; the MCP servers of ~/.claude.json; ~/.gitconfig and its excludes file. Never the credentials, the conversations, the caches nor the plugins' copies.",

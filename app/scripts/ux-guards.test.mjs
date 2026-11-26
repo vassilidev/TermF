@@ -23,6 +23,24 @@ test("no assignment's value is read back from reactive state (assignment_value_s
   assert.deepEqual(found, [], "assign in a statement (`{ a.b = x; }`): the assignment's value is not the proxy kept in state");
 });
 
+test("no handler reads a {@const} after clearing the state it comes from", () => {
+  const stale = [];
+  let consts = 0;
+  for (const f of components) {
+    const code = dev(f);
+    const from = new Map(
+      [...code.matchAll(/const (computed_const\w*) = \$\.tag\(\s*\$\.derived\(\(\) => \{([\s\S]*?)\}\),\s*'\[@const\]'/g)].map((m) => [m[1], m[2]]),
+    );
+    consts += from.size;
+    // Clearing the state first makes the {@const} recompute from the cleared value: the confirmed action never ran.
+    for (const m of code.matchAll(/\$\.set\((\w+),(?=[^\n]*\n((?:[^\n]*\n){0,5}?)[^\n]*\$\.get\((computed_const\w*)\))/g)) {
+      if (from.get(m[3])?.includes(`$.get(${m[1]})`) && !/^\s*\}/m.test(m[2])) stale.push(`${f} ${m[1]}`);
+    }
+  }
+  assert.ok(consts > 10, "the {@const} tags were found");
+  assert.deepEqual(stale, [], "read what the handler needs before clearing the state");
+});
+
 test("an agent's thread is drawn by Conversation.svelte only", () => {
   const hearing = components.filter((f) => /"agent-event"|"agent_events"/.test(read(f)));
   assert.deepEqual(hearing, ["lib/Conversation.svelte"], "show the agent with <Conversation> (bare in a panel) instead of a thread of its own");
