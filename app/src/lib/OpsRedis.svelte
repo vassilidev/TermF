@@ -2,15 +2,22 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Search from "@lucide/svelte/icons/search";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import { onMount } from "svelte";
   import OpsWrite from "$lib/OpsWrite.svelte";
+  import Switch from "$lib/ui/Switch.svelte";
   import { t } from "$lib/i18n";
   import { hitRate, pairs, redisInfo, redisScan, type Connection } from "$lib/ops-logic";
   import { runRecipe } from "$lib/ops.svelte";
   import { toast } from "$lib/ui/toast.svelte";
 
   /** A Redis server, read through `redis-read`'s allow list: its INFO, its keys by pattern, a key's type, TTL and
-   * value; its changes go through `redis-write` and its card. */
-  let { project, conn, ask }: { project: string; conn: Connection; ask: (e: unknown, retry: () => Promise<void>) => boolean } = $props();
+   * value; its changes, once allowed, go through `redis-write` and its card. `browse`: its first keys listed at once. */
+  let {
+    project,
+    conn,
+    ask,
+    browse = false,
+  }: { project: string; conn: Connection; ask: (e: unknown, retry: () => Promise<void>) => boolean; browse?: boolean } = $props();
 
   let busy = $state("");
   let error = $state("");
@@ -24,6 +31,11 @@
   let seconds = $state(3600);
   let writing = $state<{ title: string; loses: string; params: Record<string, string> } | null>(null);
   let confirming = $state(false);
+  let changes = $state(false);
+
+  onMount(() => {
+    if (browse) void scan();
+  });
 
   /** One command of the allow list; its output as text. */
   async function read(command: string, params: Record<string, string> = {}): Promise<string> {
@@ -131,15 +143,18 @@
     <button class="btn sm primary" disabled={!!busy}>
       {#if busy === "scan"}<LoaderCircle size={13} aria-hidden="true" class="spin" />{:else}<Search size={13} aria-hidden="true" />{/if}{t("opsmoreScan")}
     </button>
-    <button
-      type="button"
-      class="btn sm danger quiet"
-      disabled={!!busy}
-      onclick={() => propose(t("opsmoreFlush"), t("opsmoreFlushLoses", { db: conn.database ?? "0", name: conn.name }), { command: "FLUSHDB" })}
-    >
-      <Trash2 size={13} aria-hidden="true" />{t("opsmoreFlush")}
-    </button>
+    {#if changes}
+      <button
+        type="button"
+        class="btn sm danger quiet"
+        disabled={!!busy}
+        onclick={() => propose(t("opsmoreFlush"), t("opsmoreFlushLoses", { db: conn.database ?? "0", name: conn.name }), { command: "FLUSHDB" })}
+      >
+        <Trash2 size={13} aria-hidden="true" />{t("opsmoreFlush")}
+      </button>
+    {/if}
   </form>
+  <div class="changes"><Switch bind:checked={changes} label={t("opstidyRedisWrite")} hint={t("opstidyRedisWriteHint")} /></div>
 
   {#if searched}
     <div class="browse">
@@ -173,26 +188,28 @@
               <pre>{shown.type === "string" ? shown.text.replace(/\n$/, "") : shown.text}</pre>
             {/if}
             {#if shown.type !== "string" && shown.type !== "none"}<p class="muted small">{t("opsmoreFirst")}</p>{/if}
-            <div class="actions">
-              <button class="btn sm danger" onclick={() => propose(t("opsmoreDelete"), t("opsmoreDeleteLoses", { key: key ?? "" }), { command: "DEL {key}", key: key ?? "" })}>
-                <Trash2 size={13} aria-hidden="true" />{t("opsmoreDelete")}
-              </button>
-              <input class="field seconds" type="number" min="1" bind:value={seconds} aria-label={t("opsmoreParamSeconds")} />
-              <button
-                class="btn sm"
-                onclick={() =>
-                  propose(t("opsmoreExpire"), t("opsmoreExpireLoses", { key: key ?? "", seconds }), {
-                    command: "EXPIRE {key} {seconds}",
-                    key: key ?? "",
-                    seconds: String(seconds),
-                  })}>{t("opsmoreExpire")}</button
-              >
-              {#if shown.ttl >= 0}
-                <button class="btn sm" onclick={() => propose(t("opsmorePersist"), t("opsmorePersistLoses", { key: key ?? "" }), { command: "PERSIST {key}", key: key ?? "" })}>
-                  {t("opsmorePersist")}
+            {#if changes}
+              <div class="actions">
+                <button class="btn sm danger" onclick={() => propose(t("opsmoreDelete"), t("opsmoreDeleteLoses", { key: key ?? "" }), { command: "DEL {key}", key: key ?? "" })}>
+                  <Trash2 size={13} aria-hidden="true" />{t("opsmoreDelete")}
                 </button>
-              {/if}
-            </div>
+                <input class="field seconds" type="number" min="1" bind:value={seconds} aria-label={t("opsmoreParamSeconds")} />
+                <button
+                  class="btn sm"
+                  onclick={() =>
+                    propose(t("opsmoreExpire"), t("opsmoreExpireLoses", { key: key ?? "", seconds }), {
+                      command: "EXPIRE {key} {seconds}",
+                      key: key ?? "",
+                      seconds: String(seconds),
+                    })}>{t("opsmoreExpire")}</button
+                >
+                {#if shown.ttl >= 0}
+                  <button class="btn sm" onclick={() => propose(t("opsmorePersist"), t("opsmorePersistLoses", { key: key ?? "" }), { command: "PERSIST {key}", key: key ?? "" })}>
+                    {t("opsmorePersist")}
+                  </button>
+                {/if}
+              </div>
+            {/if}
           {/if}
         {/if}
       </div>
@@ -337,6 +354,11 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
+  }
+
+  .changes {
+    max-width: 520px;
+    font-size: var(--text-sm);
   }
 
   .seconds {
