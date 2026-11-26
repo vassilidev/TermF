@@ -35,6 +35,9 @@ export const actions: KeyAction[] = [
   },
   { id: "talk_cto", label: "ctoTalk", group: "general", scope: "app", defaults: { mac: "Cmd+Shift+H", other: "Ctrl+Shift+H" } },
   { id: "ask_ai", label: "aigShortcut", group: "general", scope: "app", defaults: { mac: "Cmd+I", other: "Ctrl+I" } },
+  // Ctrl+Shift+I and Ctrl+Shift+K are ⌘I's and ⌘K's in a terminal outside macOS.
+  { id: "expand_ask", label: "convsExpandShortcut", group: "general", scope: "app", defaults: { mac: "Cmd+Shift+I", other: "Alt+Shift+I" } },
+  { id: "find_conversation", label: "convsFind", group: "general", scope: "app", defaults: { mac: "Cmd+Shift+K", other: "Alt+Shift+K" } },
   {
     id: "project",
     label: "settingsKeysProject",

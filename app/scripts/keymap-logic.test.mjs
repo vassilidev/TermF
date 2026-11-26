@@ -97,6 +97,8 @@ test("shortcuts on macOS", () => {
   assert.deepEqual(press(key("b", "KeyB", { metaKey: true }), true), { id: "toggle_nav" });
   assert.deepEqual(press(key("k", "KeyK", { metaKey: true }), true), { id: "palette" });
   assert.deepEqual(press(key("H", "KeyH", { metaKey: true, shiftKey: true }), true), { id: "talk_cto" });
+  assert.deepEqual(press(key("I", "KeyI", { metaKey: true, shiftKey: true }), true), { id: "expand_ask" });
+  assert.deepEqual(press(key("K", "KeyK", { metaKey: true, shiftKey: true }), true), { id: "find_conversation" });
   assert.equal(press(key("k", "KeyK", { ctrlKey: true })), null);
   assert.equal(press(key("1", "Digit1", { metaKey: true, altKey: true })), null);
   assert.deepEqual(press(key("`", "Backquote", { ctrlKey: true }), true), { id: "quick_terminal" });
@@ -192,6 +194,10 @@ test("shortcuts on Linux and Windows", () => {
   assert.deepEqual(press(key("@", "Digit2", { altKey: true, shiftKey: true }), true), { id: "project", n: 2 });
   assert.deepEqual(press(key("l", "KeyL", { ctrlKey: true, shiftKey: true }), true), { id: "launch_ticket" });
   assert.deepEqual(press(key("H", "KeyH", { ctrlKey: true, shiftKey: true }), true), { id: "talk_cto" });
+  // In a terminal Ctrl+Shift+I and K are ⌘I and ⌘K: the panel at full size and the conversation finder take Alt.
+  assert.deepEqual(press(key("I", "KeyI", { ctrlKey: true, shiftKey: true }), true), { id: "ask_ai" });
+  assert.deepEqual(press(key("I", "KeyI", { altKey: true, shiftKey: true }), true), { id: "expand_ask" });
+  assert.deepEqual(press(key("K", "KeyK", { altKey: true, shiftKey: true }), true), { id: "find_conversation" });
   // No terminal in Files: Shift is not taken there.
   const files = { mac: false, inTerminal: false, view: "files", limits: nine };
   assert.deepEqual(match(key("p", "KeyP", { ctrlKey: true }), other, files), { id: "find_file" });

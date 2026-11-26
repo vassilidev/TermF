@@ -50,7 +50,7 @@ export function mostRecent<R extends Repo>(repos: R[]): R | null {
   return repos.reduce<R | null>((best, r) => (!best || (r.modified ?? 0) > (best.modified ?? 0) ? r : best), null);
 }
 
-export type Group = "projects" | "sessions" | "repos" | "others" | "views" | "machine" | "vault" | "actions";
+export type Group = "projects" | "sessions" | "conversations" | "repos" | "others" | "views" | "machine" | "vault" | "actions";
 export type Command = {
   id: string;
   label: string;
@@ -61,6 +61,8 @@ export type Command = {
   group: Group;
   /** Listed only when the query matches the label: the repositories of the other projects. */
   searchOnly?: boolean;
+  /** Found by these words too, as by its label: a conversation's role, project and passage. */
+  terms?: string;
   run: () => void;
 };
 
@@ -102,7 +104,7 @@ export function rank(list: Command[], query: string): Command[] {
   if (!words.length) return list.filter((c) => !c.searchOnly);
   const ranked = list
     .map((command, i) => {
-      const label = fold(command.label);
+      const label = fold(command.terms ? `${command.label} ${command.terms}` : command.label);
       const hint = command.searchOnly ? "" : fold(command.hint ?? "");
       let score = 0;
       for (const word of words) {

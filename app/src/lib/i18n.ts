@@ -3703,7 +3703,6 @@ const fr = {
   opsdbAskUse: "Mettre dans l'éditeur",
   opsdbAskChecked: "Vérifiée : une lecture",
   opsdbAskRefused: "Refusée par la console : {reason}",
-  opsdbAskOpen: "Ouvrir dans Conversations",
   opsdbAskYou: "Toi",
   opsdbExplain: "Expliquer",
   opsdbOptimize: "Optimiser",
@@ -4910,11 +4909,9 @@ const fr = {
   aigTitle: "Demander",
   aigRole: "Qui répond",
   aigRoleHere: "{role} (cet écran)",
-  aigOpenConversation: "Ouvrir dans Conversations",
   aigBarCto: "Demande au CTO, ou écris @rôle pour quelqu'un d'autre…",
   aigBarRole: "Demande à {role}, ou écris @rôle pour quelqu'un d'autre…",
   aigPlaceholder: "Demande à {role}…",
-  aigPlaceholderCto: "Demande au CTO…",
   aigIntroTitle: "{role} répond ici",
   aigIntroBody: "Il voit ce que tu regardes ({screen}). Rien ne change sans ton accord.",
   aigNoProjectTitle: "Choisis un projet",
@@ -5907,6 +5904,16 @@ const fr = {
   syncReconcileUndone:
     "Fichiers remis comme avant : {count}. Ils ne sont plus synchronisés tant que tu n'as pas choisi, côte à côte, dans les conflits.",
   syncReconcileUndoChanged: "Modifiés depuis, laissés tels quels : {paths}",
+  // Conversations: the CTO and the expert at full size, the panel for a screen's role, search and quick finder.
+  convsExpand: "Agrandir",
+  convsExpandHelp: "Ouvrir cette conversation en grand dans Conversations",
+  convsExpandShortcut: "Agrandir la conversation du panneau Demander",
+  convsFind: "Chercher une conversation",
+  convsFindPlaceholder: "Un agent, un rôle, un titre, un projet ou ce qui s'y est dit…",
+  convsSearch: "Rechercher…",
+  convsProjects: "Projets affichés",
+  convsProjectsCount: "{count} projets",
+  convsNoMatch: "Aucune conversation ne correspond.",
 };
 
 type Key = keyof typeof fr;
@@ -9585,7 +9592,6 @@ const en: Record<Key, string> = {
   opsdbAskUse: "Put in the editor",
   opsdbAskChecked: "Checked: a read",
   opsdbAskRefused: "Refused by the console: {reason}",
-  opsdbAskOpen: "Open in Conversations",
   opsdbAskYou: "You",
   opsdbExplain: "Explain",
   opsdbOptimize: "Optimize",
@@ -10788,11 +10794,9 @@ const en: Record<Key, string> = {
   aigTitle: "Ask",
   aigRole: "Who answers",
   aigRoleHere: "{role} (this screen)",
-  aigOpenConversation: "Open in Conversations",
   aigBarCto: "Ask the CTO, or write @role for someone else…",
   aigBarRole: "Ask {role}, or write @role for someone else…",
   aigPlaceholder: "Ask {role}…",
-  aigPlaceholderCto: "Ask the CTO…",
   aigIntroTitle: "{role} answers here",
   aigIntroBody: "It sees what you are looking at ({screen}). Nothing changes without your go-ahead.",
   aigNoProjectTitle: "Pick a project",
@@ -11783,6 +11787,15 @@ const en: Record<Key, string> = {
   syncReconcileUndone:
     "Files put back as before: {count}. They are not synced until you choose, side by side, in the conflicts.",
   syncReconcileUndoChanged: "Changed since, left as they are: {paths}",
+  convsExpand: "Expand",
+  convsExpandHelp: "Open this conversation at full size in Conversations",
+  convsExpandShortcut: "Expand the Ask panel's conversation",
+  convsFind: "Find a conversation",
+  convsFindPlaceholder: "An agent, a role, a title, a project or something said…",
+  convsSearch: "Search…",
+  convsProjects: "Projects shown",
+  convsProjectsCount: "{count} projects",
+  convsNoMatch: "No conversation matches.",
 };
 
 const messages = { fr, en };

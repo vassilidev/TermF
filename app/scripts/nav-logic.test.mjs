@@ -77,6 +77,18 @@ test("palette results are grouped, the group of the best match first", () => {
   assert.equal(rank(list, "api claude")[0].id, "s1");
 });
 
+test("a conversation is found by its title, role, project or passage, never by scattered letters", () => {
+  const list = [
+    cmd("conversation-1", "CTO · Acme", "conversations", { searchOnly: true, terms: "cto · Acme" }),
+    cmd("conversation-2", "Fix the login", "conversations", { searchOnly: true, terms: "devops · Docs …the déploiement failed…" }),
+  ];
+  assert.deepEqual(rank(list, "").map((c) => c.id), []);
+  assert.deepEqual(rank(list, "devops").map((c) => c.id), ["conversation-2"]);
+  assert.deepEqual(rank(list, "acme").map((c) => c.id), ["conversation-1"]);
+  assert.deepEqual(rank(list, "deploiement login").map((c) => c.id), ["conversation-2"]);
+  assert.deepEqual(rank(list, "cdx").map((c) => c.id), []);
+});
+
 test("a page's search finds the sections holding every word, case and accents aside", () => {
   const text = "Mémoire du projet L'expert du projet y cherche avant de lire le code";
   assert.equal(hasWords(text, ""), true);

@@ -618,6 +618,10 @@ impl Agents {
         store::events(&self.inner.data_dir, id, after)
     }
 
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<store::Found>> {
+        store::search(&self.inner.data_dir, query, limit)
+    }
+
     /// Starts a session on `prompt` and waits for its answer, what TermF asks an agent for another (`ask_expert`).
     /// Nobody is there to approve a tool, so each permission it asks for is refused; past `timeout` it is stopped.
     /// Its process ends with the answer; the conversation stays, and a message resumes it.

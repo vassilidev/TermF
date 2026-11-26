@@ -1,7 +1,7 @@
 <script lang="ts">
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Avatar from "$lib/ui/Avatar.svelte";
-  import { ask, askAI, currentRole } from "$lib/ask.svelte";
+  import { ask, askAI, currentRole, panelShown } from "$lib/ask.svelte";
   import { roleFor } from "$lib/ask-logic";
   import { t } from "$lib/i18n";
   import { aria, keys } from "$lib/keymap.svelte";
@@ -19,7 +19,7 @@
   }
 </script>
 
-{#if !ask.open}
+{#if !panelShown()}
   <div class="askbar">
     <button class="ask" onclick={open} aria-keyshortcuts={aria("ask_ai")}>
       <Sparkles size={15} aria-hidden="true" class="spark" />

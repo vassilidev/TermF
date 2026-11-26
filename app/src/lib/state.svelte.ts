@@ -147,7 +147,8 @@ export const panes = $state({ other: null as ViewId | null, active: 0 as 0 | 1, 
 /** The view shown, and the overlays opened from the navigation, the shortcuts or the palette. */
 class Ui {
   #view = $state<ViewId>("home");
-  palette = $state(false);
+  /** "conversations": the palette finds only those, listed before typing. */
+  palette = $state<boolean | "conversations">(false);
   switcher = $state(false);
   launcher = $state(false);
   help = $state(false);

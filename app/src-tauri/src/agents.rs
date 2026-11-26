@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 use termf_agents::{
-    AgentEvent, AgentSession, Agents, IMAGE_MAX, Image, SessionSpec, StoredEvent, Update,
+    AgentEvent, AgentSession, Agents, Found, IMAGE_MAX, Image, SessionSpec, StoredEvent, Update,
 };
 use termf_core::ipc::{AgentCall, SessionSummary};
 
@@ -352,4 +352,10 @@ pub async fn agent_events(
     after: Option<i64>,
 ) -> CmdResult<Vec<StoredEvent>> {
     blocking(app, move |app| agents(app).events(id, after.unwrap_or(0))).await
+}
+
+/// The conversations whose messages hold `query`, archived ones included, each with a passage: 50 at most.
+#[tauri::command]
+pub async fn agent_search(app: AppHandle, query: String) -> CmdResult<Vec<Found>> {
+    blocking(app, move |app| agents(app).search(&query, 50)).await
 }
