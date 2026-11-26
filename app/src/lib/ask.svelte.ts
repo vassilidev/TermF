@@ -184,9 +184,7 @@ async function write(draft = "") {
   const box = await reach('[data-panel="conversations"] form.composer textarea');
   if (!(box instanceof HTMLTextAreaElement)) return;
   if (draft) {
-    box.value = box.value.trim() ? `${box.value.trimEnd()}
-
-${draft}` : draft;
+    box.value = box.value.trim() ? `${box.value.trimEnd()}\n\n${draft}` : draft;
     // The binding takes it from the event, as if typed.
     box.dispatchEvent(new Event("input", { bubbles: true }));
   }
