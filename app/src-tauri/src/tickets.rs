@@ -15,8 +15,8 @@ use termf_core::ipc::SessionSummary;
 use termf_onboarding::setup::TrackerHints;
 use termf_tickets::{
     Board, Browse, Configured, Delivery, DeliveryPreview, Detail, Inbox, McpServer, Page, PrCheck,
-    PrMerge, Reached, Resolution, Run, RunEvent, Sources, TicketRef, TicketSummary, Tickets,
-    TrackerProject, Trackers, Unpushed,
+    PrMerge, Reached, Resolution, Run, RunEvent, Sources, SpaceStates, TicketRef, TicketSummary,
+    Tickets, TrackerProject, Trackers, Unpushed,
 };
 
 use crate::{AppState, CmdResult, api, err};
@@ -606,6 +606,19 @@ pub async fn tickets_ticket(
 #[tauri::command]
 pub async fn tickets_board(app: AppHandle, project: String, source: String) -> CmdResult<Board> {
     blocking(app, move |app| tickets(app).board(&project, &source)).await
+}
+
+/// The states one source really has, by Jira space, with the sources as the editor holds them, saved or not.
+#[tauri::command]
+pub async fn tickets_source_states(
+    app: AppHandle,
+    trackers: Trackers,
+    source: String,
+) -> CmdResult<Vec<SpaceStates>> {
+    blocking(app, move |app| {
+        tickets(app).source_states(trackers, &source)
+    })
+    .await
 }
 
 /// Assigns a ticket in its tracker: `me`, `none`, or someone.

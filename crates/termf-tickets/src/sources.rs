@@ -118,6 +118,9 @@ pub struct JiraTracker {
     /// The status a delivered run moves its ticket to; none: left alone.
     #[serde(default)]
     pub transition: Option<String>,
+    /// The status by space (`APP` → `In Review`), in place of `transition` for that space's tickets.
+    #[serde(default)]
+    pub transitions: BTreeMap<String, String>,
 }
 
 /// The spaces as a list, or as the text `APP, API` the file had before sites became several.
@@ -179,6 +182,18 @@ impl JiraTracker {
             [] => jira::DEFAULT_JQL.to_owned(),
             keys => format!("project in ({}) AND {}", keys.join(", "), jira::DEFAULT_JQL),
         }
+    }
+
+    /// The status a delivered run moves the ticket `key` (`APP-142`) to: its space's own, else the site's.
+    pub(crate) fn done(&self, key: &str) -> Option<String> {
+        let space = key.rsplit_once('-').map_or("", |(s, _)| s);
+        let own = self
+            .transitions
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(space));
+        own.map(|(_, to)| to.clone())
+            .or_else(|| self.transition.clone())
+            .filter(|to| !to.trim().is_empty())
     }
 
     /// Whether a pasted key with this prefix goes to this source: none listed takes any.
@@ -322,6 +337,14 @@ pub struct Configured {
     pub sources: Vec<String>,
 }
 
+/// The states a ticket can reach in a source, to pick the one a delivered run moves it to: by space for Jira.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct SpaceStates {
+    /// The Jira space (`APP`); none: the whole source.
+    pub space: Option<String>,
+    pub states: Vec<String>,
+}
+
 /// A source of the inbox: `github`, `githubProject`, `gitlab`, `jira:<site's host>` (`jira`: the first site),
 /// `linear`, `azure` or `mcp:<name>`.
 #[derive(Clone, Debug, PartialEq)]
@@ -460,7 +483,7 @@ impl Trackers {
                 "Jira: {:?} is not an e-mail address",
                 jira.email
             );
-            for key in &jira.spaces {
+            for key in jira.spaces.iter().chain(jira.transitions.keys()) {
                 ensure!(
                     jira::project_key(key),
                     "Jira: {key:?} is not a space key, such as ACME"
@@ -580,6 +603,15 @@ pub fn write_trackers(doc: &mut DocumentMut, trackers: &Trackers) -> Result<()> 
             text(&mut t, "jql", jql);
             flag(&mut t, "comment", j.comment, false);
             text(&mut t, "transition", j.transition.as_deref());
+            let by_space: toml_edit::InlineTable = j
+                .transitions
+                .iter()
+                .filter(|(_, to)| !to.trim().is_empty())
+                .map(|(space, to)| (space.as_str(), toml_edit::Value::from(to.trim())))
+                .collect();
+            if !by_space.is_empty() {
+                t.insert("transitions", value(by_space));
+            }
             sites.push(t);
         }
         root.insert("jira", Item::ArrayOfTables(sites));
@@ -754,5 +786,45 @@ impl Tickets {
         let mut found = self.source_inbox(&info, &source, crate::Fetch::Test)?;
         found.truncate(crate::TEST_SIZE);
         Ok(found)
+    }
+
+    /// The states one source really has, with `trackers` as the editor holds them: each Jira space's workflow, a
+    /// GitHub board's Status, a Linear team's states. None: TermF does not read them (no space or team named,
+    /// Azure DevOps, whose states depend on the work item's type).
+    pub fn source_states(&self, trackers: Trackers, source: &str) -> Result<Vec<SpaceStates>> {
+        // Not the whole form's check: another source half filled in does not stop this one.
+        let whole = |states| {
+            vec![SpaceStates {
+                space: None,
+                states,
+            }]
+        };
+        let missing = || format!("the project has no {source} source");
+        Ok(match Source::parse(source)? {
+            Source::Jira(host) => {
+                let tracker = trackers.jira_site(&host).with_context(missing)?;
+                let spaces = self.jira(tracker)?.space_states(&tracker.spaces)?;
+                spaces
+                    .into_iter()
+                    .map(|(space, states)| SpaceStates {
+                        space: Some(space),
+                        states,
+                    })
+                    .collect()
+            }
+            Source::GithubProject => {
+                let github = trackers.github.as_ref().with_context(missing)?;
+                let board = github::Board::parse(github.project.as_deref().with_context(missing)?)?;
+                whole(self.github().board_columns(&board)?)
+            }
+            Source::Linear => {
+                let tracker = trackers.linear.as_ref().with_context(missing)?;
+                match tracker.team() {
+                    Some(team) => whole(self.linear(tracker)?.team_states(team)?),
+                    None => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
+        })
     }
 }

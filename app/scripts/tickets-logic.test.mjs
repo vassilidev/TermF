@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { boardColumns, browsable, bySpace, laneOf, cleanupNotice, guessSite, liveSession, mcpName, mcpPrompt, preChecked, readyToClean, refusal, resumable, spaceOf } from "../src/lib/tickets-logic.ts";
+import { boardColumns, browsable, bySpace, doneOf, firstLayout, laneOf, cleanupNotice, guessSite, liveSession, mcpName, mcpPrompt, pickable, preChecked, readyToClean, refusal, resumable, spaceOf, todoOf, withDone } from "../src/lib/tickets-logic.ts";
 
 const run = (o = {}) => ({
   status: "delivered",
@@ -113,4 +113,33 @@ test("a board's columns are the source's states, then the states its tickets hav
   assert.deepEqual(boardColumns([], ["Todo", "Backlog", "Todo"]), ["Todo", "Backlog"]);
   assert.equal(laneOf("in progress", ["To Do", "In Progress"]), "In Progress");
   assert.equal(laneOf("Blocked", ["To Do"]), "Blocked");
+});
+
+test("the to-do tickets follow the source and the space picked, the board first where there are states", () => {
+  const inbox = [
+    { key: "APP-2", source: "jira" },
+    { key: "API-9", source: "jira" },
+    { key: "acme/api#3", source: "github" },
+  ];
+  assert.deepEqual(todoOf(inbox, "jira", "").map((x) => x.key), ["APP-2", "API-9"]);
+  assert.deepEqual(todoOf(inbox, "jira", "API").map((x) => x.key), ["API-9"]);
+  assert.deepEqual(todoOf(inbox, "github", "acme/api").map((x) => x.key), ["acme/api#3"]);
+  assert.equal(todoOf(null, "jira", ""), null);
+  assert.equal(firstLayout("jira:acme.atlassian.net"), "board");
+  assert.equal(firstLayout("githubProject"), "board");
+  assert.equal(firstLayout("github"), "list");
+});
+
+test("a space's done status is its own, else the site's, and picking one writes each space's", () => {
+  const before = { transition: "In Review", transitions: {} };
+  assert.equal(doneOf(before, "APP"), "In Review");
+  assert.equal(doneOf({ transition: null, transitions: {} }, "APP"), "");
+  const after = withDone(before, ["APP", "API"], "API", "Done");
+  assert.deepEqual(after, { transition: null, transitions: { APP: "In Review", API: "Done" } });
+  assert.equal(doneOf(after, "API"), "Done");
+  // Left as is: the space has no status, the site's single one is gone.
+  assert.deepEqual(withDone(after, ["APP", "API"], "APP", ""), { transition: null, transitions: { API: "Done" } });
+  assert.deepEqual(pickable(["To Do", "In Review"], "in review"), { options: ["To Do", "In Review"], value: "In Review" });
+  assert.deepEqual(pickable(["To Do"], "Shipped"), { options: ["To Do", "Shipped"], value: "Shipped" });
+  assert.deepEqual(pickable(["To Do"], ""), { options: ["To Do"], value: "" });
 });

@@ -37,7 +37,7 @@
   import { app, repoName } from "$lib/state.svelte";
   import { budgetError, type TeamRun } from "$lib/team-run-logic";
   import { team, upsertRun } from "$lib/team.svelte";
-  import { browsable, readyToClean, refusal } from "$lib/tickets-logic";
+  import { browsable, readyToClean, refusal, todoOf } from "$lib/tickets-logic";
   import TicketsBrowse from "$lib/TicketsBrowse.svelte";
   import {
     launchTicket,
@@ -85,6 +85,10 @@
         : t("ticketsMcpSource", { name: id.replace(/^mcp:/, "") });
   /** The current project's sources a browse reads; none for every project at once. */
   const browseSources = $derived(tickets.scope ? browsable(tickets.sources) : []);
+  /** What the browse shows: the to-do tickets or every one, of which source and space. */
+  let view = $state({ todo: true, source: "", space: "" });
+  /** The to-do tickets shown: those of the source and space browsed, all of them across every project. */
+  const inbox = $derived(browseSources.length ? todoOf(tickets.inbox, view.source, view.space) : tickets.inbox);
   // The run of another repository of a change shows on its change's page.
   const runs = $derived(tickets.runs.filter((r) => !r.parent && (!tickets.scope || r.project === tickets.scope)));
 
@@ -94,12 +98,12 @@
   let pickedTickets = $state(none<string>());
   let pickedRuns = $state(none<number>());
   const launchable = $derived(
-    (tickets.inbox ?? []).filter((ticket) => ticket.project && !runOf(ticket)).map((ticket) => ticket.url),
+    (inbox ?? []).filter((ticket) => ticket.project && !runOf(ticket)).map((ticket) => ticket.url),
   );
   const chosenTickets = $derived(within(pickedTickets.keys, launchable));
   /** The ticket left the longest, the one to suggest launching: the oldest update among those that can start. */
   const oldest = $derived(
-    (tickets.inbox ?? [])
+    (inbox ?? [])
       .filter((ticket) => launchable.includes(ticket.url))
       .reduce<TicketSummary | null>((a, b) => (!a || Date.parse(b.updated) < Date.parse(a.updated) ? b : a), null),
   );
@@ -157,7 +161,7 @@
 
   /** One after the other; a ticket whose repository must be chosen stays picked, to launch from its row. */
   async function launchPicked(withTeam: boolean) {
-    const list = (tickets.inbox ?? []).filter((ticket) => chosenTickets.includes(ticket.url));
+    const list = (inbox ?? []).filter((ticket) => chosenTickets.includes(ticket.url));
     bulk = withTeam ? "team" : "launch";
     startingTeam = withTeam;
     pending = null;
@@ -425,6 +429,174 @@
     </div>
   {/if}
 {/snippet}
+{#snippet todoPane()}
+  <div class="pane">
+    {#if tickets.inbox && tickets.inboxErrors.length}
+      <div class="source-errors">
+        {#each tickets.inboxErrors as failed (failed.source)}
+          <p class="notice error" role="alert">
+            <CircleAlert size={14} aria-hidden="true" />{t("ticketsSourceFailed", {
+              source: sourceName(failed.source),
+              error: failed.message,
+            })}
+          </p>
+        {/each}
+      </div>
+    {/if}
+    {#if tickets.inboxError}
+      <EmptyState>
+        <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{t("ticketsError", { error: tickets.inboxError })}</p>
+        <button class="btn" onclick={loadInbox}><RefreshCw size={14} aria-hidden="true" />{t("ticketsRetry")}</button>
+      </EmptyState>
+    {:else if !inbox}
+      <div class="loading"><Skeleton shape="list" rows={6} label={t("ticketsLoading")} /></div>
+    {:else if !inbox.length}
+      {@const unset = tickets.configured === false && project}
+      <EmptyState
+        icon={Inbox}
+        title={unset ? t("ticketsUiNoSource", { project: unset.name }) : t("ticketsEmpty")}
+        text={unset
+          ? t("ticketsUiNoSourceHelp")
+          : project
+            ? t("ticketsEmptyProject", { project: project.name })
+            : t("ticketsEmptyAll")}
+        onask={project ? () => askAI({ role: "cto", draft: t("actTicketsDraft") }) : undefined}
+        askLabel={t("actTicketsFind")}
+      >
+        {#if unset}
+          <button class="btn primary" onclick={() => editProject(unset.id, "tickets")}>
+            <Plug size={14} aria-hidden="true" />{t("uiTicketsConnect")}
+          </button>
+        {:else if project}
+          <button class="btn" onclick={() => editProject(project.id, "tickets")}>
+            <Pencil size={14} aria-hidden="true" />{t("ticketsEditProject")}
+          </button>
+        {/if}
+      </EmptyState>
+    {:else}
+      {#if oldest && !chosenTickets.length && !starting}
+        {@const ticket = oldest}
+        <div class="suggest">
+          <NextStep
+            text={t("uiTicketsOldest", { title: ticket.title, key: ticket.key, ago: ago(Date.parse(ticket.updated) / 1000) })}
+            action={{ label: t("uiTicketsLaunchOldest"), run: () => launchTeam(ticket) }}
+          />
+        </div>
+      {/if}
+      {#if chosenTickets.length}
+        <div class="sticky">
+          <SelectionBar
+            count={chosenTickets.length}
+            total={launchable.length}
+            label={t("ticketsTabInbox")}
+            onall={() => ((leftTickets = ""), (pickedTickets = all(pickedTickets, launchable)))}
+            onclear={() => ((leftTickets = ""), (pickedTickets = none()))}
+          >
+            {#if leftTickets}<span class="note">{leftTickets}</span>{/if}
+            <button class="btn sm" disabled={!!bulk || !!starting} onclick={() => launchPicked(false)}>
+              {@render launching(bulk === "launch")}{#if bulk !== "launch"}{` · ${chosenTickets.length}`}{/if}
+            </button>
+            <button class="btn sm primary" disabled={!!bulk || !!starting} onclick={() => launchPicked(true)}>
+              {#if bulk === "team"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{t("ticketLaunching")}{:else}<Users
+                  size={14}
+                  aria-hidden="true"
+                />{t("teamRunsWithTeam")} · {chosenTickets.length}{/if}
+            </button>
+          </SelectionBar>
+        </div>
+      {/if}
+      <ul class="inbox" class:picking={chosenTickets.length > 0}>
+        {#each inbox as ticket (ticket.url)}
+          {@const run = runOf(ticket)}
+          {@const pickable = !!ticket.project && !run}
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions (the box does it from the keyboard) -->
+          <li
+            class="ticket"
+            class:picked={chosenTickets.includes(ticket.url)}
+            class:open={menuOpen && menu?.ticket.url === ticket.url}
+            onclick={(e) => pickable && rowClick(e, () => pickTicket(e, ticket.url))}
+          >
+            {#if pickable}
+              <input
+                class="box"
+                type="checkbox"
+                checked={chosenTickets.includes(ticket.url)}
+                aria-label={t("t6bPick", { name: `${ticket.key} ${ticket.title}` })}
+                onclick={(e) => pickTicket(e, ticket.url)}
+              />
+            {:else}
+              <span class="box" aria-hidden="true"></span>
+            {/if}
+            <div class="what">
+              <span class="name">{ticket.title}</span>
+              <span class="desc">
+                <span class="mono">{ticket.key}</span> · {sourceName(ticket.source)}
+                · {t("ticketUpdated", { ago: ago(Date.parse(ticket.updated) / 1000) })}
+                {#if ticket.assignees.length}
+                  · {t("ticketsUiAssignees", { names: ticket.assignees.join(", ") })}
+                {/if}
+                {#if !tickets.scope && ticket.project} · {projectName(ticket.project)}{/if}
+              </span>
+            </div>
+            <div class="labels">
+              {#each ticket.labels.slice(0, 2) as label (label)}<span class="tag">{label}</span>{/each}
+              {#if ticket.labels.length > 2}
+                <span class="tag" title={ticket.labels.slice(2).join(", ")}>+{ticket.labels.length - 2}</span>
+              {/if}
+            </div>
+            <div class="state">
+              {#if run}
+                <!-- The ticket's run at a glance, its page one click away: its state, then where it is. -->
+                {@const crew = team.runs.find((r) => r.run === run.id)}
+                {@const pill = shown(run, crew)}
+                <button class="runstate" onclick={() => showRun(run.id)} title={t("ux3t5SeeRun")}>
+                  <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />
+                  <RunProgress {run} team={crew} />
+                </button>
+              {/if}
+              <div class="acts" class:quiet={(!!ticket.project || !!run) && starting !== ticket.url}>
+                {#if run}
+                  <!-- The run's state is the row's action: the menu only keeps the ticket's link. -->
+                {:else if ticket.project}
+                  <button
+                    class="btn sm"
+                    title={t("teamRunsLaunchTitle", { key: ticket.key })}
+                    disabled={!!starting}
+                    onclick={() => launchTeam(ticket)}
+                  >
+                    {#if starting === ticket.url && startingTeam}{@render launching(true)}{:else}<Users
+                        size={14}
+                        aria-hidden="true"
+                      />{t("teamRunsWithTeam")}{/if}
+                  </button>
+                {:else}
+                  <span class="badge" title={t("ticketNoProjectTitle")}>{t("ticketNoProject")}</span>
+                {/if}
+                <button
+                  class="icon-btn"
+                  aria-label={`${t("ux3t5More")} · ${ticket.key}`}
+                  title={t("ux3t5More")}
+                  aria-haspopup="dialog"
+                  aria-expanded={menuOpen && menu?.ticket.url === ticket.url}
+                  onclick={(e) => toggleMenu(ticket, e.currentTarget)}
+                >
+                  {#if starting === ticket.url && !startingTeam}<LoaderCircle
+                      size={16}
+                      aria-hidden="true"
+                      class="spin"
+                    />{:else}<Ellipsis size={16} aria-hidden="true" />{/if}
+                </button>
+              </div>
+            </div>
+          </li>
+          {#if pending?.from === ticket.url}
+            <li class="choice">{@render launchBox()}</li>
+          {/if}
+        {/each}
+      </ul>
+    {/if}
+  </div>
+{/snippet}
 
 <div class="tickets">
   <ViewHeader title={t("viewTickets")} context={project?.name ?? t("ticketsAll")}>
@@ -455,8 +627,8 @@
     id="tickets"
     label={t("viewTickets")}
     tabs={[
-      { id: "inbox", label: t("ticketsTabInbox"), count: tickets.inbox?.length },
-      ...(browseSources.length ? [{ id: "browse", label: t("tjdTab") }] : []),
+      // The browse counts the to-do tickets by itself; across every project, the tab does.
+      { id: "browse", label: t("tjdTab"), count: browseSources.length ? undefined : inbox?.length },
       { id: "runs", label: t("ticketsTabRuns"), count: runs.length },
     ]}
     selected={tickets.tab}
@@ -474,182 +646,28 @@
       </div>
     {/if}
 
-    {#if tickets.tab === "inbox"}
-      <div class="pane">
-        {#if tickets.inbox && tickets.inboxErrors.length}
-          <div class="source-errors">
-            {#each tickets.inboxErrors as failed (failed.source)}
-              <p class="notice error" role="alert">
-                <CircleAlert size={14} aria-hidden="true" />{t("ticketsSourceFailed", {
-                  source: sourceName(failed.source),
-                  error: failed.message,
-                })}
-              </p>
-            {/each}
-          </div>
-        {/if}
-        {#if tickets.inboxError}
-          <EmptyState>
-            <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{t("ticketsError", { error: tickets.inboxError })}</p>
-            <button class="btn" onclick={loadInbox}><RefreshCw size={14} aria-hidden="true" />{t("ticketsRetry")}</button>
-          </EmptyState>
-        {:else if !tickets.inbox}
-          <div class="loading"><Skeleton shape="list" rows={6} label={t("ticketsLoading")} /></div>
-        {:else if !tickets.inbox.length}
-          {@const unset = tickets.configured === false && project}
-          <EmptyState
-            icon={Inbox}
-            title={unset ? t("ticketsUiNoSource", { project: unset.name }) : t("ticketsEmpty")}
-            text={unset
-              ? t("ticketsUiNoSourceHelp")
-              : project
-                ? t("ticketsEmptyProject", { project: project.name })
-                : t("ticketsEmptyAll")}
-            onask={project ? () => askAI({ role: "cto", draft: t("actTicketsDraft") }) : undefined}
-            askLabel={t("actTicketsFind")}
-          >
-            {#if unset}
-              <button class="btn primary" onclick={() => editProject(unset.id, "tickets")}>
-                <Plug size={14} aria-hidden="true" />{t("uiTicketsConnect")}
-              </button>
-            {:else if project}
-              <button class="btn" onclick={() => editProject(project.id, "tickets")}>
-                <Pencil size={14} aria-hidden="true" />{t("ticketsEditProject")}
-              </button>
-            {/if}
-          </EmptyState>
-        {:else}
-          {#if oldest && !chosenTickets.length && !starting}
-            {@const ticket = oldest}
-            <div class="suggest">
-              <NextStep
-                text={t("uiTicketsOldest", { title: ticket.title, key: ticket.key, ago: ago(Date.parse(ticket.updated) / 1000) })}
-                action={{ label: t("uiTicketsLaunchOldest"), run: () => launchTeam(ticket) }}
-              />
-            </div>
-          {/if}
-          {#if chosenTickets.length}
-            <div class="sticky">
-              <SelectionBar
-                count={chosenTickets.length}
-                total={launchable.length}
-                label={t("ticketsTabInbox")}
-                onall={() => ((leftTickets = ""), (pickedTickets = all(pickedTickets, launchable)))}
-                onclear={() => ((leftTickets = ""), (pickedTickets = none()))}
-              >
-                {#if leftTickets}<span class="note">{leftTickets}</span>{/if}
-                <button class="btn sm" disabled={!!bulk || !!starting} onclick={() => launchPicked(false)}>
-                  {@render launching(bulk === "launch")}{#if bulk !== "launch"}{` · ${chosenTickets.length}`}{/if}
-                </button>
-                <button class="btn sm primary" disabled={!!bulk || !!starting} onclick={() => launchPicked(true)}>
-                  {#if bulk === "team"}<LoaderCircle size={14} aria-hidden="true" class="spin" />{t("ticketLaunching")}{:else}<Users
-                      size={14}
-                      aria-hidden="true"
-                    />{t("teamRunsWithTeam")} · {chosenTickets.length}{/if}
-                </button>
-              </SelectionBar>
-            </div>
-          {/if}
-          <ul class="inbox" class:picking={chosenTickets.length > 0}>
-            {#each tickets.inbox as ticket (ticket.url)}
-              {@const run = runOf(ticket)}
-              {@const pickable = !!ticket.project && !run}
-              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions (the box does it from the keyboard) -->
-              <li
-                class="ticket"
-                class:picked={chosenTickets.includes(ticket.url)}
-                class:open={menuOpen && menu?.ticket.url === ticket.url}
-                onclick={(e) => pickable && rowClick(e, () => pickTicket(e, ticket.url))}
-              >
-                {#if pickable}
-                  <input
-                    class="box"
-                    type="checkbox"
-                    checked={chosenTickets.includes(ticket.url)}
-                    aria-label={t("t6bPick", { name: `${ticket.key} ${ticket.title}` })}
-                    onclick={(e) => pickTicket(e, ticket.url)}
-                  />
-                {:else}
-                  <span class="box" aria-hidden="true"></span>
-                {/if}
-                <div class="what">
-                  <span class="name">{ticket.title}</span>
-                  <span class="desc">
-                    <span class="mono">{ticket.key}</span> · {sourceName(ticket.source)}
-                    · {t("ticketUpdated", { ago: ago(Date.parse(ticket.updated) / 1000) })}
-                    {#if ticket.assignees.length}
-                      · {t("ticketsUiAssignees", { names: ticket.assignees.join(", ") })}
-                    {/if}
-                    {#if !tickets.scope && ticket.project} · {projectName(ticket.project)}{/if}
-                  </span>
-                </div>
-                <div class="labels">
-                  {#each ticket.labels.slice(0, 2) as label (label)}<span class="tag">{label}</span>{/each}
-                  {#if ticket.labels.length > 2}
-                    <span class="tag" title={ticket.labels.slice(2).join(", ")}>+{ticket.labels.length - 2}</span>
-                  {/if}
-                </div>
-                <div class="state">
-                  {#if run}
-                    <!-- The ticket's run at a glance, its page one click away: its state, then where it is. -->
-                    {@const crew = team.runs.find((r) => r.run === run.id)}
-                    {@const pill = shown(run, crew)}
-                    <button class="runstate" onclick={() => showRun(run.id)} title={t("ux3t5SeeRun")}>
-                      <StatusPill status={pill.status as Status} label={pill.label ? t(pill.label) : undefined} hint={pill.hint && t(pill.hint)} />
-                      <RunProgress {run} team={crew} />
-                    </button>
-                  {/if}
-                  <div class="acts" class:quiet={(!!ticket.project || !!run) && starting !== ticket.url}>
-                    {#if run}
-                      <!-- The run's state is the row's action: the menu only keeps the ticket's link. -->
-                    {:else if ticket.project}
-                      <button
-                        class="btn sm"
-                        title={t("teamRunsLaunchTitle", { key: ticket.key })}
-                        disabled={!!starting}
-                        onclick={() => launchTeam(ticket)}
-                      >
-                        {#if starting === ticket.url && startingTeam}{@render launching(true)}{:else}<Users
-                            size={14}
-                            aria-hidden="true"
-                          />{t("teamRunsWithTeam")}{/if}
-                      </button>
-                    {:else}
-                      <span class="badge" title={t("ticketNoProjectTitle")}>{t("ticketNoProject")}</span>
-                    {/if}
-                    <button
-                      class="icon-btn"
-                      aria-label={`${t("ux3t5More")} · ${ticket.key}`}
-                      title={t("ux3t5More")}
-                      aria-haspopup="dialog"
-                      aria-expanded={menuOpen && menu?.ticket.url === ticket.url}
-                      onclick={(e) => toggleMenu(ticket, e.currentTarget)}
-                    >
-                      {#if starting === ticket.url && !startingTeam}<LoaderCircle
-                          size={16}
-                          aria-hidden="true"
-                          class="spin"
-                        />{:else}<Ellipsis size={16} aria-hidden="true" />{/if}
-                    </button>
-                  </div>
-                </div>
-              </li>
-              {#if pending?.from === ticket.url}
-                <li class="choice">{@render launchBox()}</li>
-              {/if}
-            {/each}
-          </ul>
-        {/if}
-      </div>
-    {:else if tickets.tab === "browse" && browseSources.length}
-      <TicketsBrowse project={tickets.scope} sources={browseSources} {sourceName} {starting} onlaunch={(ticket) => launch(ticket, "browse")} />
+    {#if tickets.tab === "browse"}
+      {#if browseSources.length}
+        <TicketsBrowse
+          project={tickets.scope}
+          sources={browseSources}
+          {sourceName}
+          {starting}
+          onlaunch={(ticket) => launch(ticket, "browse")}
+          bind:view
+          todo={inbox}
+          todoList={todoPane}
+        />
+      {:else}
+        {@render todoPane()}
+      {/if}
     {:else if !runs.length && !tickets.runsRead}
       <div class="pane loading"><Skeleton shape="list" rows={4} /></div>
     {:else if !runs.length}
       <div class="pane">
         <EmptyState icon={Ticket} title={t("runsEmpty")} text={t("runsEmptyHelp")}>
           <div class="empty-actions">
-            <button class="btn" onclick={() => (tickets.tab = "inbox")}>
+            <button class="btn" onclick={() => (tickets.tab = "browse")}>
               <Inbox size={14} aria-hidden="true" />{t("ticketsTabInbox")}
             </button>
             <button class="btn" onclick={launchTicket}>

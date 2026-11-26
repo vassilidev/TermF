@@ -47,7 +47,7 @@ pub use run::{
 pub use secrets::{Keychain, Secrets};
 pub use sources::{
     AzureTracker, Configured, GithubTracker, GitlabTracker, JiraTracker, LinearTracker, McpTracker,
-    Sources, Tokens, Trackers, write_trackers,
+    Sources, SpaceStates, Tokens, Trackers, write_trackers,
 };
 pub use store::{Event, Run, RunEvent, RunStatus, utc};
 
@@ -686,19 +686,26 @@ impl Tickets {
     /// state to move it to. Nothing by default.
     #[cfg(test)]
     fn writes(&self, project: &str, provider: &str) -> (bool, Option<String>) {
-        self.writes_at(project, provider, "")
+        let ticket = TicketRef {
+            provider: provider.into(),
+            key: String::new(),
+            url: String::new(),
+        };
+        self.writes_at(project, &ticket)
     }
 
-    /// The same for the ticket at `url`: a Jira ticket by the settings of the site it is on.
-    fn writes_at(&self, project: &str, provider: &str, url: &str) -> (bool, Option<String>) {
+    /// The same for `ticket`: a Jira ticket by the settings of the site and the space it is in.
+    fn writes_at(&self, project: &str, ticket: &TicketRef) -> (bool, Option<String>) {
         let Ok(trackers) = self.trackers(project) else {
             return (false, None);
         };
-        match provider {
+        match ticket.provider.as_str() {
             "jira" => {
-                let on = |j: &&JiraTracker| jira::base(&j.site).is_ok_and(|b| url.starts_with(&b));
+                let on = |j: &&JiraTracker| {
+                    jira::base(&j.site).is_ok_and(|b| ticket.url.starts_with(&b))
+                };
                 let site = trackers.jira.iter().find(on).or(trackers.jira.first());
-                site.map_or((false, None), |j| (j.comment, j.transition.clone()))
+                site.map_or((false, None), |j| (j.comment, j.done(&ticket.key)))
             }
             "github" => trackers.github.map_or((false, None), |g| {
                 let on_board = g.project.is_some();

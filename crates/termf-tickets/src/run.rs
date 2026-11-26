@@ -1173,8 +1173,7 @@ impl Tickets {
                 .iter()
                 .any(|e| matches!(e.event, Event::TicketMoved { .. }));
         }
-        let (comment, transition) =
-            self.writes_at(&run.project, &run.ticket.provider, &run.ticket.url);
+        let (comment, transition) = self.writes_at(&run.project, &run.ticket);
         if let Some(url) = run.pr_url.clone()
             && comment
             && !commented

@@ -10,8 +10,10 @@
   import { ago, t } from "$lib/i18n";
   import TicketDetail from "$lib/TicketDetail.svelte";
   import TicketsBoard from "$lib/TicketsBoard.svelte";
-  import { bySpace } from "$lib/tickets-logic";
+  import type { Snippet } from "svelte";
+  import { bySpace, firstLayout } from "$lib/tickets-logic";
   import {
+    tickets as store,
     type BrowseFilter,
     type BrowsePage,
     type TicketSummary,
@@ -19,8 +21,9 @@
   } from "$lib/tickets.svelte";
 
   /**
-   * A tracker beyond the inbox: its projects, its tickets by state, assignee, words and sprint, a page at a time,
-   * and one ticket in full, to launch a run on. What the tracker gives was written by anyone: it shows as text.
+   * A project's tickets, the user's to-do ones first: its spaces on top, a board or a list, by state, assignee,
+   * words and sprint beyond the to-do ones, a page at a time, and one ticket in full, to launch a run on. What
+   * the tracker gives was written by anyone: it shows as text.
    */
   let {
     project,
@@ -28,6 +31,9 @@
     sourceName,
     starting,
     onlaunch,
+    view = $bindable(),
+    todo,
+    todoList,
   }: {
     project: string;
     /** The project's sources a browse reads (`jira`, `github`, `mcp:<name>`). */
@@ -36,11 +42,16 @@
     /** The URL of the ticket being launched. */
     starting: string;
     onlaunch: (ticket: TicketSummary) => void;
+    /** The to-do tickets only (the inbox), the source and the space shown: the parent's list follows them. */
+    view: { todo: boolean; source: string; space: string };
+    /** The to-do tickets of the source and space; null while read. */
+    todo: TicketSummary[] | null;
+    /** Their list, with its launches and runs. */
+    todoList: Snippet;
   } = $props();
 
-  // svelte-ignore state_referenced_locally
-  let source = $state(sources[0] ?? "");
-  let filter = $state<BrowseFilter>({ projects: [], status: "open", assignee: "all", text: "", sprint: false });
+  let filter = $state<Omit<BrowseFilter, "projects">>({ status: "open", assignee: "all", text: "", sprint: false });
+  const source = $derived(view.source);
   let projects = $state<TrackerProject[] | null>(null);
   let projectsError = $state("");
   let found = $state<TicketSummary[] | null>(null);
@@ -52,10 +63,12 @@
   const mcp = $derived(source.startsWith("mcp:"));
   const jiraLike = $derived(source === "jira" || source.startsWith("jira:") || mcp);
   /** Several spaces read at once: the list groups them. */
-  const grouped = $derived(jiraLike && !filter.projects.length && (projects?.length ?? 0) > 1);
+  const grouped = $derived(jiraLike && !view.space && (projects?.length ?? 0) > 1);
+  /** Few enough to show them all on top; more go in a list. */
+  const SPACES_SHOWN = 6;
 
   $effect(() => {
-    if (!sources.includes(source)) source = sources[0] ?? "";
+    if (!sources.includes(view.source)) view.source = sources[0] ?? "";
   });
 
   // The source's projects, once per source.
@@ -65,7 +78,7 @@
     if (!s || `${p} ${s}` === projectsOf) return;
     projectsOf = `${p} ${s}`;
     [projects, projectsError] = [null, ""];
-    filter.projects = [];
+    view.space = "";
     // Through an MCP server each read is a paid Claude Code call: its words say the projects instead.
     if (s.startsWith("mcp:")) return void (projects = []);
     invoke<TrackerProject[]>("tickets_source_projects", { project: p, source: s }).then(
@@ -80,7 +93,12 @@
     if (after) more = true;
     else [found, next, error] = [null, null, ""];
     try {
-      const browse = { ...filter, text: filter.text.trim() || null, sprint: jiraLike && filter.sprint };
+      const browse = {
+        ...filter,
+        projects: view.space ? [view.space] : [],
+        text: filter.text.trim() || null,
+        sprint: jiraLike && filter.sprint,
+      };
       const page = await invoke<BrowsePage>("tickets_browse", { project, source, browse, next: after });
       if (asked !== request) return;
       found = after ? [...(found ?? []), ...page.tickets] : page.tickets;
@@ -98,21 +116,34 @@
   let timer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
     const wait = filter.text ? 400 : 0;
-    void [project, source, filter.status, filter.assignee, filter.sprint, filter.projects.join(), filter.text];
+    void [project, source, filter.status, filter.assignee, filter.sprint, view.space, filter.text];
     clearTimeout(timer);
-    if (!source) return;
+    // The to-do tickets are the inbox's, already read.
+    if (!source || view.todo) return;
     timer = setTimeout(() => void load(null), wait);
     return () => clearTimeout(timer);
   });
 
   /** A ticket moved in its panel or on the board: the list shows its new state. */
   function moved(ticket: TicketSummary, to: string) {
-    found = (found ?? []).map((x) => (x.url === ticket.url ? { ...x, state: to } : x));
+    const at = (list: TicketSummary[] | null) => list?.map((x) => (x.url === ticket.url ? { ...x, state: to } : x)) ?? null;
+    found = at(found);
+    store.inbox = at(store.inbox);
   }
 
-  /** List or board, kept for the next visit. */
-  let layout = $state<"list" | "board">(read("termf.tickets.layout") === "board" ? "board" : "list");
-  $effect(() => write("termf.tickets.layout", layout));
+  /** List or board as last picked, kept for the next visit; else the board, where the source has states. */
+  let picked = $state(read("termf.tickets.display"));
+  const layout = $derived<"list" | "board">(picked === "list" || picked === "board" ? picked : firstLayout(source));
+
+  function pickLayout(l: string) {
+    picked = l;
+    write("termf.tickets.display", l);
+  }
+
+  function showTodo(on: boolean) {
+    view.todo = on;
+    chosen = null;
+  }
 
   /** The source's states, the board's columns, read once per source. */
   let board = $state<{ columns: string[]; movable: boolean; none: boolean } | null>(null);
@@ -155,31 +186,49 @@
         { id: "board", label: t("tkbBoard") },
       ]}
       selected={layout}
-      onselect={(l) => (layout = l as typeof layout)}
+      onselect={pickLayout}
     />
     {#if sources.length > 1}
       <Segments
         label={t("tjdSource")}
         options={sources.map((s) => ({ id: s, label: sourceName(s) }))}
         selected={source}
-        onselect={(s) => (source = s)}
+        onselect={(s) => (view.source = s)}
       />
     {/if}
-    <label class="pick">
-      <span class="sr-only">{t("tjdProject")}</span>
-      <select
-        class="field"
-        value={filter.projects[0] ?? ""}
-        onchange={(e) => (filter.projects = e.currentTarget.value ? [e.currentTarget.value] : [])}
-        disabled={!projects}
-        aria-busy={!projects}
-      >
-        <option value="">{projects ? t("tjdAllProjects") : t("tjdProjectsLoading")}</option>
-        {#each projects ?? [] as p (p.key)}
-          <option value={p.key}>{p.name === p.key ? p.key : `${p.key} · ${p.name}`}</option>
-        {/each}
-      </select>
-    </label>
+    {#if projects && projects.length > 1 && projects.length <= SPACES_SHOWN}
+      <Segments
+        label={t("tbfSpaces")}
+        options={[{ id: "", label: t("tjdAllProjects") }, ...projects.map((p) => ({ id: p.key, label: p.key }))]}
+        selected={view.space}
+        onselect={(s) => (view.space = s)}
+      />
+    {:else if !projects || projects.length}
+      <label class="pick">
+        <span class="sr-only">{t("tjdProject")}</span>
+        <select
+          class="field"
+          bind:value={view.space}
+          disabled={!projects}
+          aria-busy={!projects}
+        >
+          <option value="">{projects ? t("tjdAllProjects") : t("tjdProjectsLoading")}</option>
+          {#each projects ?? [] as p (p.key)}
+            <option value={p.key}>{p.name === p.key ? p.key : `${p.key} · ${p.name}`}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
+    <Segments
+      label={t("tbfShow")}
+      options={[
+        { id: "todo", label: t("tbfTodo"), count: todo?.length },
+        { id: "all", label: t("tbfEverything") },
+      ]}
+      selected={view.todo ? "todo" : "all"}
+      onselect={(s) => showTodo(s === "todo")}
+    />
+    {#if !view.todo}
     <Segments
       label={t("tjdStatus")}
       options={[
@@ -205,13 +254,14 @@
       <Search size={14} aria-hidden="true" />
       <input class="field" type="search" bind:value={filter.text} placeholder={t("tjdSearch")} aria-label={t("tjdSearch")} spellcheck="false" />
     </label>
+    {/if}
   </div>
   {#if projectsError}
     <p class="notice warn small"><CircleAlert size={14} aria-hidden="true" />{t("tjdProjectsFailed", { error: projectsError })}</p>
   {/if}
-  {#if mcp}<p class="muted small hint">{t("tjdMcpSlow")}</p>{/if}
+  {#if mcp && !view.todo}<p class="muted small hint">{t("tjdMcpSlow")}</p>{/if}
 
-  <div class="split" class:wide={layout === "board" && !chosen}>
+  <div class="split" class:wide={(layout === "board" || view.todo) && !chosen}>
     {#if layout === "board"}
       <div class="boardpane">
         {#if error}<p class="notice error" role="alert"><CircleAlert size={14} aria-hidden="true" />{error}</p>{/if}
@@ -219,13 +269,13 @@
           {project}
           {source}
           {sourceName}
-          tickets={found}
+          tickets={view.todo ? todo : found}
           columns={board?.columns ?? null}
           movable={board?.movable ?? false}
           none={board?.none ?? false}
           {chosen}
           {starting}
-          {next}
+          next={view.todo ? null : next}
           {more}
           onmore={() => load(next)}
           onopen={(ticket) => (chosen = ticket)}
@@ -233,6 +283,8 @@
           onmoved={moved}
         />
       </div>
+    {:else if view.todo}
+      <div class="todo">{@render todoList()}</div>
     {:else}
     <div class="list" aria-busy={found === null}>
       {#if error}
@@ -275,7 +327,7 @@
     </div>
     {/if}
 
-    {#if layout === "list" || chosen}
+    {#if (layout === "list" && !view.todo) || chosen}
     <aside class="pane-detail" aria-label={chosen ? `${chosen.key} ${chosen.title}` : t("tjdPick")}>
       {#if !chosen}
         <p class="muted pick-one">{t("tjdPick")}</p>
@@ -359,7 +411,8 @@
   }
 
   .list,
-  .pane-detail {
+  .pane-detail,
+  .todo {
     min-height: 0;
     overflow-y: auto;
   }

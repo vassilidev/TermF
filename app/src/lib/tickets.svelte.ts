@@ -106,7 +106,7 @@ export const tickets = $state({
   get scope(): string {
     return app.project ?? "";
   },
-  tab: "inbox" as "inbox" | "browse" | "runs",
+  tab: "browse" as "browse" | "runs",
   /** null while the first load of the scope runs. */
   inbox: null as TicketSummary[] | null,
   inboxError: "",

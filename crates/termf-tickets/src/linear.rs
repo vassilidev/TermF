@@ -35,6 +35,10 @@ const STATES: &str = "query($id: String!) {
   issue(id: $id) { team { states(first: 100) { nodes { id name } } } }
 }";
 
+const TEAM_STATES: &str = "query($team: String!) {
+  workflowStates(first: 100, filter: { team: { key: { eqIgnoreCase: $team } } }) { nodes { name } }
+}";
+
 const COMMENT: &str = "mutation($id: String!, $body: String!) {
   commentCreate(input: { issueId: $id, body: $body }) { success }
 }";
@@ -243,6 +247,12 @@ impl Linear {
             }
         }
         Ok(found)
+    }
+
+    /// The states of the team `team` (`ENG`), as Linear names them.
+    pub(crate) fn team_states(&self, team: &str) -> Result<Vec<String>> {
+        let data = self.graphql(TEAM_STATES, json!({ "team": team }), Some(true))?;
+        Ok(names(&data["workflowStates"], "name"))
     }
 
     fn key(ticket: &TicketRef) -> Result<String> {

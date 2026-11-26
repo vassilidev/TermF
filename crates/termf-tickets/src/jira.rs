@@ -727,12 +727,31 @@ impl Jira {
 
     /// The statuses of the spaces' workflows, as a board's columns.
     pub(crate) fn board(&self, spaces: &[String]) -> Result<Vec<String>> {
-        let answers = spaces
+        let answers: Vec<Value> = self
+            .workflows(spaces)?
+            .into_iter()
+            .map(|(_, a)| a)
+            .collect();
+        Ok(statuses_of(&answers))
+    }
+
+    /// Each space's statuses, its own workflow's.
+    pub(crate) fn space_states(&self, spaces: &[String]) -> Result<Vec<(String, Vec<String>)>> {
+        let found = self.workflows(spaces)?.into_iter();
+        Ok(found.map(|(s, a)| (s, statuses_of(&[a]))).collect())
+    }
+
+    /// Each space's `/project/{key}/statuses`.
+    fn workflows(&self, spaces: &[String]) -> Result<Vec<(String, Value)>> {
+        spaces
             .iter()
             .filter(|s| project_key(s))
-            .map(|s| self.call("GET", &format!("/rest/api/3/project/{s}/statuses"), None))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(statuses_of(&answers))
+            .map(|s| {
+                let answer =
+                    self.call("GET", &format!("/rest/api/3/project/{s}/statuses"), None)?;
+                Ok((s.clone(), answer))
+            })
+            .collect()
     }
 
     /// Assigns the ticket to the account itself (`me`), to nobody (`none`), or to the account with this e-mail.

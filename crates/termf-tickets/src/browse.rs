@@ -615,6 +615,7 @@ mod tests {
             spaces: spaces.iter().map(|s| s.to_string()).collect(),
             comment: false,
             transition: None,
+            transitions: Default::default(),
         }
     }
 

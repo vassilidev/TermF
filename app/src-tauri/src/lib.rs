@@ -500,6 +500,7 @@ pub fn run() {
             tickets::tickets_ticket,
             tickets::tickets_states,
             tickets::tickets_board,
+            tickets::tickets_source_states,
             tickets::tickets_assign,
             tickets::tickets_move,
             tickets::tickets_comment,

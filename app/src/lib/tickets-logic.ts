@@ -115,3 +115,28 @@ export function boardColumns(states: string[], seen: string[]): string[] {
 
 /** The column a ticket's state goes in, whatever its case. */
 export const laneOf = (state: string, lanes: string[]) => lanes.find((l) => l.toLowerCase() === state.toLowerCase()) ?? state;
+
+/** The user's to-do tickets one source lists, in one space when one is picked. */
+export function todoOf<T extends { key: string; source: string }>(inbox: T[] | null, source: string, space: string): T[] | null {
+  return inbox && inbox.filter((ticket) => ticket.source === source && (!space || spaceOf(ticket.key) === space));
+}
+
+/** The board first, unless the source has no states to make columns of (GitHub Issues, GitLab). */
+export const firstLayout = (source: string) => (source === "github" || source === "gitlab" ? "list" : "board");
+
+type Done = { transition: string | null; transitions: Record<string, string> };
+
+/** The status a space's delivered tickets move to: its own, else the site's; "" leaves them as they are. */
+export const doneOf = (site: Done, space: string) => site.transitions?.[space] ?? site.transition ?? "";
+
+/** A status list to pick from, the status already set kept in it (typed before, in another case). */
+export function pickable(states: string[], current: string): { options: string[]; value: string } {
+  const same = states.find((s) => s.toLowerCase() === current.toLowerCase());
+  return { options: same || !current ? states : [...states, current], value: same ?? current };
+}
+
+/** Each space's status written down, once one is picked: the site's single status no longer stands for them. */
+export function withDone(site: Done, spaces: string[], space: string, to: string): Done {
+  const each = Object.fromEntries(spaces.map((s) => [s, s === space ? to : doneOf(site, s)]));
+  return { transition: null, transitions: Object.fromEntries(Object.entries(each).filter(([, v]) => v)) };
+}
