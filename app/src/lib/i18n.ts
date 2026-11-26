@@ -5852,6 +5852,18 @@ const fr = {
   uxs2LibRemoved: "Copie de {name} retirée",
   uxs2ActLibRemove: "Retirer une copie de la bibliothèque",
   uxs2ActLibRemoveText: "Retire la copie de {kind} « {name} » de {where}.",
+  vaultCardsTitle: "{who} a besoin du coffre",
+  vaultCardsUnlockText: "« {action} » a besoin du coffre, qui est verrouillé : ouvre-le et l'action reprend.",
+  vaultCardsReauthText: "« {action} » touche un secret de prod. Le coffre reste ouvert, mais la prod redemande ton mot de passe maître, valable 5 minutes.",
+  vaultCardsNever: "Ce que tu tapes ici reste dans TermF : l'agent ne le voit jamais.",
+  vaultCardsOpenMeans:
+    "Ouvert : TermF lit tes secrets pour toi et pour les agents que tu autorises, jamais la prod sans ton mot de passe, jusqu'à ce que tu quittes cette vue ou après {minutes} min sans usage.",
+  vaultCardsOpenMeansIdle:
+    "Ouvert : TermF lit tes secrets pour toi et pour les agents que tu autorises, jamais la prod sans ton mot de passe, jusqu'à {minutes} min sans usage.",
+  vaultCardsLockOnLeave: "Verrouiller en quittant le coffre",
+  vaultCardsMissing: "Le coffre ne l'a pas : saisis-le ici, il y est gardé et le test reprend.",
+  vaultCardsValueOf: "Valeur de {name}",
+  vaultCardsSaveTest: "Enregistrer et tester",
 };
 
 type Key = keyof typeof fr;
@@ -11674,6 +11686,17 @@ const en: Record<Key, string> = {
   uxs2LibRemoved: "Copy of {name} removed",
   uxs2ActLibRemove: "Remove a copy from the library",
   uxs2ActLibRemoveText: "Removes the copy of {kind} “{name}” from {where}.",
+  vaultCardsTitle: "{who} needs the vault",
+  vaultCardsUnlockText: "“{action}” needs the vault, which is locked: open it and the action goes on.",
+  vaultCardsReauthText: "“{action}” touches a prod secret. The vault stays open, but prod asks for your master password again, valid 5 minutes.",
+  vaultCardsNever: "What you type here stays in TermF: the agent never sees it.",
+  vaultCardsOpenMeans:
+    "Open: TermF reads your secrets for you and for the agents you allow, never prod without your password, until you leave this view or after {minutes} min without use.",
+  vaultCardsOpenMeansIdle: "Open: TermF reads your secrets for you and for the agents you allow, never prod without your password, until {minutes} min without use.",
+  vaultCardsLockOnLeave: "Lock when leaving the vault",
+  vaultCardsMissing: "The vault does not have it: type it here, it is kept there and the test runs again.",
+  vaultCardsValueOf: "Value of {name}",
+  vaultCardsSaveTest: "Save and test",
 };
 
 const messages = { fr, en };

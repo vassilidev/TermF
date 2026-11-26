@@ -593,6 +593,18 @@ export function passwordName(connection: string): string {
   return `${connection.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_PASSWORD`;
 }
 
+/** A kind whose password TermF asks for when it is added, and keeps in the vault: a database server, or Redis. */
+const takesPassword = (k: Kind) => isServer(k) || k === "redis";
+
+/** Whether an agent's `ops.add_connection` card asks the user for the password: unless it says none is needed. */
+export const asksPassword = (args: Record<string, unknown>) => takesPassword(args.kind as Kind) && args.no_password !== true;
+
+/** The secret a test found missing from the vault, for the user to type there and then: its name, or null. With no
+ * vault at all, its check says to create one first. */
+export function missingSecret(checks: Check[]): string | null {
+  return checks.find((c) => c.code === "secret" && !c.ok && c.detail.startsWith("no secret "))?.subject ?? null;
+}
+
 /** Why TermF takes no such database, as the interface says it (`opsdbRefused*`); `null` for a database it takes. */
 export function engineRefused(scheme: string): "Sqlserver" | "Mongodb" | "Redis" | "Other" | null {
   const s = scheme.trim().toLowerCase();

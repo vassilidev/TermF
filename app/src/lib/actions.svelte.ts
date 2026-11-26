@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import { Approved, forAgent, refused, type Args, type Spec } from "$lib/actions-logic";
+import { Approved, forAgent, refused, vaultBlock, type Args, type Spec } from "$lib/actions-logic";
 import { ask } from "$lib/ask.svelte";
 import { ciActions, ciHere } from "$lib/ci-actions";
 import { conversationActions } from "$lib/conversation-actions";
@@ -88,10 +88,20 @@ export type Call = {
 /** How long a card waits for the user. */
 const WAIT = 300_000;
 
+/**
+ * An approved call whose run stopped at the vault: locked, or prod asking for the master password again. TermF's
+ * card asks for it, then runs the call again with what the user typed in the first card. `n`: this wait, not the
+ * call's next one.
+ */
+export type VaultWait = { n: number; call: Call; secrets: Record<string, string>; need: "unlock" | "reauth" };
+
 export const agentActions = $state({
   /** The calls whose card waits for the user, every conversation. */
   waiting: [] as Call[],
+  /** The calls whose run waits for the vault, every conversation. */
+  vault: [] as VaultWait[],
 });
+let waits = 0;
 
 /** The screen a conversation's user writes from: the last one a question went from, else the one it started from. */
 export function screenOf(session: number): string | null {
@@ -120,6 +130,15 @@ async function reply(id: number, result: unknown, error: string | null) {
 
 function drop(id: number) {
   agentActions.waiting = agentActions.waiting.filter((c) => c.id !== id);
+  agentActions.vault = agentActions.vault.filter((w) => w.call.id !== id);
+}
+
+/** A card waits in a conversation: its panel opens, and the system tells the user when the window is elsewhere. */
+async function tell(call: Call, what: Key) {
+  if (ask.origins[call.session]) ask.open = true;
+  if (document.hasFocus()) return;
+  const granted = (await isPermissionGranted()) || (await requestPermission()) === "granted";
+  if (granted) sendNotification({ title: t("actNotify"), body: t("actAsks", { who: call.role ?? call.title, what: t(what) }) });
 }
 
 /** Runs an action the user approved: the screen updated and a toast; its result, or its error, to the agent. */
@@ -131,10 +150,26 @@ export async function perform(call: Call, secrets: Record<string, string>) {
     const result = await action.run(call.args, secrets, call.project, call.session);
     await reply(call.id, result ?? { done: true }, null);
   } catch (e) {
+    const need = vaultBlock(e);
+    if (need) return waitVault({ n: ++waits, call, secrets, need }, action.label);
     toast(String(e), { kind: "error" });
     await reply(call.id, null, String(e));
   }
 }
+
+/** The run stopped at the vault: TermF's card asks the user to open it, or to confirm prod, rather than an error. */
+function waitVault(wait: VaultWait, label: Key) {
+  agentActions.vault = [...agentActions.vault, wait];
+  setTimeout(() => {
+    if (!agentActions.vault.some((w) => w.n === wait.n)) return;
+    drop(wait.call.id);
+    void reply(wait.call.id, null, "Nobody opened the vault in TermF within 5 minutes, so it did not run.");
+  }, WAIT);
+  return tell(wait.call, label);
+}
+
+/** The user opened the vault, or confirmed prod, in the card: the call runs again. */
+export const resume = (wait: VaultWait) => perform(wait.call, wait.secrets);
 
 export function refuse(call: Call, why: string) {
   drop(call.id);
@@ -173,15 +208,12 @@ async function answer(call: Call) {
   if (secrets) return perform(call, secrets);
   // Not allowed in a permission card (another agent CLI, an older card): TermF's own card asks.
   agentActions.waiting = [...agentActions.waiting, call];
-  if (ask.origins[call.session]) ask.open = true;
   setTimeout(() => {
     if (!agentActions.waiting.some((c) => c.id === call.id)) return;
     drop(call.id);
     void reply(call.id, null, "Nobody approved this in TermF within 5 minutes, so it did not run.");
   }, WAIT);
-  if (document.hasFocus()) return;
-  const granted = (await isPermissionGranted()) || (await requestPermission()) === "granted";
-  if (granted) sendNotification({ title: t("actNotify"), body: t("actAsks", { who: call.role ?? call.title, what: t(action.label) }) });
+  return tell(call, action.label);
 }
 
 /** Listened to from the start: an agent may act from any conversation. */

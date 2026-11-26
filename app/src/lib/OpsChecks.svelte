@@ -3,10 +3,29 @@
   import CircleX from "@lucide/svelte/icons/circle-x";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { t } from "$lib/i18n";
-  import type { Check } from "$lib/ops-logic";
+  import { missingSecret, type Check } from "$lib/ops-logic";
 
-  /** A connection's test: what works, and what is missing or worth knowing, with what the client said. */
-  let { checks }: { checks: Check[] } = $props();
+  /**
+   * A connection's test: what works, and what is missing or worth knowing, with what the client said. `fill`: a
+   * secret the vault lacks is typed here, kept there, and the test runs again.
+   */
+  let { checks, fill }: { checks: Check[]; fill?: (name: string, value: string) => Promise<void> } = $props();
+
+  const lacking = $derived(fill ? missingSecret(checks) : null);
+  let value = $state("");
+  let saving = $state(false);
+
+  async function save(e: SubmitEvent) {
+    e.preventDefault();
+    if (!lacking || !fill) return;
+    saving = true;
+    try {
+      await fill(lacking, value);
+    } finally {
+      value = "";
+      saving = false;
+    }
+  }
 
   const labels = {
     tool: "opsCheckTool",
@@ -48,6 +67,23 @@
         <span>{line.label}</span>
         {#if c.hint}<span class="hint">{t(hints[c.hint])}</span>{/if}
         {#if line.detail}<span class="detail mono">{line.detail}</span>{/if}
+        {#if c.code === "secret" && c.subject === lacking}
+          <form class="fill" onsubmit={save}>
+            <span class="hint">{t("vaultCardsMissing")}</span>
+            <span class="row">
+              <input
+                class="field mono"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                aria-label={t("vaultCardsValueOf", { name: c.subject })}
+                placeholder={t("vaultCardsValueOf", { name: c.subject })}
+                bind:value
+              />
+              <button class="btn sm primary" disabled={saving || !value}>{t("vaultCardsSaveTest")}</button>
+            </span>
+          </form>
+        {/if}
       </span>
     </li>
   {/each}
@@ -97,6 +133,19 @@
   .hint {
     color: var(--text);
     font-weight: 500;
+  }
+
+  .fill {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .fill .row {
+    display: flex;
+    gap: 6px;
+    max-width: 420px;
   }
 
   .detail {

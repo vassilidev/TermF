@@ -103,10 +103,27 @@ export function refused(spec: Spec, args: unknown, hints: unknown): string | nul
  * it, to propose first. Null once the vault is open.
  */
 export function vaultNeeds(status: { initialized: boolean; unlocked: boolean } | null): string | null {
-  if (!status?.initialized)
-    return "There is no vault yet: propose vault.create first (the user picks its master password in TermF's card), then this action again.";
-  if (!status.unlocked) return "The vault is locked: propose vault.unlock first (the user types its master password in TermF's card), then this action again.";
-  return null;
+  return (
+    noVault(status) ??
+    (status?.unlocked ? null : "The vault is locked: propose vault.unlock first (the user types its master password in TermF's card), then this action again.")
+  );
+}
+
+/** What an action that keeps a secret waits for: a vault. A locked one is no prerequisite: TermF's card opens it when the action runs. */
+export function noVault(status: { initialized: boolean } | null): string | null {
+  return status?.initialized
+    ? null
+    : "There is no vault yet: propose vault.create first (the user picks its master password in TermF's card), then this action again.";
+}
+
+/**
+ * Why an action's run stopped at the vault, which TermF's card settles in place before running it again: locked, or
+ * prod asking for the master password again (5 minutes). Null for any other error.
+ */
+export function vaultBlock(error: unknown): "unlock" | "reauth" | null {
+  const text = String(error);
+  if (/the vault is locked/.test(text)) return "unlock";
+  return /needs the master password again/.test(text) ? "reauth" : null;
 }
 
 /** The master password a new vault takes, as typed twice in the card; why not, in words the user reads. */

@@ -13,6 +13,7 @@
   import StickyNote from "@lucide/svelte/icons/sticky-note";
   import Timer from "@lucide/svelte/icons/timer";
   import VaultIcon from "@lucide/svelte/icons/lock-keyhole";
+  import LockKeyholeOpen from "@lucide/svelte/icons/lock-keyhole-open";
   import { invoke } from "@tauri-apps/api/core";
   import { getContext } from "svelte";
   import VaultAgentKeys from "$lib/VaultAgentKeys.svelte";
@@ -193,6 +194,14 @@
     }
   }
 
+  async function lockOnLeave(on: boolean) {
+    try {
+      setStatus(await invoke<VaultStatus>("vault_lock_on_leave_set", { on }));
+    } catch (e) {
+      vault.error = String(e);
+    }
+  }
+
   async function quickCopy(item: ItemInfo, field: "password" | "totp") {
     copying = `${item.id}:${field}`;
     vault.error = "";
@@ -336,6 +345,10 @@
       </EmptyState>
     </div>
   {:else}
+    <p class="means">
+      <LockKeyholeOpen size={14} aria-hidden="true" />
+      {t(status.lockOnLeave ? "vaultCardsOpenMeans" : "vaultCardsOpenMeansIdle", { minutes: status.autoLockMinutes })}
+    </p>
     <div class="split">
       <div class="side">
         <div class="search">
@@ -421,6 +434,10 @@
           <select class="field" value={status.autoLockMinutes} onchange={(e) => autoLock(Number(e.currentTarget.value))}>
             {#each minutes as m (m)}<option value={m}>{t("vaultMinutes", { n: m })}</option>{/each}
           </select>
+        </label>
+        <label class="leave muted">
+          <input type="checkbox" checked={status.lockOnLeave} onchange={(e) => lockOnLeave(e.currentTarget.checked)} />
+          {t("vaultCardsLockOnLeave")}
         </label>
       </div>
 
@@ -717,6 +734,30 @@
     width: auto;
     height: 26px;
     margin-left: auto;
+  }
+
+  .leave {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px 8px;
+    font-size: var(--text-sm);
+  }
+
+  .means {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--chrome);
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .means :global(svg) {
+    flex-shrink: 0;
   }
 
   .starts {

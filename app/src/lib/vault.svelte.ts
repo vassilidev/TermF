@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { t } from "$lib/i18n";
 import { CLEAR_AFTER, digest } from "$lib/ssh.svelte";
-import { app, ui } from "$lib/state.svelte";
+import { app, onScreen, ui } from "$lib/state.svelte";
 import { toast } from "$lib/ui/toast.svelte";
 import { counts, type ItemInfo, type Merged, type SecretInfo } from "$lib/vault-logic";
 
@@ -11,6 +11,8 @@ export type VaultStatus = {
   unlocked: boolean;
   remembered: boolean;
   autoLockMinutes: number;
+  /** It locks as soon as its view is left. */
+  lockOnLeave: boolean;
   prodUntil: number | null;
   keys: number;
   recovery: boolean;
@@ -70,6 +72,15 @@ function watch() {
     vault.merged++;
     refreshVault();
     if (counts(e.payload).length) say(t("vault3Merged", { summary: mergeText(e.payload) }));
+  });
+  // Its view left, in either panel: it locks, unless the user turned that off (TermF reads the setting).
+  $effect.root(() => {
+    let shown = false;
+    $effect(() => {
+      const now = onScreen("vault") || onScreen("vaultAll");
+      if (shown && !now) invoke<VaultStatus>("vault_leave").then(setStatus, () => {});
+      shown = now;
+    });
   });
 }
 

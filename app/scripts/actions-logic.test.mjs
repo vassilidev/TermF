@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Approved, canon, forAgent, newMaster, refused, secretsOf, vaultNeeds } from "../src/lib/actions-logic.ts";
+import { Approved, canon, forAgent, newMaster, noVault, refused, secretsOf, vaultBlock, vaultNeeds } from "../src/lib/actions-logic.ts";
 
 const add = {
   id: "ops.add_connection",
@@ -92,4 +92,15 @@ test("an action that needs the vault names the action that settles it", () => {
   assert.match(vaultNeeds({ initialized: false, unlocked: false }), /propose vault\.create first/);
   assert.match(vaultNeeds({ initialized: true, unlocked: false }), /locked: propose vault\.unlock first/);
   assert.equal(vaultNeeds({ initialized: true, unlocked: true }), null);
+  assert.match(noVault(null), /propose vault\.create first/);
+  assert.equal(noVault({ initialized: true, unlocked: false }), null, "a locked vault opens in TermF's card when the action runs");
+});
+
+test("a run stopped at the vault asks for it in a card, any other error goes back to the agent", () => {
+  assert.equal(vaultBlock("the vault is locked"), "unlock");
+  assert.equal(vaultBlock(new Error("no secret ACME_REDIS_PASSWORD in the vault (prod): the vault is locked")), "unlock");
+  assert.equal(vaultBlock("the prod scope needs the master password again"), "reauth");
+  assert.equal(vaultBlock("no secret ACME_REDIS_PASSWORD in the vault (prod)"), null);
+  assert.equal(vaultBlock("wrong master password"), null);
+  assert.equal(vaultBlock(undefined), null);
 });

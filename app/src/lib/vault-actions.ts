@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { newMaster, vaultNeeds, type Args } from "$lib/actions-logic";
+import { newMaster, noVault, vaultNeeds, type Args } from "$lib/actions-logic";
 import type { Action } from "$lib/actions.svelte";
 import { deploys } from "$lib/ci.svelte";
 import { t } from "$lib/i18n";
@@ -13,6 +13,7 @@ const SCOPES: Scope[] = ["dev", "staging", "prod"];
 
 const status = () => invoke<VaultStatus>("vault_status");
 const open = async () => vaultNeeds(await status());
+const exists = async () => noVault(await status());
 const projectName = (id: string) => app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
 /** Where a secret goes: the project, or every project (`everywhere`). */
 const where = (a: Args, project: string) => (a.everywhere ? t("vaultGlobal") : projectName(project));
@@ -71,7 +72,9 @@ const unlock: Action = {
     if (!s.initialized) return "There is no vault yet: propose vault.create instead.";
     if (s.unlocked) return "The vault is open already.";
     // A security key asks for a touch, and maybe a PIN, that only the Vault view's screen asks for.
-    return s.keys > 0 ? "This vault opens with a security key too: ask the user to open it in the Vault view." : null;
+    return s.keys > 0
+      ? "This vault opens with a security key too: propose the action that needs the vault instead, TermF asks the user to open it with the key in that card."
+      : null;
   },
   async run(_a, secrets) {
     setStatus(await invoke<VaultStatus>("vault_unlock", { password: secrets.password ?? "", pin: null }));
@@ -99,7 +102,7 @@ const lock: Action = {
 const setSecret: Action = {
   id: "vault.set_secret",
   description:
-    "Adds a secret to the vault, or replaces the value of one, as the Vault view does: for the project (or every project with `everywhere`), in an environment. The user types its value in TermF's card; you never see it. With `reference` (op://… of 1Password, a Bitwarden or Keychain reference), the vault keeps where to read it instead. prod asks the master password again, in the same card.",
+    "Adds a secret to the vault, or replaces the value of one, from any screen, as the Vault view does: for the project (or every project with `everywhere`), in an environment. Propose it whenever an action or a test says the vault lacks a secret (a connection's password, a token): the user types its value in TermF's card, you never see it, never ask for it in the conversation, and say in `hints.value` where they find it. With `reference` (op://… of 1Password, a Bitwarden or Keychain reference), the vault keeps where to read it instead. prod asks the master password again, in the same card.",
   fields: {
     name: { type: "string", description: "As the agents' environment names it: STRIPE_SECRET_KEY." },
     scope: { type: "string", description: "The environment it belongs to.", enum: SCOPES },
@@ -119,7 +122,7 @@ const setSecret: Action = {
   },
   loses: (a, project) =>
     vault.secrets.some((s) => s.name === a.name && s.scope === a.scope && s.project === owner(a, project)) ? t("actVaultReplaceLoses") : "",
-  needs: open,
+  needs: exists,
   async run(a, secrets, project) {
     const name = named(a);
     const args = { name, scope: a.scope, project: owner(a, project), description: typeof a.description === "string" ? a.description.trim() || null : null };
@@ -152,7 +155,7 @@ const deleteSecret: Action = {
     const users = readers(String(a.name), project);
     return t("actVaultDeleteLoses", { users: users.length ? users.join(", ") : t("actVaultDeleteAnyone") });
   },
-  needs: open,
+  needs: exists,
   async run(a, secrets, project) {
     const name = named(a);
     await confirmProd(a, secrets);
@@ -173,6 +176,6 @@ export async function vaultHere(project: string) {
   };
 }
 
-export const vaultActions: Action[] = [setSecret, deleteSecret];
-/** Offered from every screen: an action elsewhere may need the vault first. */
-export const vaultAnywhere: Action[] = [create, unlock, lock];
+export const vaultActions: Action[] = [deleteSecret];
+/** Offered from every screen: an action elsewhere may need the vault first, or a secret it lacks. */
+export const vaultAnywhere: Action[] = [create, unlock, lock, setSecret];

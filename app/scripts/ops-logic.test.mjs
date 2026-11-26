@@ -20,6 +20,8 @@ import {
   secretClash,
   firstTable,
   passwordName,
+  asksPassword,
+  missingSecret,
   savedGroups,
   sqlBlock,
   historyRow,
@@ -485,4 +487,24 @@ test("the schema's diagram: keys between the tables read, referenced tables on t
   const a = { schema: "", name: "a", columns: [col("b_id", "fk", ref("b"))], indexes: [] };
   const b = { schema: "", name: "b", columns: [col("a_id", "fk", ref("a"))], indexes: [] };
   assert.equal(layout([a, b], relations([a, b])).size, 2);
+});
+
+test("an agent's Redis, behind SSH or not, asks for its password in the card, as a SQL database does", () => {
+  const redis = { name: "acme-cache", kind: "redis", env: "prod", via: "acme-web", host: "127.0.0.1" };
+  assert.equal(asksPassword(redis), true);
+  assert.equal(asksPassword({ ...redis, via: undefined, host: "cache.acme.test" }), true);
+  assert.equal(asksPassword({ ...redis, kind: "mysql" }), true);
+  assert.equal(asksPassword({ ...redis, no_password: true }), false);
+  assert.equal(asksPassword({ ...redis, kind: "ssh" }), false);
+  assert.equal(asksPassword({ ...redis, kind: "sqlite" }), false);
+});
+
+test("a test that misses a secret names it, for the user to type it there and then", () => {
+  const tool = { code: "tool", ok: true, warn: false, subject: "redis-cli", detail: "/usr/bin/redis-cli" };
+  const secret = (detail) => ({ code: "secret", ok: false, warn: false, subject: "ACME_CACHE_PASSWORD", detail });
+  assert.equal(missingSecret([tool, secret("no secret ACME_CACHE_PASSWORD in the vault (prod)")]), "ACME_CACHE_PASSWORD");
+  assert.equal(missingSecret([tool, secret("there is no vault yet: create it in the Vault view, then add ACME_CACHE_PASSWORD there")]), null, "the vault first");
+  assert.equal(missingSecret([tool, secret("op read failed: not signed in")]), null, "a reference that failed is not typed over");
+  assert.equal(missingSecret([tool, { ...secret(""), ok: true }]), null);
+  assert.equal(missingSecret([]), null);
 });
