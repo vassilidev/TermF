@@ -712,6 +712,8 @@ pub fn run() {
             ops::ops_run,
             forge::forge_account,
             forge::forge_account_save,
+            forge::forge_test,
+            forge::forge_cli,
             forge::forge_account_delete,
             forge::forge_sites,
             forge::forge_import,
