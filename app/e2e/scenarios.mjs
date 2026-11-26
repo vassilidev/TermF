@@ -672,8 +672,12 @@ export const scenarios = [
       const row = `${pane} [data-group="on"] [role="option"]`;
       await t.view("library");
       await s.waitFor(`${pane} .side:not(.over)`);
-      // ⌘I takes the room: the details go over the list, which a click beside or Escape gives back.
-      await s.click(`${pane} .askbar .ask`);
+      // ⌘I takes the room: the details go over the list, which a click beside or Escape gives back. The panel is a
+      // screen's role's (the CTO opens at full size): devops, found in the palette.
+      await t.palette();
+      await s.type("dialog.palette input", "devops");
+      await s.click(t.sel("data-testid", "command-ask-role-devops"));
+      await s.waitGone("dialog.palette");
       await s.waitFor("[data-ask] aside:not(.over)");
       await s.waitFor(`${pane} .side.over`);
       await s.click(`${pane} .scrim`);
@@ -1128,35 +1132,40 @@ export const scenarios = [
       await t.ready();
       await t.project();
       await t.view("home");
-      // The Home's "Ask" bar opens the ⌘I panel, where the CTO answers.
+      // The Home's "Ask" bar opens the CTO at full size, in Conversations; the ⌘I panel stays folded.
       await s.click(`${t.shown("home")} .askbar .ask`);
-      const ask = "[data-ask]";
+      const ask = t.shown("conversations");
       await s.waitFor(`${ask} form.composer textarea`);
-      // The screen goes with a question as a chip; taken off, the message is the question alone.
+      check(!(await s.exec(() => !!document.querySelector("[data-ask] aside"))), "the ⌘I panel opened beside the CTO");
+      // The screen goes with the next message as a chip; taken off, the message is the question alone.
       await s.click(`${ask} .chip .x`);
       await s.waitGone(`${ask} .chip`);
       await s.type(`${ask} form.composer textarea`, "Add a health check endpoint");
       await s.click(`${ask} form.composer button[type=submit]:not([disabled])`);
       // The message goes to a headless session on its standard input; its answer comes back into the conversation.
       await s.wait(async () => (await s.text(ask))?.includes("Fake Claude received: Add a health check endpoint"), {
-        what: "the CTO's answer in the panel",
+        what: "the CTO's answer in its conversation",
       });
       check(/claude \["-p","--input-format","stream-json"/.test(read(box.calls)), "the CTO is not a headless session");
-      await t.settled("home");
+      await t.settled("conversations");
       await t.clean();
     },
   },
   {
-    name: "CTO: the answer streams word by word and the tool at work is said in plain words",
+    name: "ask: in the panel the answer streams word by word and the tool at work is said in plain words",
     views: [],
     async run(t) {
       const { s } = t;
       await t.ready();
       await t.project();
-      await t.view("home");
-      // ⌘I from the Home: the CTO, the screen as context.
+      await t.view("ci");
+      // ⌘I from CI/CD: devops in the panel, the screen as context; a first question starts its conversation.
       await s.press(Key.mod, "i");
       const ask = "[data-ask]";
+      await s.waitFor(`${ask} form textarea`);
+      await s.type(`${ask} form textarea`, "Hello");
+      await s.click(`${ask} form button[type=submit]:not([disabled])`);
+      await s.wait(async () => (await s.text(ask))?.includes("Fake Claude received:"), { what: "devops's first answer" });
       await s.waitFor(`${ask} form.composer textarea`);
       await s.exec(watchStream, ask);
       // "slowly": the fake streams its words, then runs `npm test` for a while (e2e/fakes/claude.mjs).
@@ -1175,10 +1184,10 @@ export const scenarios = [
       await s.wait(() => s.exec((css) => !!document.querySelector(`${css} .stream .fold`), ask), { what: "the actions folded into a line" });
       // Its words come before its end, and Escape during a turn stops it instead of closing the panel.
       await s.waitFor(`${ask} .end`);
-      // Escape closes the panel; the Home stays.
+      // Escape closes the panel; CI/CD stays.
       await s.press(Key.escape);
       await s.waitGone(`${ask} aside`);
-      await t.settled("home");
+      await t.settled("ci");
       await t.clean();
     },
   },
@@ -1203,8 +1212,11 @@ export const scenarios = [
       });
       const said = await s.exec(() => document.querySelector("[data-ask] .user")?.textContent);
       check(said === "Why does the build fail?", `the question shows with its context: ${said}`);
-      await t.view("conversations");
+      // "Expand": the same conversation at full size, in Conversations, where the panel folds.
+      await s.exec(() => [...document.querySelectorAll("[data-ask] header button")].find((b) => b.textContent.trim() === "Expand").click());
+      await s.waitGone("[data-ask] aside");
       await s.wait(async () => (await s.text(t.shown("conversations")))?.includes("from CI/CD"), { what: "the conversation from CI/CD" });
+      check((await s.exec(() => document.querySelector('[data-panel="conversations"] .user')?.textContent)) === "Why does the build fail?", "not the panel's conversation");
       await t.clean();
     },
   },
@@ -1222,8 +1234,13 @@ export const scenarios = [
       await s.wait(() => s.exec(() => !!document.activeElement?.closest("[data-ask]")), { what: "the cursor in the panel" });
       await t.emit("menu", "ai_panel");
       await s.wait(async () => (await role()) === null, { what: "the panel closed by the menu again" });
+      // The expert opens at full size, in Conversations, the panel staying folded.
       await t.command("ask-role-expert");
-      await s.wait(async () => (await role()) === "expert", { what: "the expert chosen from the palette" });
+      const shown = t.shown("conversations");
+      await s.wait(async () => (await s.exec((css) => document.querySelector(`${css} .head .role`)?.textContent.trim(), shown)) === "expert", {
+        what: "the expert at full size, chosen from the palette",
+      });
+      check((await role()) === null, "the ⌘I panel opened beside the expert");
       await t.clean();
     },
   },
@@ -1279,7 +1296,7 @@ export const scenarios = [
     },
   },
   {
-    name: "terminal: a selection asked about in the panel with ⌘I or the tile's menu, its session as context",
+    name: "terminal: a selection asked about with ⌘I or the tile's menu, its session as context, the CTO at full size",
     views: [],
     async run(t) {
       const { s, box } = t;
@@ -1304,17 +1321,15 @@ export const scenarios = [
       await select();
       // Outside macOS, Ctrl+I in a terminal is the shell's (Tab): the app takes it there with Shift.
       await s.press(Key.mod, ...(t.mac ? [] : [Key.shift]), "i");
-      // A chip's tooltip is the text it sends.
+      // The Terminals' role is the CTO, at full size in Conversations. A chip's tooltip is the text it sends.
       const chip = (label) =>
-        s.exec((l) => [...document.querySelectorAll("[data-ask] .chip")].find((c) => c.querySelector(".label")?.textContent.startsWith(l))?.title ?? null, label);
-      const session = () => s.exec(() => [...document.querySelectorAll("[data-ask] .chip")].some((c) => c.title.startsWith("Terminal session")));
+        s.exec((l) => [...document.querySelectorAll('[data-panel="conversations"] .chip')].find((c) => c.querySelector(".label")?.textContent.startsWith(l))?.title ?? null, label);
+      const session = () => s.exec(() => [...document.querySelectorAll('[data-panel="conversations"] .chip')].some((c) => c.title.startsWith("Terminal session")));
       const picked = await s.wait(() => chip("Selection"), { what: "the terminal's selection as a chip" });
       check(picked.includes("e2e-picked-42"), `the chip does not carry the selection: ${picked}`);
       check(await session(), "the session is not in the context");
-      // Escape closes the panel; the tile's own menu asks again, with a question to read before sending. The panel
-      // resized the terminal, which drops xterm's selection: the user selects again.
-      await s.press(Key.escape);
-      await s.waitGone("[data-ask] aside");
+      // Back in the terminal, the tile's own menu asks again, with a question to read before sending.
+      await t.view("terminals");
       await select();
       await s.exec((sid) => {
         const screen = document.querySelector(`.tile[data-session="${sid}"] .xterm-screen`);
@@ -1327,7 +1342,7 @@ export const scenarios = [
       const items = await s.exec(() => [...document.querySelectorAll('.popover [role="menuitem"]')].map((b) => b.textContent.trim()));
       check(items.some((x) => x.startsWith("Copy")), `no selection to copy in the tile's menu: ${items.join(" / ")}`);
       await s.click('.popover [role="menuitem"]', i);
-      await s.wait(async () => (await s.exec(() => document.querySelector("[data-ask] textarea")?.value)) === "Explain what this output shows, and what I should do next.", {
+      await s.wait(async () => (await s.exec(() => document.querySelector('[data-panel="conversations"] form.composer textarea')?.value)) === "Explain what this output shows, and what I should do next.", {
         what: "the question to read before sending",
       });
       check(await session(), "the session is not in the context from the menu");
@@ -1348,11 +1363,13 @@ export const scenarios = [
       // Every line: the selection ends at the start of the empty last line, which it does not count.
       await s.press(Key.mod, "a");
       await s.click(`${pane} [data-ask-lines]`);
-      const labels = () => s.exec(() => [...document.querySelectorAll("[data-ask] .chip .label")].map((c) => c.textContent.trim()));
+      // The expert answers at full size, in Conversations.
+      const wide = '[data-panel="conversations"]';
+      const labels = () => s.exec((css) => [...document.querySelectorAll(`${css} .chip .label`)].map((c) => c.textContent.trim()), wide);
       await s.wait(async () => (await labels()).includes("README.md:1-3"), { what: "the selected lines as a chip" });
-      const role = await s.exec(() => document.querySelector("[data-ask] select.role")?.value);
+      const role = await s.exec((css) => document.querySelector(`${css} .head .role`)?.textContent.trim(), wide);
       check(role === "expert", `the lines go to ${role}, not the expert`);
-      const lines = await s.exec(() => [...document.querySelectorAll("[data-ask] .chip")].find((c) => c.textContent.includes("README.md:1-3"))?.title);
+      const lines = await s.exec((css) => [...document.querySelectorAll(`${css} .chip`)].find((c) => c.textContent.includes("README.md:1-3"))?.title, wide);
       check(lines?.includes("The API of Acme."), `the chip does not carry the lines: ${lines}`);
       await t.clean();
     },
@@ -1732,14 +1749,14 @@ export const scenarios = [
   {
     name: "design system: the repository's own font, its specimen, its components and every button of the view",
     views: ["design"],
-    // Narrow, with the ⌘I panel open beside the view: every button of the view stays in reach.
+    // Narrow: every button of the view stays in reach.
     sandbox: { size: [1024, 700] },
     async run(t) {
       await t.ready();
       await t.project();
       const panel = t.shown("design");
-      const composer = () => t.s.exec(() => document.querySelector("[data-ask] .composer textarea")?.value ?? "");
-      // The CTO's message box is in the ⌘I panel, beside the view.
+      const composer = () => t.s.exec(() => document.querySelector('[data-panel="conversations"] .composer textarea')?.value ?? "");
+      // The CTO's message box is in Conversations, where it opens at full size.
       const asked = async (what) => {
         await t.s.wait(async () => (await composer()).includes(what), { what: `${what} in the CTO's message box`, timeout: 30_000 });
       };
