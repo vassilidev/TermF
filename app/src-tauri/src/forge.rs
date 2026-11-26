@@ -2,12 +2,12 @@
 //! sites as Ops connections and deploy targets, and a site's deployments.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
-use termf_ops::forge::{self, Account, Deployment, Forge, Server, Site};
+use termf_ops::forge::{self, Account, Check, Deployment, Forge, Server, Site};
 use termf_vault::{Actor, Scope, Secret, SecretId, Vault};
 
 use crate::CmdResult;
@@ -23,22 +23,96 @@ fn token(vault: &Vault, account: &Account) -> Result<Secret> {
     vault.value(&Actor::human(), &id, termf_vault::Access::Use)
 }
 
-/// The project's account and its API.
+fn curl(state: &OpsState) -> Result<PathBuf> {
+    state
+        .runner
+        .find("curl")
+        .context("curl is missing: TermF reaches Forge through it")
+}
+
+/// The project's account and its API, in its organization.
 fn api(state: &OpsState, vault: &Vault, project: &str) -> Result<(Account, Forge, Secret)> {
     let account = forge::account(&state.config_dir, project)?
         .context("the project has no Forge account yet")?;
     let secret = token(vault, &account)?;
-    let curl = state
-        .runner
-        .find("curl")
-        .context("curl is missing: TermF reaches Forge through it")?;
-    let api = Forge::new(secret.expose().to_owned(), curl);
+    let api = Forge::new(secret.expose().to_owned(), curl(state)?)
+        .within(account.organization.as_deref())
+        .map_err(|e| anyhow::anyhow!(hide(format!("{e:#}"), &secret)))?;
     Ok((account, api, secret))
 }
 
 /// What Forge said, the token taken out should it come back.
 fn hide(text: String, secret: &Secret) -> String {
     text.replace(secret.expose(), "••••••")
+}
+
+/// Where the Forge CLI keeps its login (`forge login`).
+fn cli_file() -> PathBuf {
+    termf_core::expand_tilde("~/.laravel-forge/config.json")
+}
+
+/// The token to test or save, whether it is new to the vault, and the organization it goes with by default: the one
+/// typed, else the Forge CLI's when the user chose it, else the account's in the vault.
+fn source(
+    state: &OpsState,
+    vault: &Vault,
+    project: &str,
+    typed: Option<String>,
+    from_cli: bool,
+) -> Result<(Secret, bool, Option<String>)> {
+    let account = forge::account(&state.config_dir, project)?;
+    let org = account.as_ref().and_then(|a| a.organization.clone());
+    if let Some(typed) = typed.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty()) {
+        return Ok((Secret::new(typed), true, org));
+    }
+    if from_cli {
+        let (token, cli_org) = forge::cli_login(&cli_file())
+            .context("the Forge CLI keeps no token on this machine: type one")?;
+        return Ok((Secret::new(token), true, cli_org.or(org)));
+    }
+    let account = account.context("type the account's Forge API token")?;
+    Ok((token(vault, &account)?, false, org))
+}
+
+fn checked(state: &OpsState, secret: &Secret, organization: Option<&str>) -> Result<Check> {
+    Ok(
+        match Forge::new(secret.expose().to_owned(), curl(state)?).check(organization) {
+            Check::Unreachable { detail } => Check::Unreachable {
+                detail: hide(detail, secret),
+            },
+            Check::Failed { detail } => Check::Failed {
+                detail: hide(detail, secret),
+            },
+            other => other,
+        },
+    )
+}
+
+/// Tests a token without saving anything: the one typed, the Forge CLI's (`from_cli`), else the account's.
+#[tauri::command]
+pub async fn forge_test(
+    app: AppHandle,
+    project: String,
+    token: Option<String>,
+    from_cli: bool,
+    organization: Option<String>,
+) -> CmdResult<Check> {
+    blocking(app, move |_, state, vault| {
+        let (secret, _, org) = source(state, vault, &project, token, from_cli)?;
+        checked(state, &secret, organization.or(org).as_deref())
+    })
+    .await
+}
+
+#[derive(Serialize)]
+pub struct CliLogin {
+    organization: Option<String>,
+}
+
+/// Whether the Forge CLI keeps a token on this machine, and its organization: never the token itself.
+#[tauri::command]
+pub fn forge_cli() -> Option<CliLogin> {
+    forge::cli_login(&cli_file()).map(|(_, organization)| CliLogin { organization })
 }
 
 #[tauri::command]
@@ -49,30 +123,46 @@ pub async fn forge_account(app: AppHandle, project: String) -> CmdResult<Option<
     .await
 }
 
-/// Names the project's account; `token`, when given, goes to the vault (global, prod) under the account's name.
+/// Names the project's account once its token works, and gives what the test found either way. A new token (typed,
+/// or the Forge CLI's with `from_cli`) goes to the vault (global, prod) under the account's name; without one, the
+/// account keeps its own.
 #[tauri::command]
 pub async fn forge_account_save(
     app: AppHandle,
     project: String,
     label: String,
     token: Option<String>,
-) -> CmdResult<Account> {
+    from_cli: bool,
+    organization: Option<String>,
+) -> CmdResult<Check> {
     blocking(app, move |_, state, vault| {
-        let account = Account {
-            token: forge::token_name(&label),
-            label: label.trim().to_owned(),
-        };
-        if let Some(value) = token.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty()) {
+        let existing = forge::account(&state.config_dir, &project)?;
+        let (secret, new, org) = source(state, vault, &project, token, from_cli)?;
+        if new {
             ensure!(
                 vault.initialized(),
                 "there is no vault yet: create it in the Vault view, the Forge token goes there"
             );
+        }
+        let check = checked(state, &secret, organization.or(org).as_deref())?;
+        let Check::Ok { organization, .. } = &check else {
+            return Ok(check);
+        };
+        let account = Account {
+            token: match existing {
+                Some(a) if !new => a.token,
+                _ => forge::token_name(&label),
+            },
+            label: label.trim().to_owned(),
+            organization: Some(organization.slug.clone()),
+        };
+        if new {
             let id = SecretId::new(&account.token, Scope::Prod, None)?;
             let about = format!("Laravel Forge API token of the account {}", account.label);
-            vault.set(&Actor::human(), &id, Secret::new(value), Some(&about))?;
+            vault.set(&Actor::human(), &id, secret, Some(&about))?;
         }
         forge::save_account(&state.config_dir, &project, Some(&account))?;
-        Ok(account)
+        Ok(check)
     })
     .await
 }
@@ -223,7 +313,8 @@ pub async fn forge_import(app: AppHandle, project: String, picks: Vec<Pick>) -> 
                 let repo = site
                     .repository
                     .as_deref()
-                    .and_then(|r| r.rsplit('/').next())
+                    .and_then(|r| r.rsplit(['/', ':']).next())
+                    .map(|name| name.trim_end_matches(".git"))
                     .and_then(|name| {
                         repos.iter().find(|p| {
                             Path::new(p)

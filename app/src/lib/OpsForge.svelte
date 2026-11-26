@@ -3,9 +3,11 @@
   import CloudDownload from "@lucide/svelte/icons/cloud-download";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Rocket from "@lucide/svelte/icons/rocket";
+  import Terminal from "@lucide/svelte/icons/terminal";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import { t } from "$lib/i18n";
+  import { forgeCheckText, type ForgeCheck } from "$lib/ops-more-actions";
   import { loadOps } from "$lib/ops.svelte";
   import { toast } from "$lib/ui/toast.svelte";
 
@@ -13,7 +15,7 @@
    * deployments with their log and a redeploy once approved. */
   let { project, ask }: { project: string; ask: (e: unknown, retry: () => Promise<void>) => boolean } = $props();
 
-  type Account = { label: string; token: string };
+  type Account = { label: string; token: string; organization?: string };
   type Site = { id: number; server_id: number; name: string; directory?: string; repository?: string; repository_branch?: string };
   type Found = { server: { id: number; name: string; ip_address?: string }; sites: Site[] };
   type Deployment = { id: number; status: string; commit_hash?: string; commit_message?: string; commit_author?: string; started_at?: string };
@@ -32,6 +34,12 @@
   let deploying = $state(false);
   let removing = $state(false);
   let forgetToken = $state(false);
+  /** The Forge CLI's login on this machine, never its token; `fromCli`: the user chose to reuse it. */
+  let cli = $state<{ organization: string | null } | null>(null);
+  let fromCli = $state(false);
+  let organization = $state("");
+  let organizations = $state<{ slug: string; name: string }[]>([]);
+  let check = $state<ForgeCheck | null>(null);
 
   async function step<T>(name: string, work: () => Promise<T>): Promise<T | undefined> {
     busy = name;
@@ -49,23 +57,49 @@
     void step("account", async () => {
       account = await invoke<Account | null>("forge_account", { project });
       label = account?.label ?? "";
+      organization = account?.organization ?? "";
     });
+    invoke<{ organization: string | null } | null>("forge_cli").then(
+      (c) => (cli = c),
+      () => {},
+    );
   });
 
+  function tried(c: ForgeCheck) {
+    check = c;
+    if (c.result === "organization") organizations = c.organizations;
+    if (c.result === "ok") organization = c.organization.slug;
+  }
+
+  const tokenArgs = () => ({ project, token: token || null, fromCli, organization: organization || null });
+
+  async function test() {
+    const c = await step("test", () => invoke<ForgeCheck>("forge_test", tokenArgs()));
+    if (c) tried(c);
+  }
+
+  /** Saved only once Forge accepts the token. */
   async function save(e: SubmitEvent) {
     e.preventDefault();
-    const saved = await step("save", () => invoke<Account>("forge_account_save", { project, label, token: token || null }));
-    if (!saved) return;
-    account = saved;
-    token = "";
-    editing = false;
+    const c = await step("save", () => invoke<ForgeCheck>("forge_account_save", { ...tokenArgs(), label }));
+    if (!c) return;
+    tried(c);
+    if (c.result !== "ok") return;
+    account = await invoke<Account | null>("forge_account", { project });
+    [token, fromCli, editing] = ["", false, false];
+  }
+
+  function reuseCli() {
+    [fromCli, token] = [true, ""];
+    if (!organization && cli?.organization) organization = cli.organization;
+    if (!label.trim() && cli?.organization) label = cli.organization;
   }
 
   async function removeAccount() {
     const keptFor = await step("remove", () => invoke<string[]>("forge_account_delete", { project, forgetToken }));
     if (!keptFor) return;
     const name = account?.token ?? "";
-    [account, found, picked, site, label, forgetToken] = [null, null, [], null, "", false];
+    [account, found, picked, site, label, forgetToken, organization, organizations, check] = [null, null, [], null, "", false, "", [], null];
     toast(keptFor.length ? t("uxs2ForgeTokenKept", { name, projects: keptFor.join(", ") }) : t("uxs2ForgeRemoved"));
   }
 
@@ -113,6 +147,9 @@
       <h3>{t("opsforgeAccount")}</h3>
       {#if account && !editing}
         <span class="buttons">
+          <button class="btn sm" disabled={!!busy} onclick={test}>
+            {#if busy === "test"}<LoaderCircle size={13} aria-hidden="true" class="spin" />{/if}{t("forgefixTest")}
+          </button>
           <button class="btn sm" onclick={() => (editing = true)}>{t("opsforgeChange")}</button>
           <button class="btn sm quiet danger" disabled={!!busy} onclick={() => (removing = true)}>{t("uxs2ForgeRemove")}</button>
         </span>
@@ -121,21 +158,56 @@
     {#if account === undefined}
       <LoaderCircle size={16} aria-hidden="true" class="spin" />
     {:else if account && !editing}
-      <p><b>{account.label}</b> <span class="muted small">· {t("opsforgeTokenIn", { name: account.token })}</span></p>
+      <p>
+        <b>{account.label}</b>
+        {#if account.organization}<span class="mono muted small">{account.organization}</span>{/if}
+        <span class="muted small">· {t("opsforgeTokenIn", { name: account.token })}</span>
+      </p>
     {:else}
       <p class="muted small">{t("opsforgeAccountHelp")}</p>
+      {#if cli && !fromCli}
+        <div class="cli">
+          <Terminal size={14} aria-hidden="true" />
+          <p class="small">{t("forgefixCli", { org: cli.organization ? t("forgefixCliOrg", { org: cli.organization }) : "" })}</p>
+          <button type="button" class="btn sm" onclick={reuseCli}>{t("forgefixCliUse")}</button>
+        </div>
+      {/if}
       <form class="account" onsubmit={save}>
         <label class="labelled"><span>{t("opsforgeLabel")}</span><input class="field" bind:value={label} placeholder="Acme" required /></label>
-        <label class="labelled">
-          <span>{t("opsforgeToken")}</span>
-          <input class="field mono" type="password" autocomplete="off" bind:value={token} required={!account} placeholder={account ? "••••••••" : ""} />
-        </label>
+        {#if fromCli}
+          <div class="labelled">
+            <span>{t("opsforgeToken")}</span>
+            <span class="field from-cli">
+              <Terminal size={13} aria-hidden="true" />{t("forgefixCliToken")}
+              <button type="button" class="btn link" onclick={() => (fromCli = false)}>{t("forgefixCliOther")}</button>
+            </span>
+          </div>
+        {:else}
+          <label class="labelled">
+            <span>{t("opsforgeToken")}</span>
+            <input class="field mono" type="password" autocomplete="off" bind:value={token} required={!account} placeholder={account ? "••••••••" : ""} />
+          </label>
+        {/if}
+        {#if organizations.length > 1}
+          <label class="labelled">
+            <span>{t("forgefixOrganization")}</span>
+            <select class="field" bind:value={organization}>
+              {#each organizations as o (o.slug)}<option value={o.slug}>{o.name} ({o.slug})</option>{/each}
+            </select>
+          </label>
+        {/if}
         <div class="buttons">
           {#if account}<button type="button" class="btn sm" onclick={() => (editing = false)}>{t("cancel")}</button>{/if}
-          <button class="btn sm primary" disabled={!!busy || !label.trim()}>{t("opsforgeSave")}</button>
+          <button type="button" class="btn sm" disabled={!!busy || (!token && !fromCli && !account)} onclick={test}>
+            {#if busy === "test"}<LoaderCircle size={13} aria-hidden="true" class="spin" />{/if}{t("forgefixTest")}
+          </button>
+          <button class="btn sm primary" disabled={!!busy || !label.trim()}>
+            {#if busy === "save"}<LoaderCircle size={13} aria-hidden="true" class="spin" />{/if}{t("opsforgeSave")}
+          </button>
         </div>
       </form>
     {/if}
+    {#if check}<p class="notice {check.result === 'ok' ? 'ok' : 'error'}" role="status">{forgeCheckText(check)}</p>{/if}
   </section>
 
   {#if account}
@@ -245,10 +317,38 @@
   }
 
   .account {
-    display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    display: flex;
+    flex-wrap: wrap;
     align-items: end;
     gap: 10px;
+  }
+
+  .account .labelled {
+    flex: 1 1 180px;
+  }
+
+  .cli {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+  }
+
+  .cli p {
+    flex: 1;
+  }
+
+  .from-cli {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+  }
+
+  .from-cli .btn {
+    margin-left: auto;
   }
 
   .buttons {
