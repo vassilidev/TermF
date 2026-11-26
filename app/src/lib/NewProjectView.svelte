@@ -245,7 +245,7 @@
     if (cto) {
       const text = t("greenfieldSeed", { name: asked.name, path: made.path, idea: asked.idea });
       await invoke("agent_send", { id: cto.id, text }).catch((e) => failed.push(String(e)));
-      // Its answer comes in the ⌘I panel.
+      // Its answer comes in its conversation, at full size.
       void askAI({ role: "cto" });
     }
     if (failed.length) app.error = t("setupPartial", { error: failed.join(" · ") });

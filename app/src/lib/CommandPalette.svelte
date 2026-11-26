@@ -2,8 +2,9 @@
   import { onMount } from "svelte";
   import Check from "@lucide/svelte/icons/check";
   import Search from "@lucide/svelte/icons/search";
+  import { searchConversations, type Found } from "$lib/agents.svelte";
   import { askedProject, loadRoles } from "$lib/ask.svelte";
-  import { commands, rank, type Command } from "$lib/commands";
+  import { commands, conversationCommands, rank, type Command } from "$lib/commands";
   import { t } from "$lib/i18n";
   import { currentProject } from "$lib/files.svelte";
   import type { Group } from "$lib/nav-logic";
@@ -13,7 +14,13 @@
   let list: HTMLDivElement;
   let query = $state("");
   let index = $state(0);
-  const results = $derived(rank(commands(), query));
+  /** The conversation finder (its own shortcut): the conversations only, listed before typing. */
+  const only = $derived(ui.palette === "conversations");
+  /** The conversations whose messages hold the query, read once typing pauses. */
+  let found = $state<Found[]>([]);
+  const results = $derived(
+    only ? rank(conversationCommands(found, true), query) : rank([...commands(), ...conversationCommands(found)], query),
+  );
   /** The results cut where the group changes, with each one's index among all. */
   const sections = $derived.by(() => {
     const out: { group: Group; items: { command: Command; i: number }[] }[] = [];
@@ -27,6 +34,7 @@
   const titles: Record<Group, string> = {
     projects: t("projects"),
     sessions: t("navSessions"),
+    conversations: t("chatView"),
     repos: project ? t("navProjectRepos", { project: project.name }) : t("repos"),
     others: t("repos"),
     views: project ? t("ux3t4ProjectViews", { project: project.name }) : t("navViews"),
@@ -54,7 +62,15 @@
 
   $effect(() => {
     void query;
+    void only;
     index = 0;
+  });
+
+  $effect(() => {
+    const q = query.trim();
+    if (q.length < 3) return void (found = []);
+    const timer = setTimeout(() => searchConversations(q).then((hits) => query.trim() === q && (found = hits)), 200);
+    return () => clearTimeout(timer);
   });
 
   function run(command: Command | undefined) {
@@ -101,8 +117,8 @@
       aria-controls="palette-list"
       aria-autocomplete="list"
       aria-activedescendant={results.length ? `palette-${index}` : undefined}
-      aria-label={t("palette")}
-      placeholder={t("palettePlaceholder")}
+      aria-label={only ? t("convsFind") : t("palette")}
+      placeholder={only ? t("convsFindPlaceholder") : t("palettePlaceholder")}
       autocomplete="off"
       spellcheck="false"
       bind:value={query}

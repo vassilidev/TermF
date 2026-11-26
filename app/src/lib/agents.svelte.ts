@@ -49,6 +49,8 @@ export const agents = $state({
   creating: false,
   /** `agent_sessions` answered once, or failed to. */
   read: false,
+  /** The projects the list is narrowed to; empty: the current project, or every one. */
+  only: [] as string[],
 });
 
 const money = new Intl.NumberFormat(lang, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 3 });
@@ -76,14 +78,27 @@ export function waitingAgents(): AgentSession[] {
   return agents.sessions.filter((a) => a.state === "waiting");
 }
 
+/** In the list: under one of the projects picked, else under the current project (or every one). */
+function shown(session: AgentSession): boolean {
+  return agents.only.length ? agentProjects(session).some((p) => agents.only.includes(p)) : inScope(session);
+}
+
 /** The sessions the view lists: the current project's, most recent first. */
 export function listed(): AgentSession[] {
-  return agents.sessions.filter((a) => inScope(a) && !a.archived).sort((a, b) => b.id - a.id);
+  return agents.sessions.filter((a) => shown(a) && !a.archived).sort((a, b) => b.id - a.id);
 }
 
 /** The current project's archived conversations, most recent first. */
 export function archives(): AgentSession[] {
-  return agents.sessions.filter((a) => inScope(a) && a.archived).sort((a, b) => b.id - a.id);
+  return agents.sessions.filter((a) => shown(a) && a.archived).sort((a, b) => b.id - a.id);
+}
+
+/** What `agent_search` finds: a conversation whose messages hold the text, and the passage there. */
+export type Found = { session: number; text: string };
+
+/** The conversations whose messages hold `query`, archived ones included; none when the search fails. */
+export function searchConversations(query: string): Promise<Found[]> {
+  return invoke<Found[]>("agent_search", { query }).catch(() => []);
 }
 
 function standingOf(project: string | null, role: string): AgentSession | undefined {
@@ -142,6 +157,7 @@ export function showConversations() {
 /** Shows a session's conversation, switching to its project if the current one does not hold it. */
 export function showConversation(id: number) {
   const session = agents.sessions.find((a) => a.id === id);
+  if (session && !shown(session)) agents.only = [];
   if (session && !inScope(session)) setProject(agentProjects(session)[0] ?? null);
   agents.selected = id;
   agents.creating = false;

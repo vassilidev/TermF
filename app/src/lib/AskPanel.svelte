@@ -2,15 +2,12 @@
   import { tick, untrack } from "svelte";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import AtSign from "@lucide/svelte/icons/at-sign";
-  import FileText from "@lucide/svelte/icons/file-text";
-  import KeyRound from "@lucide/svelte/icons/key-round";
-  import LayoutPanelLeft from "@lucide/svelte/icons/layout-panel-left";
   import CircleCheckBig from "@lucide/svelte/icons/circle-check-big";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import Maximize2 from "@lucide/svelte/icons/maximize-2";
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
   import Plus from "@lucide/svelte/icons/plus";
-  import TextSelect from "@lucide/svelte/icons/text-select";
-  import X from "@lucide/svelte/icons/x";
+  import ContextChips from "$lib/ContextChips.svelte";
   import Conversation from "$lib/Conversation.svelte";
   import GitProposal from "$lib/GitProposal.svelte";
   import Avatar from "$lib/ui/Avatar.svelte";
@@ -18,33 +15,25 @@
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Popover from "$lib/ui/Popover.svelte";
   import SidePanel from "$lib/ui/SidePanel.svelte";
-  import Skeleton from "$lib/ui/Skeleton.svelte";
-  import { showConversation } from "$lib/agents.svelte";
-  import { ask, askedProject, chips, currentRole, loadRoles, outgoing, pick, removedChips, screenName, screenRole, send, threadOf, type Chip } from "$lib/ask.svelte";
-  import { ensure } from "$lib/home.svelte";
+  import { ask, askAI, askedProject, chips, currentRole, expand, loadRoles, outgoing, panelShown, pick, removedChips, screenName, screenRole, send, threadOf, wide, type Chip } from "$lib/ask.svelte";
+  import { aria, display } from "$lib/keymap.svelte";
   import { newProject } from "$lib/newproject.svelte";
   import { t } from "$lib/i18n";
   import { app, ui } from "$lib/state.svelte";
   import { tickets } from "$lib/tickets.svelte";
   import { files } from "$lib/files.svelte";
 
-  /** The ⌘I panel: one way to ask an agent from any screen, docked on the right. */
+  /** The ⌘I panel: a screen's own role, asked from any screen, docked on the right. The CTO and the expert open at full size. */
   const project = $derived(askedProject());
   const role = $derived(currentRole());
   const session = $derived(threadOf(project, role));
   let conv = $state<ReturnType<typeof Conversation>>();
   const sent = $derived(chips());
-  const placeholder = $derived(role === "cto" ? t("aigPlaceholderCto") : t("aigPlaceholder", { role }));
+  const placeholder = $derived(t("aigPlaceholder", { role }));
+  const expandKeys = $derived(display("expand_ask"));
 
   $effect(() => {
     if (ask.open) loadRoles(project);
-  });
-
-  // The CTO's and the expert's conversations exist before the first question, as from the palette.
-  $effect(() => {
-    const p = project;
-    const r = role;
-    if (ask.open && p && (r === "cto" || r === "expert")) untrack(() => ensure(p, r));
   });
 
   let back: HTMLElement | null = null;
@@ -55,13 +44,11 @@
   let draft = $state("");
 
   // Asked to focus, or a question to prefill: in the conversation's field once it is there, or the first question's.
-  const standing = $derived(role === "cto" || role === "expert");
   $effect(() => {
     void ask.focus;
     void session?.id;
     untrack(async () => {
-      if (standing && !session) return;
-      if (!ask.open) return;
+      if (!panelShown()) return;
       await tick();
       const box = document.querySelector<HTMLTextAreaElement>("[data-ask] textarea");
       if (!box) return;
@@ -123,26 +110,13 @@
     else p.added.push(chip);
     adding = false;
   }
-
-  const icons = { view: LayoutPanelLeft, object: FileText, selection: TextSelect };
 </script>
 
 {#snippet cleanupPlan(text: string)}<GitProposal {text} />{/snippet}
 
 {#snippet chipRow()}
   <div class="ctx">
-    <ul aria-label={t("aigContext")}>
-      {#each sent as c (c.id)}
-        {@const Icon = c.secret ? KeyRound : icons[c.kind]}
-        <li class="chip" title={c.secret ? t("aigSecretChip") : (c.text?.slice(0, 300) ?? c.label)}>
-          <Icon size={12} aria-hidden="true" />
-          <span class="label">{c.label}</span>
-          <button type="button" class="x" aria-label={t("aigRemoveChip", { label: c.label })} onclick={() => pick().removed.push(c.id)}>
-            <X size={11} aria-hidden="true" />
-          </button>
-        </li>
-      {/each}
-    </ul>
+    <ContextChips chips={sent} onremove={(c) => pick().removed.push(c.id)} />
     {#if addable.length || removed.length}
       <button type="button" class="btn sm quiet" bind:this={addButton} aria-expanded={adding} onclick={() => (adding = !adding)}>
         <AtSign size={12} aria-hidden="true" />{t("aigAdd")}
@@ -160,26 +134,41 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions (Escape in the panel closes it) -->
 <div class="dock" data-ask {onkeydown}>
-  <SidePanel id="ask" title={t("aigTitle")} bind:open={ask.open} flush>
+  <SidePanel id="ask" title={t("aigTitle")} bind:open={() => panelShown(), (open) => (ask.open = open)} flush>
     {#snippet actions()}
       <label class="who">
         <Avatar {role} size="sm" />
         <span class="sr-only">{t("aigRole")}</span>
-        <select class="role" value={role} onchange={(e) => (pick().role = e.currentTarget.value === screenRole() ? null : e.currentTarget.value)}>
+        <select
+          class="role"
+          value={role}
+          onchange={(e) => {
+            const r = e.currentTarget.value;
+            if (!wide(r)) return void (pick().role = r === screenRole() ? null : r);
+            // The CTO and the expert open at full size: the panel keeps its role.
+            e.currentTarget.value = role;
+            void askAI({ role: r });
+          }}
+        >
           {#each roles as r (r)}
             <option value={r}>{r === screenRole() ? t("aigRoleHere", { role: r }) : r}</option>
           {/each}
         </select>
       </label>
       <!-- A run step's session is the team's, not this panel's: its topic is not the user's to close. -->
-      {#if session && (standing || session.actions)}
+      {#if session?.actions}
         <button class="icon-btn" aria-label={t("topicDone")} title={t("topicDoneHelp")} onclick={() => conv?.endTopic()}>
           <CircleCheckBig size={16} aria-hidden="true" />
         </button>
       {/if}
       {#if session}
-        <button class="icon-btn" aria-label={t("aigOpenConversation")} title={t("aigOpenConversation")} onclick={() => showConversation(session.id)}>
-          <MessagesSquare size={16} aria-hidden="true" />
+        <button
+          class="btn sm"
+          title={expandKeys ? `${t("convsExpandHelp")} (${expandKeys})` : t("convsExpandHelp")}
+          aria-keyshortcuts={aria("expand_ask")}
+          onclick={expand}
+        >
+          <Maximize2 size={14} aria-hidden="true" />{t("convsExpand")}
         </button>
       {/if}
     {/snippet}
@@ -199,11 +188,8 @@
       </div>
     {:else if session}
       {#key session.id}
-        <Conversation bind:this={conv} {session} bare fresh={standing} chips={chipRow} {outgoing} {placeholder} fences={{ "termf-cleanup": cleanupPlan }} />
+        <Conversation bind:this={conv} {session} bare fresh={false} chips={chipRow} {outgoing} {placeholder} fences={{ "termf-cleanup": cleanupPlan }} />
       {/key}
-    {:else if standing}
-      <!-- Its conversation is being opened. -->
-      <div class="pad"><Skeleton rows={4} /></div>
     {:else}
       <div class="intro">
         <Avatar {role} size="lg" />
@@ -235,13 +221,20 @@
     display: contents;
   }
 
+  /* With "Expand" beside it, the title stays whole and the role's name gives way: its avatar says it too. */
+  .dock :global(header > h2) {
+    min-width: max-content;
+  }
+
   .who {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
   }
 
   .role {
+    min-width: 0;
     max-width: 150px;
     height: var(--h-sm);
     padding: 0 6px;
@@ -331,54 +324,6 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-  }
-
-  .ctx ul {
-    display: contents;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    max-width: 100%;
-    height: 24px;
-    padding: 0 4px 0 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-pill);
-    background: var(--well);
-    color: var(--soft);
-    font-size: var(--text-xs);
-  }
-
-  .chip .label {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .x {
-    display: grid;
-    place-items: center;
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    border: 0;
-    border-radius: 50%;
-    background: none;
-    color: var(--muted);
-  }
-
-  .x:hover {
-    background: var(--hover);
-    color: var(--text);
-  }
-
-  .x:focus-visible {
-    outline: 2px solid var(--focus);
   }
 
   .menu {

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, Row, params};
+use serde::Serialize;
 
 use crate::{AgentEvent, AgentSession, SessionSpec, State, StoredEvent, now};
 
@@ -50,6 +51,19 @@ pub fn sessions(data_dir: &Path) -> Result<Vec<AgentSession>> {
 /// A session's stored events after the event `after` (0: all).
 pub fn events(data_dir: &Path, session: i64, after: i64) -> Result<Vec<StoredEvent>> {
     Store::open(data_dir)?.events(session, after)
+}
+
+/// A conversation whose messages hold the text searched, with the passage around its latest mention.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Found {
+    pub session: i64,
+    pub text: String,
+}
+
+/// The conversations, archived ones included, whose messages (the user's and the agent's) hold `query`, case aside:
+/// the latest mention first, `limit` of them at most. Read from the stored events on demand, without an index.
+pub fn search(data_dir: &Path, query: &str, limit: usize) -> Result<Vec<Found>> {
+    Store::open(data_dir)?.search(query, limit)
 }
 
 impl Store {
@@ -289,6 +303,55 @@ impl Store {
         })
         .collect()
     }
+
+    fn search(&self, query: &str, limit: usize) -> Result<Vec<Found>> {
+        let needle = query.trim().to_lowercase();
+        let mut found: Vec<Found> = Vec::new();
+        if needle.is_empty() || limit == 0 {
+            return Ok(found);
+        }
+        let mut select = self.conn.prepare(
+            "SELECT session, json_extract(data, '$.text') FROM agent_events
+             WHERE kind IN ('user', 'text') ORDER BY id DESC",
+        )?;
+        let mut rows = select.query([])?;
+        while let Some(row) = rows.next()? {
+            let session: i64 = row.get(0)?;
+            if found.iter().any(|f| f.session == session) {
+                continue;
+            }
+            let Some(text) = row.get::<_, Option<String>>(1)? else {
+                continue;
+            };
+            if let Some(text) = passage(&text, &needle) {
+                found.push(Found { session, text });
+                if found.len() == limit {
+                    break;
+                }
+            }
+        }
+        Ok(found)
+    }
+}
+
+/// The words around the first mention of `needle` (lowercase) in `text`, on one line; None when it is not there.
+fn passage(text: &str, needle: &str) -> Option<String> {
+    let lower = text.to_lowercase();
+    let at = lower.find(needle)?;
+    // Lowercasing seldom changes a text's length in characters: counted on it, the passage may only shift a little.
+    let start = lower[..at].chars().count();
+    let chars: Vec<char> = text.chars().collect();
+    let from = start.saturating_sub(40).min(chars.len());
+    let to = (start + needle.chars().count() + 80).min(chars.len());
+    let words = chars[from..to]
+        .iter()
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let before = if from > 0 { "…" } else { "" };
+    let after = if to < chars.len() { "…" } else { "" };
+    Some(format!("{before}{words}{after}"))
 }
 
 fn json<T: serde::de::DeserializeOwned>(column: usize, text: String) -> rusqlite::Result<T> {
@@ -315,4 +378,46 @@ fn read(row: &Row) -> rusqlite::Result<AgentSession> {
         updated: row.get(8)?,
         archived: row.get(9)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_finds_the_latest_mention_of_each_conversation() {
+        let root = std::env::temp_dir().join(format!("termf-agents-search-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let store = Store::open(&root).unwrap();
+        let spec = SessionSpec::default();
+        let a = store.create("claude", "a", &spec).unwrap().id;
+        let b = store.create("claude", "b", &spec).unwrap().id;
+        let say = |session, text: String| {
+            let user = AgentEvent::User { text, images: 0 };
+            store.record(session, &user).unwrap();
+        };
+        say(a, "Deploy the API to staging".into());
+        let answer = AgentEvent::Text {
+            text: "Le déploiement\nest fait.".into(),
+            parent: None,
+        };
+        store.record(a, &answer).unwrap();
+        say(b, format!("{}then deploy", "word ".repeat(30)));
+        store.set_archived(b, true).unwrap();
+
+        let found = search(&root, "  DEPLOY ", 10).unwrap();
+        assert_eq!(found.iter().map(|f| f.session).collect::<Vec<_>>(), [b, a]);
+        assert!(
+            found[0].text.starts_with('…') && found[0].text.ends_with("then deploy"),
+            "{found:?}"
+        );
+        assert_eq!(found[1].text, "Deploy the API to staging");
+        assert_eq!(
+            search(&root, "DÉPLOIEMENT", 10).unwrap()[0].text,
+            "Le déploiement est fait."
+        );
+        assert_eq!(search(&root, "deploy", 1).unwrap().len(), 1);
+        assert!(search(&root, " ", 10).unwrap().is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
 }

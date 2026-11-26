@@ -41,6 +41,7 @@ export const THROUGH: Record<string, string> = {
 /** Commands that only read, preview or check: nothing changes. */
 export const READS: string[] = [
   "agent_events",
+  "agent_search",
   "agent_sessions",
   "agentenv_grants",
   "agentenv_requests",

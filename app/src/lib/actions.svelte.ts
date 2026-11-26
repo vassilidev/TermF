@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { Approved, forAgent, refused, secretMissing, takeWait, vaultBlock, type Args, type Spec } from "$lib/actions-logic";
-import { ask } from "$lib/ask.svelte";
+import { ask, wide } from "$lib/ask.svelte";
 import { ciActions, ciHere } from "$lib/ci-actions";
 import { conversationActions } from "$lib/conversation-actions";
 import { designActions } from "$lib/design-actions";
@@ -137,7 +137,8 @@ function drop(id: number) {
 
 /** A card waits in a conversation: its panel opens, and the system tells the user when the window is elsewhere. */
 async function tell(call: Call, what: Key) {
-  if (ask.origins[call.session]) ask.open = true;
+  // The CTO and the expert are talked to at full size: their card waits in Conversations.
+  if (ask.origins[call.session] && !wide(call.role ?? "")) ask.open = true;
   if (document.hasFocus()) return;
   const granted = (await isPermissionGranted()) || (await requestPermission()) === "granted";
   if (granted) sendNotification({ title: t("actNotify"), body: t("actAsks", { who: call.role ?? call.title, what: t(what) }) });

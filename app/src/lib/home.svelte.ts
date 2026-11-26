@@ -1,6 +1,6 @@
 import { tick } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
-import { agentProjects, agents, ctoOf, expertOf, showConversation, upsert, waitingAgents, type AgentSession } from "$lib/agents.svelte";
+import { agentProjects, agents, ctoOf, expertOf, showConversation, showCto, upsert, waitingAgents, type AgentSession } from "$lib/agents.svelte";
 import { pending, type StoredEvent } from "$lib/conversation-logic";
 import { askKey, waits, type Wait } from "$lib/home-logic";
 import { sessionProjects } from "$lib/project.svelte";
@@ -114,7 +114,7 @@ export function ensure(project: string, who: "cto" | "expert"): Promise<AgentSes
 }
 
 /** The element once the conversation has drawn it: its events load after it mounts. */
-async function reach(selector: string): Promise<HTMLElement | null> {
+export async function reach(selector: string): Promise<HTMLElement | null> {
   for (let i = 0; i < 20; i++) {
     await tick();
     const el = document.querySelector<HTMLElement>(selector);
@@ -124,26 +124,26 @@ async function reach(selector: string): Promise<HTMLElement | null> {
   return null;
 }
 
-/** ⌘⇧H: the CTO in the ⌘I panel, the cursor in its field; `draft` is written there for the user to read and send. */
+/** ⌘⇧H: the CTO at full size in Conversations, the cursor in its field; `draft` is written there for the user to read and send. */
 export async function talkCto(draft?: string) {
   if (app.project === null) return;
   await askAI({ role: "cto", draft });
 }
 
-/** Goes where a wait is decided: its card on the Home, the CTO's request in the panel, its tile, or its conversation. */
+/** Goes where a wait is decided: its card on the Home, the CTO's request in its conversation, its tile, or its conversation. */
 export async function goToWait(w: Wait) {
   home.shown = w.key;
   if (w.kind === "tile") return focusSession(w.id);
   if (w.kind === "agent") return showConversation(w.id);
   const project = waitProject(w);
   if (project !== null && project !== app.project) setProject(project);
-  if (w.kind === "cto") await askAI({ role: "cto" });
+  if (w.kind === "cto") await showCto();
   else {
     showHome();
     if (!onScreen("home")) return;
   }
   // The CTO's own request is its permission card, the last thing it said.
-  const card = await reach(w.kind === "cto" ? '[data-ask] [role="log"] .ask[role="group"]' : `[data-panel="home"] [data-wait="${w.key}"]`);
+  const card = await reach(w.kind === "cto" ? '[data-panel="conversations"] [role="log"] .ask[role="group"]' : `[data-panel="home"] [data-wait="${w.key}"]`);
   card?.scrollIntoView({ block: "center" });
   if (card) {
     if (!card.hasAttribute("tabindex")) card.tabIndex = -1;
