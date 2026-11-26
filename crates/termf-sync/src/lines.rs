@@ -2,6 +2,8 @@
 //! comes before the first one), each a list of options. Comments and blank lines go with the line below them,
 //! so they stay where they were; a file is only rewritten where something changed.
 
+use std::collections::BTreeSet;
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum Syntax {
     Ssh,
@@ -19,14 +21,25 @@ const SSH_LISTS: [&str; 8] = [
     "sendenv",
     "setenv",
 ];
-const GIT_LISTS: [&str; 5] = ["path", "fetch", "push", "insteadof", "pushinsteadof"];
+const GIT_LISTS: [&str; 6] = [
+    "path",
+    "fetch",
+    "push",
+    "insteadof",
+    "pushinsteadof",
+    "directory",
+];
 
 type Items<T> = Vec<(String, T)>;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Block {
     head: String,
     options: Items<String>,
+}
+
+fn words(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 impl Syntax {
@@ -40,6 +53,14 @@ impl Syntax {
 
     fn comment(self, line: &str) -> bool {
         line.is_empty() || line.starts_with('#') || self == Syntax::Git && line.starts_with(';')
+    }
+
+    /// The setting of an option's text, below its comments.
+    fn directive(self, text: &str) -> &str {
+        text.lines()
+            .map(str::trim)
+            .find(|l| !self.comment(l))
+            .unwrap_or("")
     }
 
     /// The option's name and value.
@@ -63,19 +84,17 @@ impl Syntax {
         match self {
             Syntax::Ssh => {
                 let (name, value) = self.split(line);
-                let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
                 match name.as_str() {
-                    "host" => Some(format!("Host {value}")),
-                    "match" => Some(format!("Match {value}")),
+                    "host" => Some(format!("Host {}", words(value))),
+                    "match" => Some(format!("Match {}", words(value))),
                     _ => None,
                 }
             }
-            Syntax::Git => line
-                .starts_with('[')
-                .then(|| line.split_whitespace().collect::<Vec<_>>().join(" ")),
+            Syntax::Git => line.starts_with('[').then(|| words(line)),
         }
     }
 
+    /// An option's name, or its name and value when it adds up ([`read_all`] gives the others their value too).
     fn key(self, line: &str) -> String {
         let (name, value) = self.split(line);
         let lists: &[&str] = match self {
@@ -83,10 +102,7 @@ impl Syntax {
             Syntax::Git => &GIT_LISTS,
         };
         if lists.contains(&name.as_str()) {
-            format!(
-                "{name} {}",
-                value.split_whitespace().collect::<Vec<_>>().join(" ")
-            )
+            format!("{name} {}", words(value))
         } else {
             name
         }
@@ -94,8 +110,7 @@ impl Syntax {
 
     /// An option that only makes sense on this machine: a path out of the home folder, a system's keychain.
     fn machine(self, block: &str, key: &str, text: &str) -> bool {
-        let line = text.lines().map(str::trim).find(|l| !self.comment(l));
-        let (name, value) = line.map_or((String::new(), ""), |l| self.split(l));
+        let (name, value) = self.split(self.directive(text));
         crate::merge::machine_path(value)
             || match self {
                 Syntax::Ssh => name == "usekeychain",
@@ -140,7 +155,7 @@ fn parse(syntax: Syntax, text: &str) -> Items<Block> {
                 },
             ));
         } else {
-            let key = unique(&block.options, syntax.key(trimmed));
+            let key = syntax.key(trimmed);
             block
                 .options
                 .push((key, std::mem::take(&mut pending) + &line));
@@ -152,6 +167,34 @@ fn parse(syntax: Syntax, text: &str) -> Items<Block> {
         None => block.head.push_str(&pending),
     }
     blocks
+}
+
+/// The versions of a file, read together: an option given more than once in a block of any of them is known by
+/// its value too, in all of them, so the same line is the same option on every side whatever its rank.
+fn read_all<const N: usize>(syntax: Syntax, texts: [Option<&str>; N]) -> [Option<Items<Block>>; N] {
+    let mut docs = texts.map(|t| t.map(|t| parse(syntax, t)));
+    let mut repeated = BTreeSet::new();
+    for (block, b) in docs.iter().flatten().flatten() {
+        let mut seen = BTreeSet::new();
+        for (key, _) in &b.options {
+            if !seen.insert(key) {
+                repeated.insert((block.clone(), key.clone()));
+            }
+        }
+    }
+    for (block, b) in docs.iter_mut().flatten().flatten() {
+        let mut taken: Items<()> = Vec::new();
+        for (key, text) in &mut b.options {
+            // A list's key has its value already.
+            if !key.contains(' ') && repeated.contains(&(block.clone(), key.clone())) {
+                let value = syntax.split(syntax.directive(text)).1;
+                *key = format!("{key} {}", words(value));
+            }
+            *key = unique(&taken, std::mem::take(key));
+            taken.push((key.clone(), ()));
+        }
+    }
+    docs
 }
 
 /// A key seen again in the same list gets its rank: the second `Host x` is `Host x#2`.
@@ -178,8 +221,7 @@ fn render(blocks: &Items<Block>) -> String {
     out
 }
 
-/// Same meaning: the same settings, whatever their indentation, the blank lines and the comments around them. A
-/// comment changed on one side alone still travels: the file differs, and is taken whole.
+/// Same setting: the same lines, whatever their indentation, the blank lines and the comments around them.
 fn same_text(a: &str, b: &str) -> bool {
     fn meaning(s: &str) -> Vec<&str> {
         s.lines()
@@ -190,65 +232,118 @@ fn same_text(a: &str, b: &str) -> bool {
     meaning(a) == meaning(b)
 }
 
-fn same_block(a: &Block, b: &Block) -> bool {
-    same_text(&a.head, &b.head)
-        && a.options.len() == b.options.len()
-        && a.options
-            .iter()
-            .zip(&b.options)
-            .all(|((ka, a), (kb, b))| ka == kb && same_text(a, b))
+/// The comments and blank lines above a line, and the rest.
+fn cut(syntax: Syntax, text: &str) -> (&str, &str) {
+    let at: usize = text
+        .split_inclusive('\n')
+        .take_while(|l| syntax.comment(l.trim()))
+        .map(str::len)
+        .sum();
+    text.split_at(at)
 }
 
-/// Three-way merge of keyed items, as TOML keys are merged: `both` settles a key changed on both sides. This
-/// machine's items keep their order; the other's new ones come right after the item they follow there, so a
-/// `Host *` written last stays last.
-fn keyed<T: Clone>(
+/// Three-way merge of a line and the comments above it. The line as any setting: `label` names the conflict when
+/// both sides set it differently (`None`: a header, its block's key, whose spelling never conflicts). The
+/// comments: the side that changed them, both when both did.
+fn piece(
+    syntax: Syntax,
+    label: Option<&str>,
+    base: Option<&str>,
+    local: &str,
+    remote: &str,
+    keep: Option<bool>,
+    conflicts: &mut Vec<String>,
+) -> String {
+    let ((lc, ll), (rc, rl)) = (cut(syntax, local), cut(syntax, remote));
+    let (bc, bl) = base.map(|b| cut(syntax, b)).unzip();
+    let line = if same_text(ll, rl) || bl.is_some_and(|b| same_text(rl, b)) {
+        ll
+    } else if bl.is_some_and(|b| same_text(ll, b)) {
+        rl
+    } else {
+        match label {
+            None => ll,
+            Some(label) => {
+                settle(keep, conflicts, label.to_owned(), Some(&ll), Some(&rl)).expect("both sides")
+            }
+        }
+    };
+    let comments = if lc == rc || bc == Some(rc) {
+        lc.to_owned()
+    } else if bc == Some(lc) {
+        rc.to_owned()
+    } else {
+        let mut both = lc.to_owned();
+        for line in rc.split_inclusive('\n') {
+            if !line.trim().is_empty() && !lc.lines().any(|l| l.trim() == line.trim()) {
+                both.push_str(line);
+            }
+        }
+        both
+    };
+    comments + line
+}
+
+fn find<'a, T>(items: &'a [(String, T)], key: &str) -> Option<&'a T> {
+    items.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+}
+
+/// The keys of `items` that all three versions have, in `items`' order.
+fn order<'a, T>(items: &'a [(String, T)], all: [&[(String, T)]; 3]) -> Vec<&'a str> {
+    items
+        .iter()
+        .map(|(k, _)| k.as_str())
+        .filter(|k| all.iter().all(|items| find(items, k).is_some()))
+        .collect()
+}
+
+/// Three-way merge of keyed items, as TOML keys are merged: `both` settles a key changed on both sides. The
+/// order is this machine's, or the other's when only that one changed it; what only one side has comes after
+/// the rest, before what `last` keeps at the end (`Host *`: ssh takes the first value it finds).
+fn keyed<T: Clone + PartialEq>(
     base: Option<&[(String, T)]>,
     local: &[(String, T)],
     remote: &[(String, T)],
-    same: impl Fn(&T, &T) -> bool,
+    last: impl Fn(&str) -> bool,
     mut both: impl FnMut(&str, Option<&T>, Option<&T>, Option<&T>) -> Option<T>,
 ) -> Items<T> {
-    fn find<'a, T>(items: &'a [(String, T)], key: &str) -> Option<&'a T> {
-        items.iter().find(|(k, _)| k == key).map(|(_, v)| v)
-    }
-    let eq = |a: Option<&T>, b: Option<&T>| match (a, b) {
-        (Some(a), Some(b)) => same(a, b),
-        (a, b) => a.is_none() && b.is_none(),
-    };
     let mut pick = |key: &str| {
         let (b, l, r) = (
             base.and_then(|b| find(b, key)),
             find(local, key),
             find(remote, key),
         );
-        if eq(l, r) || eq(r, b) {
+        if l == r || r == b {
             l.cloned()
-        } else if eq(l, b) {
+        } else if l == b {
             r.cloned()
         } else {
             both(key, b, l, r)
         }
     };
+    let (first, then) = match base {
+        Some(b)
+            if order(local, [b, local, remote]) == order(b, [b, local, remote])
+                && order(remote, [b, local, remote]) != order(b, [b, local, remote]) =>
+        {
+            (remote, local)
+        }
+        _ => (local, remote),
+    };
     let mut out: Items<T> = Vec::new();
-    for (key, _) in local {
+    for (key, _) in first {
         if let Some(value) = pick(key) {
             out.push((key.clone(), value));
         }
     }
-    for (i, (key, _)) in remote.iter().enumerate() {
-        if find(local, key).is_some() {
+    for (key, _) in then {
+        if find(first, key).is_some() {
             continue;
         }
-        let Some(value) = pick(key) else {
-            continue;
-        };
-        let at = remote[..i]
-            .iter()
-            .rev()
-            .find_map(|(p, _)| out.iter().position(|(k, _)| k == p))
-            .map_or(0, |n| n + 1);
-        out.insert(at, (key.clone(), value));
+        if let Some(value) = pick(key) {
+            let at = out.iter().rposition(|(k, _)| !last(k)).map_or(0, |i| i + 1);
+            out.insert(at, (key.clone(), value));
+        }
     }
     out
 }
@@ -263,38 +358,41 @@ pub fn merge(
     keep: Option<bool>,
     conflicts: &mut Vec<String>,
 ) -> String {
-    let base = base.map(|b| parse(syntax, b));
-    let (local, remote) = (parse(syntax, local), parse(syntax, remote));
+    let [local, remote, base] = read_all(syntax, [Some(local), Some(remote), base]);
+    let (local, remote) = (local.expect("given"), remote.expect("given"));
+    let catch_all = |key: &str| key == "Host *" || key == "Match all";
     let blocks = keyed(
         base.as_deref(),
         &local,
         &remote,
-        same_block,
+        catch_all,
         |key, b, l, r| {
             let (Some(l), Some(r)) = (l, r) else {
                 // Deleted on one side, changed on the other.
                 return settle(keep, conflicts, key.to_owned(), l, r);
             };
+            let base_head = b.map(|b| b.head.as_str());
+            let head = piece(syntax, None, base_head, &l.head, &r.head, keep, conflicts);
             let options = keyed(
                 b.map(|b| b.options.as_slice()),
                 &l.options,
                 &r.options,
-                |a, b| same_text(a, b),
-                |name, _, lo, ro| {
+                |_| false,
+                |name, bo, lo, ro| {
                     let label = if key.is_empty() {
                         name.to_owned()
                     } else {
                         format!("{key} › {name}")
                     };
-                    settle(keep, conflicts, label, lo, ro)
+                    match (lo, ro) {
+                        (Some(lo), Some(ro)) => {
+                            let bo = bo.map(String::as_str);
+                            Some(piece(syntax, Some(&label), bo, lo, ro, keep, conflicts))
+                        }
+                        _ => settle(keep, conflicts, label, lo, ro),
+                    }
                 },
             );
-            // The header's comments: the side that changed them, else the one that has more.
-            let head = match b {
-                Some(b) if l.head == b.head => r.head.clone(),
-                None if r.head.len() > l.head.len() => r.head.clone(),
-                _ => l.head.clone(),
-            };
             Some(Block { head, options })
         },
     );
@@ -317,21 +415,18 @@ fn settle<T: Clone>(
 /// [`crate::merge::pin`] for these files: each option only this machine may have becomes the synced one, or
 /// leaves.
 pub fn pin(syntax: Syntax, current: &str, base: Option<&str>) -> Option<String> {
-    let mut blocks = parse(syntax, current);
-    let base = base.map(|b| parse(syntax, b));
+    let [blocks, base] = read_all(syntax, [Some(current), base]);
+    let mut blocks = blocks.expect("given");
     let mut changed = false;
     for (key, block) in &mut blocks {
-        let synced = base
-            .as_ref()
-            .and_then(|b| b.iter().find(|(k, _)| k == key))
-            .map(|(_, b)| b);
+        let synced = base.as_ref().and_then(|b| find(b, key));
         block.options.retain_mut(|(name, text)| {
             if !syntax.machine(key, name, text) {
                 return true;
             }
             changed = true;
-            match synced.and_then(|b| b.options.iter().find(|(n, _)| n == name)) {
-                Some((_, theirs)) => {
+            match synced.and_then(|b| find(&b.options, name)) {
+                Some(theirs) => {
                     text.clone_from(theirs);
                     true
                 }
@@ -347,8 +442,17 @@ mod tests {
     use super::*;
 
     fn merged(base: Option<&str>, local: &str, remote: &str) -> Result<String, Vec<String>> {
+        merged_as(Syntax::Ssh, base, local, remote)
+    }
+
+    fn merged_as(
+        syntax: Syntax,
+        base: Option<&str>,
+        local: &str,
+        remote: &str,
+    ) -> Result<String, Vec<String>> {
         let mut conflicts = Vec::new();
-        let text = merge(Syntax::Ssh, base, local, remote, None, &mut conflicts);
+        let text = merge(syntax, base, local, remote, None, &mut conflicts);
         if conflicts.is_empty() {
             Ok(text)
         } else {
@@ -360,10 +464,10 @@ mod tests {
     fn hosts_of_both_machines_come_together() {
         let a = "Include ~/.orbstack/ssh/config\n\n# Work\nHost acme-prod\n  HostName prod.acme.test\n  User deploy\n\nHost *\n  ServerAliveInterval 60\n";
         let b = "Host box\n  HostName box.acme.test\n\nHost *\n  ServerAliveInterval 60\n";
-        let text = merged(None, b, a).unwrap();
+        // The other's new host after this machine's, before the catch-all.
         assert_eq!(
-            text,
-            "Include ~/.orbstack/ssh/config\n\n# Work\nHost acme-prod\n  HostName prod.acme.test\n  User deploy\nHost box\n  HostName box.acme.test\n\nHost *\n  ServerAliveInterval 60\n"
+            merged(None, b, a).unwrap(),
+            "Include ~/.orbstack/ssh/config\nHost box\n  HostName box.acme.test\n\n# Work\nHost acme-prod\n  HostName prod.acme.test\n  User deploy\n\nHost *\n  ServerAliveInterval 60\n"
         );
         // Each side changed another option of the same host: both kept.
         let base = "Host a\n  HostName a.test\n  User x\n";
@@ -386,7 +490,7 @@ mod tests {
             merged(Some(base), "", "Host a\n  HostName c.test\n  User x\n"),
             Err(vec!["Host a".into()])
         );
-        // Identity files add up.
+        // Identity files add up, this machine's first.
         assert_eq!(
             merged(
                 None,
@@ -394,7 +498,56 @@ mod tests {
                 "Host a\n  IdentityFile ~/.ssh/y\n"
             )
             .unwrap(),
-            "Host a\n  IdentityFile ~/.ssh/y\n  IdentityFile ~/.ssh/x\n"
+            "Host a\n  IdentityFile ~/.ssh/x\n  IdentityFile ~/.ssh/y\n"
+        );
+    }
+
+    #[test]
+    fn the_order_is_kept_and_changed_only_by_who_changed_it() {
+        let base = "Host a\n  User a\nHost b\n  User b\nHost *\n  User all\n";
+        // Only the other reordered, this one changed an option: the other's order, this one's option.
+        assert_eq!(
+            merged(
+                Some(base),
+                "Host a\n  User a2\nHost b\n  User b\nHost *\n  User all\n",
+                "Host b\n  User b\nHost a\n  User a\nHost *\n  User all\n"
+            )
+            .unwrap(),
+            "Host b\n  User b\nHost a\n  User a2\nHost *\n  User all\n"
+        );
+        // Both reordered: this machine's order.
+        assert_eq!(
+            merged(
+                Some(base),
+                "Host *\n  User all\nHost a\n  User a\nHost b\n  User b\n",
+                "Host b\n  User b\nHost a\n  User a\nHost *\n  User all\nHost c\n  User c\n"
+            )
+            .unwrap(),
+            "Host *\n  User all\nHost a\n  User a\nHost b\n  User b\nHost c\n  User c\n"
+        );
+    }
+
+    #[test]
+    fn comments_stay_whoever_changed_the_setting() {
+        let base = "Host prod\n  HostName a.test\n  User deploy\n";
+        assert_eq!(
+            merged(
+                Some(base),
+                "# careful: production\nHost prod\n  HostName a.test\n  # the deploy user\n  User deploy\n",
+                "Host prod\n  HostName b.test\n  User ops\n"
+            )
+            .unwrap(),
+            "# careful: production\nHost prod\n  HostName b.test\n  # the deploy user\n  User ops\n"
+        );
+        // Without a common history, the comments of both stay.
+        assert_eq!(
+            merged(
+                None,
+                "# mine\nHost prod\n  User deploy\n",
+                "# theirs\nHost prod\n  User deploy\n"
+            )
+            .unwrap(),
+            "# mine\n# theirs\nHost prod\n  User deploy\n"
         );
     }
 
@@ -413,6 +566,30 @@ mod tests {
         assert_eq!(
             text,
             "[user]\n\tname = Alex\n\temail = a@c\n[pull]\n\trebase = true\n"
+        );
+    }
+
+    #[test]
+    fn an_option_given_twice_is_known_by_its_value() {
+        let both = "[tool]\n\tplugin = /opt/acme/a.so\n\tplugin = ~/b.so\n";
+        assert_eq!(
+            pin(Syntax::Git, both, None).unwrap(),
+            "[tool]\n\tplugin = ~/b.so\n"
+        );
+        // Read with a version that has it twice, the single one is the same option, whatever its rank.
+        assert_eq!(
+            pin(Syntax::Git, both, Some("[tool]\n\tplugin = ~/b.so\n")).unwrap(),
+            "[tool]\n\tplugin = ~/b.so\n"
+        );
+        assert_eq!(
+            merged_as(
+                Syntax::Git,
+                Some("[tool]\n\tplugin = ~/b.so\n"),
+                "[tool]\n\tplugin = ~/b.so\n",
+                "[tool]\n\tplugin = ~/b.so\n\tplugin = ~/c.so\n"
+            )
+            .unwrap(),
+            "[tool]\n\tplugin = ~/b.so\n\tplugin = ~/c.so\n"
         );
     }
 
@@ -440,14 +617,10 @@ mod tests {
             "[alias]\n\tlg = log \\\n\t  --graph\n[core]\n\teditor = vim\n",
             "Host a\nHost a\n",
         ] {
-            assert_eq!(
-                render(&parse(Syntax::Git, text)).trim_end(),
-                text.trim_end()
-            );
-            assert_eq!(
-                render(&parse(Syntax::Ssh, text)).trim_end(),
-                text.trim_end()
-            );
+            for syntax in [Syntax::Git, Syntax::Ssh] {
+                let [doc] = read_all(syntax, [Some(text)]);
+                assert_eq!(render(&doc.unwrap()).trim_end(), text.trim_end());
+            }
         }
     }
 }

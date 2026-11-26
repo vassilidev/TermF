@@ -381,6 +381,13 @@ struct Mine {
     skipped: Vec<Skipped>,
 }
 
+impl Mine {
+    /// The file as it is here, what only makes sense here included.
+    fn file(&self, path: &str) -> Option<&Entry> {
+        self.pinned.get(path).or(self.entries.get(path))
+    }
+}
+
 /// A keychain that holds nothing and keeps nothing.
 struct Nowhere;
 
@@ -1057,12 +1064,13 @@ impl Engine {
                 let clock = || record::next(&b_clock, r_clock, &state.device_id);
 
                 if path == ssh::KNOWN_HOSTS {
+                    // Lines, in any order: written only when one is missing here, sent only when one is missing there.
                     let all = ssh::known_hosts(l, r_entry);
-                    if !merge::same(&path, all.as_ref(), l) {
+                    if !ssh::knows_all(l, all.as_ref()) {
                         writes.push((path.clone(), all.clone()));
                         pulled.insert(path.clone());
                     }
-                    if !merge::same(&path, all.as_ref(), r_entry) {
+                    if !ssh::knows_all(r_entry, all.as_ref()) {
                         outgoing.push(Record {
                             path,
                             entry: all,
@@ -1081,7 +1089,11 @@ impl Engine {
                         entry: l.cloned(),
                         clock: clock(),
                     });
-                } else if follows && merge::same(&path, l, b_entry) {
+                } else if follows
+                    && merge::same(&path, l, b_entry)
+                    // Deleted elsewhere while it holds what only makes sense here: the user chooses.
+                    && (r_entry.is_some() || !mine.pinned.contains_key(&path))
+                {
                     writes.push((path.clone(), r_entry.cloned()));
                     base.insert(path.clone(), r.expect("changed remotely").clone());
                     pulled.insert(path);
@@ -1113,7 +1125,7 @@ impl Engine {
                             };
                             let (local, remote) = (side(false), side(true));
                             conflicts.push(Conflict {
-                                local: text(local.as_ref().or(l)),
+                                local: text(local.as_ref().or(mine.file(&path))),
                                 remote: text(remote.as_ref().or(r_entry)),
                                 keys,
                                 path,
@@ -1123,7 +1135,7 @@ impl Engine {
                 }
             }
             if !dry {
-                self.apply(&writes, &mine, &mapping, true)?;
+                self.apply(&writes, &mine, &mapping)?;
             }
             if state.scopes.contains(&Scope::Vault)
                 && let Some(dir) = &self.vault_dir
@@ -1278,33 +1290,40 @@ impl Engine {
         })
     }
 
-    /// Writes what a sync settled here; with `keep`, a copy of what it replaces first (`.sync/backups/`), for
-    /// [`Engine::undo`]. Key pairs never come here: a sync only ever adds them.
+    /// Writes what a sync settled here, what only makes sense here kept, after a copy of the files as they are
+    /// and as they will be (`.sync/backups/`), for [`Engine::undo`]. Key pairs never come here: a sync only ever
+    /// adds them.
     fn apply(
         &self,
         writes: &[(String, Option<Entry>)],
         mine: &Mine,
         mapping: &local::Mapping,
-        keep: bool,
     ) -> Result<()> {
         if writes.is_empty() {
             return Ok(());
         }
-        if keep {
-            let (mut before, mut after) = (Vec::new(), Vec::new());
-            for (path, entry) in writes {
-                let record = |entry: Option<Entry>| Record {
-                    path: path.clone(),
-                    entry,
-                    clock: Default::default(),
-                };
-                record::encode(&record(mine.entries.get(path).cloned()), &mut before);
-                record::encode(&record(entry.clone()), &mut after);
-            }
-            self.save_backup(&before, &after)?;
+        let landed: Vec<(&String, Option<Entry>)> = writes
+            .iter()
+            .map(|(path, entry)| {
+                let entry = entry
+                    .as_ref()
+                    .map(|e| merge::unpin(path, e, mine.pinned.get(path)));
+                (path, entry)
+            })
+            .collect();
+        let (mut before, mut after) = (Vec::new(), Vec::new());
+        for (path, entry) in &landed {
+            let record = |entry: Option<Entry>| Record {
+                path: (*path).clone(),
+                entry,
+                clock: Default::default(),
+            };
+            record::encode(&record(mine.file(path).cloned()), &mut before);
+            record::encode(&record(entry.clone()), &mut after);
         }
-        for (path, entry) in writes {
-            self.write_local(path, entry.as_ref(), mapping, &mine.pinned)?;
+        self.save_backup(&before, &after)?;
+        for (path, entry) in &landed {
+            self.write_local(path, entry.as_ref(), mapping)?;
         }
         Ok(())
     }
@@ -1359,18 +1378,17 @@ impl Engine {
         let base = self.load_base()?;
         let mine = self.read_mine(&state.scopes, &base, &mut mapping.clone())?;
         let mut undone = Undone::default();
-        let mut writes = Vec::new();
         for (path, was) in before {
             let wrote = after.get(&path).and_then(|r| r.entry.as_ref());
-            if merge::same(&path, mine.entries.get(&path), wrote) {
+            // Byte for byte: a comment added since is a change too. Put back as it was, whole.
+            if mine.file(&path).map(|e| &e.bytes) == wrote.map(|e| &e.bytes) {
+                self.write_local(&path, was.entry.as_ref(), &mapping)?;
                 state.held.insert(path.clone());
-                undone.restored.push(path.clone());
-                writes.push((path, was.entry));
+                undone.restored.push(path);
             } else {
                 undone.changed.push(path);
             }
         }
-        self.apply(&writes, &mine, &mapping, false)?;
         fs::remove_dir_all(&dir)?;
         self.save(&state)?;
         // The conflicts show at once; a failure stays in the status, as any sync's.
@@ -1417,23 +1435,20 @@ impl Engine {
             })),
         };
         if let Some(entry) = write.filter(|e| !merge::same(path, e.as_ref(), l)) {
-            self.apply(&[(path.to_owned(), entry)], &mine, &mapping, true)?;
+            self.apply(&[(path.to_owned(), entry)], &mine, &mapping)?;
         }
         base.insert(path.into(), theirs);
         self.save_base(&base)?;
         self.sync_locked(&mut state, true, &lock)
     }
 
-    /// A file of the config folder, of `~/.ssh`, or of the dev config scope; what only makes sense here stays.
+    /// A file of the config folder, of `~/.ssh`, or of the dev config scope, as it is given.
     fn write_local(
         &self,
         path: &str,
         entry: Option<&Entry>,
         mapping: &local::Mapping,
-        pinned: &BTreeMap<String, Entry>,
     ) -> Result<()> {
-        let entry = entry.map(|e| merge::unpin(path, e, pinned.get(path)));
-        let entry = entry.as_ref();
         if ssh::is_file(path) {
             let (ssh, home) = self.ssh().context("no SSH folder on this machine")?;
             return if path == ssh::CONFIG {

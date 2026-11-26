@@ -344,11 +344,12 @@ pub fn unpin(path: &str, incoming: &Entry, current: Option<&Entry>) -> Entry {
     let Some(current) = current else {
         return incoming;
     };
-    // Against that base, this machine's own values are its only changes, and everything else is the other's.
+    // Against that base, this machine's own values are its only changes, and everything else is the other's: what
+    // came is the text written, this machine's values put back into it.
     let Some(base) = pin(path, current, Some(&incoming)) else {
         return incoming;
     };
-    settle(path, Some(&base), current, &incoming, true).unwrap_or(incoming)
+    settle(path, Some(&base), &incoming, current, false).unwrap_or(incoming)
 }
 
 fn pin_toml(current: &str, base: Option<&str>) -> Option<String> {

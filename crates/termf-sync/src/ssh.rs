@@ -48,15 +48,24 @@ pub fn read_known_hosts(ssh: &Ssh) -> Result<Option<Entry>> {
         .map(|bytes| Entry { bytes, exec: false }))
 }
 
+/// Whether `side` has every line of `all`, in any order.
+pub fn knows_all(side: Option<&Entry>, all: Option<&Entry>) -> bool {
+    let has: BTreeSet<&[u8]> = side.into_iter().flat_map(lines).collect();
+    all.into_iter()
+        .flat_map(lines)
+        .all(|line| line.is_empty() || has.contains(line))
+}
+
+fn lines(e: &Entry) -> impl Iterator<Item = &[u8]> {
+    e.bytes.split(|&b| b == b'\n').map(<[u8]>::trim_ascii)
+}
+
 /// Every line either side has, once, this machine's first: a host key learnt on one machine is known on all,
 /// and none is ever removed or replaced (hashed lines too, each as it is).
 pub fn known_hosts(local: Option<&Entry>, remote: Option<&Entry>) -> Option<Entry> {
     let (Some(l), Some(r)) = (local, remote) else {
         return local.or(remote).cloned();
     };
-    fn lines(e: &Entry) -> impl Iterator<Item = &[u8]> {
-        e.bytes.split(|&b| b == b'\n').map(<[u8]>::trim_ascii)
-    }
     let mut known: BTreeSet<&[u8]> = lines(l).collect();
     let mut bytes = l.bytes.clone();
     for line in lines(r) {

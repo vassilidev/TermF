@@ -328,3 +328,217 @@ fn the_last_sync_can_be_undone_and_then_waits_for_a_choice() {
         assert_eq!(mode & 0o077, 0, "the backups are the user's only");
     }
 }
+
+/// Review of #214, 1: what only makes sense on a machine is never lost, neither to a deletion from elsewhere nor
+/// to an undo.
+#[test]
+fn a_deletion_elsewhere_and_an_undo_keep_this_machines_own_values() {
+    let sandbox = Sandbox::new("own-values");
+    let remote = sandbox.folder();
+    let (a, a_home) = home_machine(&sandbox, "a");
+    let (b, b_home) = home_machine(&sandbox, "b");
+    let git = "[user]\n\tname = Alex\n[credential]\n\thelper = osxkeychain\n[gpg]\n\tprogram = /opt/homebrew/bin/gpg\n";
+    let ssh = "Host *\n  UseKeychain yes\n  ProxyCommand /usr/bin/nc %h %p\n  User alex\n";
+    let mcp =
+        r#"{"mcpServers": {"local": {"command": "/opt/acme/bin/mcp"}, "web": {"command": "npx"}}}"#;
+    put(&a_home.join(".gitconfig"), git);
+    put(&a_home.join(".ssh/config"), ssh);
+    put(&a_home.join(".claude.json"), mcp);
+    a.setup(&remote);
+    b.setup(&remote);
+    assert!(read(&b_home.join(".gitconfig")).contains("name = Alex"));
+
+    // b deletes the three: a keeps them, each a conflict that shows what a would lose.
+    fs::remove_file(b_home.join(".gitconfig")).unwrap();
+    fs::remove_file(b_home.join(".ssh/config")).unwrap();
+    put(&b_home.join(".claude.json"), "{}");
+    b.push();
+    let report = a.push();
+    for path in ["dev/gitconfig", "ssh/config", "dev/claude.json"] {
+        let conflict = report
+            .conflicts
+            .iter()
+            .find(|c| c.path == path)
+            .unwrap_or_else(|| panic!("{path}: {report:?}"));
+        assert_eq!(conflict.remote, None);
+    }
+    let shown = report
+        .conflicts
+        .iter()
+        .find(|c| c.path == "dev/gitconfig")
+        .unwrap();
+    assert!(shown.local.as_deref().unwrap().contains("osxkeychain"));
+    assert_eq!(read(&a_home.join(".gitconfig")), git);
+    assert_eq!(read(&a_home.join(".ssh/config")), ssh);
+
+    // Taking the deletions, then undoing them: each file back as it was, byte for byte.
+    for path in ["dev/gitconfig", "ssh/config", "dev/claude.json"] {
+        a.engine.resolve(path, Resolution::Remote).unwrap();
+    }
+    assert!(!a_home.join(".gitconfig").exists() && !a_home.join(".ssh/config").exists());
+    for _ in 0..3 {
+        assert_eq!(a.engine.undo().unwrap().changed, Vec::<String>::new());
+    }
+    assert_eq!(read(&a_home.join(".gitconfig")), git);
+    assert_eq!(read(&a_home.join(".ssh/config")), ssh);
+    let servers: Value = serde_json::from_str(&read(&a_home.join(".claude.json"))).unwrap();
+    assert_eq!(
+        servers["mcpServers"]["local"]["command"],
+        "/opt/acme/bin/mcp"
+    );
+    assert_eq!(servers["mcpServers"]["web"]["command"], "npx");
+}
+
+/// Review of #214, 2: an option given more than once is known by its value, never by its rank.
+#[test]
+fn an_option_given_twice_is_never_lost_nor_doubled() {
+    let sandbox = Sandbox::new("twice");
+    let remote = sandbox.folder();
+    let (a, a_home) = home_machine(&sandbox, "a");
+    let (b, b_home) = home_machine(&sandbox, "b");
+    let git = "[safe]\n\tdirectory = /opt/src\n\tdirectory = ~/b\n\tdirectory = ~/c\n[tool]\n\tplugin = /opt/acme/a.so\n\tplugin = ~/b.so\n";
+    put(&a_home.join(".gitconfig"), git);
+    a.setup(&remote);
+    b.setup(&remote);
+    assert_eq!(
+        read(&b_home.join(".gitconfig")),
+        "[safe]\n\tdirectory = ~/b\n\tdirectory = ~/c\n[tool]\n\tplugin = ~/b.so\n"
+    );
+    assert!(a.push().pushed.is_empty() && b.push().pushed.is_empty());
+    assert_eq!(read(&a_home.join(".gitconfig")), git);
+
+    put(
+        &b_home.join(".gitconfig"),
+        "[safe]\n\tdirectory = ~/b\n\tdirectory = ~/c\n\tdirectory = ~/d\n[tool]\n\tplugin = ~/b.so\n\tplugin = ~/e.so\n",
+    );
+    b.push();
+    a.push();
+    let on_a = read(&a_home.join(".gitconfig"));
+    for line in [
+        "directory = /opt/src",
+        "directory = ~/b",
+        "directory = ~/c",
+        "directory = ~/d",
+        "plugin = /opt/acme/a.so",
+        "plugin = ~/b.so",
+        "plugin = ~/e.so",
+    ] {
+        assert_eq!(
+            on_a.matches(&format!("\t{line}\n")).count(),
+            1,
+            "{line}: {on_a}"
+        );
+    }
+    assert!(a.push().pushed.is_empty() && b.push().pushed.is_empty());
+}
+
+/// Review of #214, 3: ssh takes the first value it finds, so another machine's hosts never come before this
+/// machine's; and an order changed on one machine alone is kept.
+#[test]
+fn hosts_from_elsewhere_never_take_over_and_an_order_change_travels() {
+    let sandbox = Sandbox::new("host-order");
+    let remote = sandbox.folder();
+    let (a, a_home) = home_machine(&sandbox, "a");
+    let (b, b_home) = home_machine(&sandbox, "b");
+    let (ca, cb) = (a_home.join(".ssh/config"), b_home.join(".ssh/config"));
+    put(
+        &ca,
+        "Host *.acme.test\n  User deploy\n\nHost *\n  ServerAliveInterval 60\n",
+    );
+    put(
+        &cb,
+        "Host box.acme.test\n  User alex\n\nHost *\n  ServerAliveInterval 60\n",
+    );
+    a.setup(&remote);
+    b.setup(&remote);
+    let on_b = read(&cb);
+    let at = |text: &str, host: &str| text.find(&format!("Host {host}\n")).unwrap();
+    assert!(
+        at(&on_b, "box.acme.test") < at(&on_b, "*.acme.test")
+            && at(&on_b, "*.acme.test") < at(&on_b, "*"),
+        "{on_b}"
+    );
+
+    // a puts its wildcard first again, b adds a port meanwhile: a's order, b's port.
+    a.push();
+    let on_a = read(&ca);
+    let wildcard = "Host *.acme.test\n  User deploy\n\n";
+    put(&ca, &format!("{wildcard}{}", on_a.replace(wildcard, "")));
+    a.push();
+    put(
+        &cb,
+        &on_b.replace("  User alex\n", "  User alex\n  Port 2222\n"),
+    );
+    b.push();
+    let on_b = read(&cb);
+    assert!(
+        at(&on_b, "*.acme.test") < at(&on_b, "box.acme.test") && on_b.contains("Port 2222"),
+        "{on_b}"
+    );
+}
+
+/// Review of #214, 4: the same host keys in another order are the same host keys: nothing to send, ever.
+#[test]
+fn known_hosts_in_another_order_are_not_sent_again_and_again() {
+    let sandbox = Sandbox::new("known-hosts-order");
+    let remote = sandbox.folder();
+    let (a, a_home) = home_machine(&sandbox, "a");
+    let (b, b_home) = home_machine(&sandbox, "b");
+    let (gh, gl) = (
+        "github.com ssh-ed25519 AAAAgh\n",
+        "gitlab.com ssh-ed25519 AAAAgl\n",
+    );
+    put(&a_home.join(".ssh/known_hosts"), &format!("{gh}{gl}"));
+    put(&b_home.join(".ssh/known_hosts"), &format!("{gl}{gh}"));
+    a.setup(&remote);
+    b.setup(&remote);
+    for _ in 0..3 {
+        for m in [&a, &b] {
+            let report = m.push();
+            assert!(
+                !report.pushed.contains(&"ssh/known_hosts".into())
+                    && !report.pulled.contains(&"ssh/known_hosts".into()),
+                "{report:?}"
+            );
+        }
+    }
+    assert_eq!(read(&b_home.join(".ssh/known_hosts")), format!("{gl}{gh}"));
+}
+
+/// Review of #214, 5: a comment written after a sync is a change: undoing that sync leaves the file alone.
+#[test]
+fn undo_leaves_a_file_commented_since() {
+    let sandbox = Sandbox::new("undo-comment");
+    let remote = sandbox.folder();
+    let (a, b) = (sandbox.machine("a"), sandbox.machine("b"));
+    a.put("termf.toml", "scan_depth = 3\n");
+    b.put("termf.toml", "keep_awake = \"always\"\n");
+    a.setup(&remote);
+    b.setup(&remote);
+    let commented = format!("# mine\n{}", b.read("termf.toml"));
+    b.put("termf.toml", &commented);
+    let undone = b.engine.undo().unwrap();
+    assert_eq!(undone.changed, ["termf.toml"]);
+    assert_eq!(b.read("termf.toml"), commented);
+}
+
+/// Review of #214, 6: a comment written here stays when the other machine changes the setting below it.
+#[test]
+fn a_comment_stays_when_the_other_machine_changes_the_host() {
+    let sandbox = Sandbox::new("host-comment");
+    let remote = sandbox.folder();
+    let (a, a_home) = home_machine(&sandbox, "a");
+    let (b, b_home) = home_machine(&sandbox, "b");
+    let (ca, cb) = (a_home.join(".ssh/config"), b_home.join(".ssh/config"));
+    put(&ca, "Host prod\n  HostName a.acme.test\n  User deploy\n");
+    a.setup(&remote);
+    b.setup(&remote);
+    put(&cb, &read(&cb).replace("a.acme.test", "b.acme.test"));
+    b.push();
+    put(&ca, &format!("# careful: production\n{}", read(&ca)));
+    a.push();
+    b.push();
+    let expected = "# careful: production\nHost prod\n  HostName b.acme.test\n  User deploy\n";
+    assert_eq!(read(&ca), expected);
+    assert_eq!(read(&cb), expected);
+}
