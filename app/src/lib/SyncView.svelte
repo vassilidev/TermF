@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
   import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
@@ -64,8 +65,8 @@
     scopes.map(([scope]) => scope).filter((scope) => !["vault", "sshKeys", "devConfig"].includes(scope)),
   );
   let deviceName = $state("");
-  /** Ticking the SSH keys waits for this confirmation: `apply` runs once confirmed. */
-  let sshWarning = $state<{ apply: () => void } | null>(null);
+  /** Ticking the SSH keys waits for this confirmation: `apply` runs once confirmed, then the focus goes back to `box`. */
+  let sshWarning = $state<{ apply: () => unknown; box: HTMLInputElement } | null>(null);
   /** The device whose « Oublier » form is open. */
   let forgetting = $state<Device | null>(null);
   /** Where each missing repository is cloned, when the user chose another folder. */
@@ -183,7 +184,18 @@
 
   async function setScope(scope: Scope, on: boolean) {
     const next = on ? [...(status?.scopes ?? []), scope] : (status?.scopes ?? []).filter((s) => s !== scope);
-    await syncCall("sync_scopes", { scopes: next });
+    // What is turned on leaves at once, and the report says what went.
+    if ((await syncCall("sync_scopes", { scopes: next })) !== undefined && on) await syncNow();
+  }
+
+  async function closeSshWarning(confirmed: boolean) {
+    if (!sshWarning) return;
+    // Read before clearing: once cleared, nothing of the warning is left to read.
+    const { apply, box } = sshWarning;
+    sshWarning = null;
+    if (confirmed) await apply();
+    await tick();
+    if (document.activeElement === document.body) box.focus();
   }
 
   async function disable() {
@@ -292,49 +304,44 @@
   {/if}
 {/snippet}
 
-{#snippet scopeList(selected: Scope[], onchange: (scope: Scope, on: boolean) => void)}
+{#snippet scopeList(selected: Scope[], onchange: (scope: Scope, on: boolean) => unknown)}
   <ul class="scopes">
     {#each scopes as [scope, label, help] (scope)}
       {@const on = selected.includes(scope)}
+      {@const warned = scope === "sshKeys" && !!sshWarning}
       <li>
         <label class="check">
           <input
             type="checkbox"
             checked={on}
-            disabled={!!sync.busy || (on && selected.length === 1) || (scope === "sshKeys" && !!sshWarning)}
+            disabled={!!sync.busy || (on && selected.length === 1) || warned}
             onchange={(e) => {
               const box = e.currentTarget;
               // The private keys leave only once the warning is read and confirmed.
               if (scope === "sshKeys" && box.checked) {
                 box.checked = false;
-                sshWarning = { apply: () => onchange(scope, true) };
+                sshWarning = { apply: () => onchange(scope, true), box };
               } else onchange(scope, box.checked);
             }}
           />
           <span>{t(label)}</span>
           <span class="muted">{t(help)}</span>
         </label>
+        {#if warned}
+          <div class="warning-box" role="alert">
+            <p class="warn-title"><TriangleAlert size={14} aria-hidden="true" />{t("sync2SshWarnTitle")}</p>
+            <p class="help">{t("sync2SshWarn")}</p>
+            <div class="buttons">
+              <button type="button" class="btn sm" onclick={() => closeSshWarning(false)} {@attach focus}>{t("cancel")}</button>
+              <button type="button" class="btn sm primary" onclick={() => closeSshWarning(true)}>
+                <KeyRound size={14} aria-hidden="true" />{t("sync2SshConfirm")}
+              </button>
+            </div>
+          </div>
+        {/if}
       </li>
     {/each}
   </ul>
-  {#if sshWarning}
-    {@const { apply } = sshWarning}
-    <div class="warning-box" role="alert">
-      <p class="warn-title"><TriangleAlert size={14} aria-hidden="true" />{t("sync2SshWarnTitle")}</p>
-      <p class="help">{t("sync2SshWarn")}</p>
-      <div class="buttons">
-        <button type="button" class="btn sm" onclick={() => (sshWarning = null)} {@attach focus}>{t("cancel")}</button>
-        <button
-          type="button"
-          class="btn sm primary"
-          onclick={() => {
-            sshWarning = null;
-            apply();
-          }}><KeyRound size={14} aria-hidden="true" />{t("sync2SshConfirm")}</button
-        >
-      </div>
-    </div>
-  {/if}
   <p class="help">{t("syncScopesHelp")}</p>
 {/snippet}
 
@@ -587,8 +594,9 @@
           />
         </section>
         <footer class="buttons">
-          <button type="button" class="btn" onclick={() => (setMode(""), (joining = null))}>{t("cancel")}</button>
-          <button class="btn primary" disabled={(joining ? !password : !newPasswordOk) || !!sync.busy}>
+          <button type="button" class="btn" onclick={() => (setMode(""), (joining = null), (sshWarning = null))}>{t("cancel")}</button>
+          <!-- The SSH keys' warning is answered first: creating with it open would leave them out. -->
+          <button class="btn primary" disabled={(joining ? !password : !newPasswordOk) || !!sync.busy || !!sshWarning}>
             {@render spinner("sync_setup", FolderSync)}{joining ? t("syncJoin") : t("syncCreate")}
           </button>
         </footer>
@@ -658,12 +666,16 @@
       <SyncConflict conflict={openConflict} onback={() => (conflict = null)} />
     {:else}
       {#if report}
+        {@const keys = report.pushed.filter((p) => p.startsWith("ssh/keys/")).map((p) => p.slice("ssh/keys/".length))}
         <p class="notice">
           <CircleCheck size={14} aria-hidden="true" />
           {report.pulled.length || report.pushed.length
             ? t("syncReport", { pulled: report.pulled.length, pushed: report.pushed.length })
             : t("syncUpToDate")}
         </p>
+        {#if keys.length}
+          <p class="notice"><KeyRound size={14} aria-hidden="true" />{t("syncSshScopeSent", { names: keys.join(", ") })}</p>
+        {/if}
       {/if}
       {#if status.lastError && status.lastError !== sync.error && !report?.skipped.length}
         <p class="notice error lines"><CircleAlert size={14} aria-hidden="true" />{status.lastError}</p>
@@ -1239,6 +1251,10 @@
 
   .grid .span {
     grid-column: 1 / -1;
+  }
+
+  .scopes .warning-box {
+    margin-top: 8px;
   }
 
   .warning-box {

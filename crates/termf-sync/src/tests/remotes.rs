@@ -488,6 +488,26 @@ fn ssh_keys_travel_sealed_and_never_replace_a_key() {
     assert!(!config.contains("acme-prod"), "{config}");
 }
 
+/// The app turns the SSH keys on for a running sync, then syncs: the report names the keys sent.
+#[test]
+fn ssh_keys_turned_on_later_are_kept_and_sent_by_name() {
+    let sandbox = Sandbox::new("ssh-later");
+    let (a, a_ssh) = ssh_machine(&sandbox, "a");
+    a_ssh
+        .generate("id_work", termf_ssh::KeyType::Ed25519, "alex@work", None)
+        .unwrap();
+    a.engine
+        .setup(sandbox.folder(), PASSWORD, &Scope::DEFAULT, None)
+        .unwrap();
+    assert!(!a.push().pushed.iter().any(|p| p.starts_with("ssh/")));
+
+    let mut scopes = Scope::DEFAULT.to_vec();
+    scopes.push(Scope::SshKeys);
+    a.engine.set_scopes(&scopes).unwrap();
+    assert!(a.engine.status().unwrap().scopes.contains(&Scope::SshKeys));
+    assert_eq!(a.push().pushed, ["ssh/keys/id_work"]);
+}
+
 /// What cannot be read here is left out of the sync, never taken as deleted.
 #[test]
 fn unreadable_ssh_files_are_skipped_not_deleted_elsewhere() {
