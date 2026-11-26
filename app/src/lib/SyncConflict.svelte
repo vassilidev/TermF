@@ -11,8 +11,6 @@
   let editing = $state(false);
   let text = $state("");
   const lines = $derived(lineDiff(conflict.local ?? "", conflict.remote ?? ""));
-  // A key is never merged: one of the two pairs is kept.
-  const key = $derived(conflict.path.startsWith("ssh/keys/"));
 
   async function keep(resolution: { keep: "local" | "remote" } | { keep: "merged"; text: string }) {
     const report = await syncCall<Report>("sync_resolve", { path: conflict.path, resolution });
@@ -52,9 +50,7 @@
     {@render side("syncRemoteSide", conflict.remote, "-", "remote")}
   </div>
 
-  {#if key}
-    <p class="help">{t("sync2KeyConflict")}</p>
-  {:else if editing}
+  {#if editing}
     <div class="merged">
       <h4>{t("syncMerged")}</h4>
       <p class="help">{t("syncMergeHelp")}</p>

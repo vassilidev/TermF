@@ -3773,17 +3773,15 @@ const fr = {
   sync2Credentials:
     "Ces identifiants restent dans le trousseau du système de cette machine, jamais dans un fichier synchronisé ni sur une ligne de commande.",
   sync2ScopeSsh: "Clés SSH",
-  sync2ScopeSshHelp: "les paires de clés de ~/.ssh et tout ~/.ssh/config",
+  sync2ScopeSshHelp: "les paires de clés de ~/.ssh, ~/.ssh/config et ~/.ssh/known_hosts",
   sync2SshWarnTitle: "Synchroniser tes clés SSH privées ?",
   sync2SshWarn:
-    "Tes clés privées et tout ton ~/.ssh/config partent sur le remote, chiffrés par la clé de la synchro : qui a le mot de passe de synchro peut les lire. Une clé protégée par une phrase de passe le reste. Une clé de même nom mais différente n'est jamais remplacée : tu choisis laquelle garder. Si ~/.ssh/config change sur deux machines, tu choisis aussi, côte à côte.",
+    "Tes clés privées, ton ~/.ssh/config et ton ~/.ssh/known_hosts partent sur le remote, chiffrés par la clé de la synchro : qui a le mot de passe de synchro peut les lire. Une clé protégée par une phrase de passe le reste. Une clé de même nom mais différente n'est jamais remplacée : celle de l'autre machine arrive à côté, sous un autre nom. Si un même hôte de ~/.ssh/config est réglé différemment sur deux machines, tu choisis, côte à côte.",
   sync2SshConfirm: "Synchroniser mes clés SSH",
   syncSshScopeSent: "Clés SSH envoyées : {names}",
   syncDevScope: "Config de dev",
   syncDevScopeHelp:
     "~/.claude : CLAUDE.md, settings.json (plugins activés et marketplaces compris), keybindings.json, skills, agents, commandes, styles, hooks et la mémoire auto des projets présents ici ; les serveurs MCP de ~/.claude.json ; ~/.gitconfig et son fichier d'exclusions. Jamais les identifiants, les conversations, les caches ni les copies des plugins.",
-  sync2KeyConflict:
-    "Deux clés différentes portent ce nom. Garder l'autre met la tienne dans la corbeille ~/.ssh/.termf-trash ; garder la tienne la laisse ici sans l'envoyer aux autres machines.",
   sync2Forget: "Oublier…",
   sync2ForgetTitle: "Oublier {name}",
   sync2ForgetHelp:
@@ -5871,6 +5869,30 @@ const fr = {
   forgefixActList: "Lister les serveurs et sites Forge",
   forgefixActListText: "Lit les serveurs et les sites du compte Forge du projet, sans rien changer.",
   forgefixActAccountCliText: "Le compte Forge {label} devient celui du projet avec le jeton de la CLI Forge de cette machine, une fois testé ; ce jeton va au coffre.",
+  // Sync on several machines (`sync/reconcile`): the preview before joining, keys kept both, undoing a sync.
+  syncReconcilePreview: "Voir ce qui changera",
+  syncReconcilePreviewTitle: "Avant de rejoindre",
+  syncReconcilePreviewHelp:
+    "Rien n'est appliqué avant que tu rejoignes. Ce que les deux machines ont réglé différemment reste tel quel ici jusqu'à ton choix, côte à côte.",
+  syncReconcilePreviewEmpty: "Rien à recevoir ni à envoyer : cette machine a déjà les mêmes fichiers.",
+  syncReconcileSummary: "En conflit : {conflict} · fusionnés : {merged} · ajoutés ici : {added} · envoyés : {sent}",
+  syncReconcileConflict: "En conflit",
+  syncReconcileMerged: "Fusionné",
+  syncReconcileKept: "Les deux gardées",
+  syncReconcileAdded: "Ajouté ici",
+  syncReconcileSent: "Envoyé aux autres",
+  syncReconcileMergedHelp: "Ce que chaque machine a en plus est gardé.",
+  syncReconcileKeptAs: "Deux clés différentes portent ce nom : la tienne reste, celle de l'autre machine arrive à côté, sous {name}.",
+  syncReconcileRenamed: "{name} : deux clés différentes portent ce nom. La tienne reste ; celle de l'autre machine est arrivée à côté, sous {to}.",
+  syncReconcileUndoTitle: "Retour en arrière",
+  syncReconcileUndoHelp:
+    "Avant d'appliquer une synchro, TermF garde ici une copie de ce qu'elle change (les 10 dernières). Les clés SSH n'y sont pas : une synchro ne fait qu'en ajouter. Dernière synchro appliquée {ago}.",
+  syncReconcileUndo: "Annuler la dernière synchro",
+  syncReconcileUndoConfirm: "Remettre ces fichiers comme avant la dernière synchro ? Ceux que tu as modifiés depuis restent tels quels.",
+  syncReconcileUndoRun: "Remettre comme avant",
+  syncReconcileUndone:
+    "Fichiers remis comme avant : {count}. Ils ne sont plus synchronisés tant que tu n'as pas choisi, côte à côte, dans les conflits.",
+  syncReconcileUndoChanged: "Modifiés depuis, laissés tels quels : {paths}",
 };
 
 type Key = keyof typeof fr;
@@ -9618,17 +9640,15 @@ const en: Record<Key, string> = {
   sync2Credentials:
     "These credentials stay in this machine's system keychain, never in a synced file nor on a command line.",
   sync2ScopeSsh: "SSH keys",
-  sync2ScopeSshHelp: "the key pairs of ~/.ssh and all of ~/.ssh/config",
+  sync2ScopeSshHelp: "the key pairs of ~/.ssh, ~/.ssh/config and ~/.ssh/known_hosts",
   sync2SshWarnTitle: "Sync your private SSH keys?",
   sync2SshWarn:
-    "Your private keys and all of your ~/.ssh/config go to the remote, encrypted by the sync's key: whoever has the sync password can read them. A key protected by a passphrase stays protected. A different key with the same name is never replaced: you choose which one to keep. If ~/.ssh/config changes on two machines, you choose there too, side by side.",
+    "Your private keys, your ~/.ssh/config and your ~/.ssh/known_hosts go to the remote, encrypted by the sync's key: whoever has the sync password can read them. A key protected by a passphrase stays protected. A different key with the same name is never replaced: the other machine's lands beside it, under another name. If the same host of ~/.ssh/config is set differently on two machines, you choose, side by side.",
   sync2SshConfirm: "Sync my SSH keys",
   syncSshScopeSent: "SSH keys sent: {names}",
   syncDevScope: "Dev config",
   syncDevScopeHelp:
     "~/.claude: CLAUDE.md, settings.json (enabled plugins and marketplaces included), keybindings.json, skills, agents, commands, styles, hooks and the auto memory of the projects found here; the MCP servers of ~/.claude.json; ~/.gitconfig and its excludes file. Never the credentials, the conversations, the caches nor the plugins' copies.",
-  sync2KeyConflict:
-    "Two different keys have this name. Keeping the other one moves yours to the ~/.ssh/.termf-trash folder; keeping yours leaves it here without sending it to the other machines.",
   sync2Forget: "Forget…",
   sync2ForgetTitle: "Forget {name}",
   sync2ForgetHelp:
@@ -11712,6 +11732,30 @@ const en: Record<Key, string> = {
   forgefixActList: "List the Forge servers and sites",
   forgefixActListText: "Reads the servers and sites of the project's Forge account, changing nothing.",
   forgefixActAccountCliText: "Forge account {label} becomes the project's with this machine's Forge CLI token, once tested; the token goes to the vault.",
+  // Sync on several machines (`sync/reconcile`): the preview before joining, keys kept both, undoing a sync.
+  syncReconcilePreview: "See what will change",
+  syncReconcilePreviewTitle: "Before joining",
+  syncReconcilePreviewHelp:
+    "Nothing is applied until you join. What the two machines set differently stays as it is here until you choose, side by side.",
+  syncReconcilePreviewEmpty: "Nothing to receive or send: this machine already has the same files.",
+  syncReconcileSummary: "In conflict: {conflict} · merged: {merged} · added here: {added} · sent: {sent}",
+  syncReconcileConflict: "In conflict",
+  syncReconcileMerged: "Merged",
+  syncReconcileKept: "Both kept",
+  syncReconcileAdded: "Added here",
+  syncReconcileSent: "Sent to the others",
+  syncReconcileMergedHelp: "What each machine has on top is kept.",
+  syncReconcileKeptAs: "Two different keys have this name: yours stays, the other machine's lands beside it as {name}.",
+  syncReconcileRenamed: "{name}: two different keys have this name. Yours stays; the other machine's landed beside it as {to}.",
+  syncReconcileUndoTitle: "Going back",
+  syncReconcileUndoHelp:
+    "Before applying a sync, TermF keeps a copy here of what it changes (the last 10). SSH keys are not in it: a sync only ever adds them. Last sync applied {ago}.",
+  syncReconcileUndo: "Undo the last sync",
+  syncReconcileUndoConfirm: "Put these files back as they were before the last sync? Those you changed since stay as they are.",
+  syncReconcileUndoRun: "Put back as before",
+  syncReconcileUndone:
+    "Files put back as before: {count}. They are not synced until you choose, side by side, in the conflicts.",
+  syncReconcileUndoChanged: "Changed since, left as they are: {paths}",
 };
 
 const messages = { fr, en };
