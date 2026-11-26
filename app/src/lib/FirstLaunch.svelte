@@ -144,12 +144,17 @@
     if (id === "claude" && checks[0] === null && !checking) check();
   });
 
-  // Enter continues: the keyboard waits on Continue, on the page while the checks run, or on the machine's choice.
+  // Enter continues: the keyboard waits on Continue, on the page while the checks run, or on the machine's choice;
+  // the vault's password is typed at once.
   $effect(() => {
     void id;
     const busy = checking;
     tick().then(() =>
-      (dialog.querySelector<HTMLElement>("footer .primary:not(:disabled)") ?? (busy ? dialog : dialog.querySelector<HTMLElement>(".machine input")))?.focus(),
+      (
+        dialog.querySelector<HTMLElement>(".vault-form input") ??
+        dialog.querySelector<HTMLElement>("footer .primary:not(:disabled)") ??
+        (busy ? dialog : dialog.querySelector<HTMLElement>(".machine input"))
+      )?.focus(),
     );
   });
 
@@ -196,10 +201,21 @@
     setTimeout(() => (copied = false), 1500);
   }
 
+  /** The recovery key made here is on screen. */
+  let keyShown = $state(false);
+
   async function newKey() {
     vault.recoveryKey = { key: await invoke<string>("vault_recovery_new"), reason: "created" };
+    keyShown = true;
     setStatus(await invoke<VaultStatus>("vault_status"));
   }
+
+  // The key's own Continue, once it is stored, goes on to the next step.
+  $effect(() => {
+    if (!keyShown || vault.recoveryKey) return;
+    keyShown = false;
+    if (untrack(() => id) === "vault") untrack(next);
+  });
 
   async function createVault(e: SubmitEvent) {
     e.preventDefault();

@@ -75,6 +75,8 @@ export const scenarios = [
       await t.ready({ keepIntro: true });
       await t.clean();
       const next = () => s.click("dialog.intro footer .primary:not([disabled])");
+      // A first machine: its environment, vault and sync come after Claude Code.
+      await s.click("dialog.intro .machine .choice");
       await next();
       // Installed, signed in, its agents followed: each line ends checked or says why, the fake Claude Code found.
       await s.wait(() => s.exec(() => document.querySelectorAll("dialog.intro .ck:is(.ok, .warn, .fail)").length === 3), {
@@ -83,9 +85,11 @@ export const scenarios = [
       });
       check(await s.exec(() => document.querySelector("dialog.intro .ck").classList.contains("ok")), "the fake Claude Code is not found");
       check(/~\/\.claude/.test(await s.text("dialog.intro .note")), "nothing says ~/.claude is left alone");
-      for (let step = 1; step < 5; step++) await next();
+      for (let step = 1; step < 8; step++) await next();
       await s.waitGone("dialog.intro");
       check((await s.exec(() => localStorage.getItem("termf.tour"))) === "1", "the introduction is not remembered as seen");
+      const kept = JSON.parse(await s.exec(() => localStorage.getItem("termf.machine")));
+      check(kept.machine === "first" && kept.passed.includes("vault") && kept.passed.includes("sync"), "the vault and the sync are not put off for later");
       await t.view("home");
     },
   },
