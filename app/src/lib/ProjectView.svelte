@@ -19,6 +19,7 @@
   import TeamRoles from "$lib/TeamRoles.svelte";
   import TeamSquads from "$lib/TeamSquads.svelte";
   import TicketSources from "$lib/TicketSources.svelte";
+  import WorktreeSetup from "$lib/WorktreeSetup.svelte";
   import { openSetup } from "$lib/onboarding.svelte";
   import { steps, type Step } from "$lib/onboarding-logic";
   import Banner from "$lib/ui/Banner.svelte";
@@ -53,7 +54,6 @@
   let sources = $state<TicketSources>();
   /** Bumped to read the ticket sources again, which drops their changes. */
   let round = $state(0);
-  let recipe = $state<{ saved: boolean } | null>(null);
   /** null while it is read, undefined if it could not be. */
   let setup = $state<{ step: Step; log: Log[] } | null | undefined>(null);
   let question = $state<HTMLDialogElement>();
@@ -67,10 +67,9 @@
   // An id that names no project (deleted, or gone after a reload) never shows a form that would create a copy.
   const missing = $derived(!!id && !project);
 
-  /** What depends on the repositories, read again once they are saved. The Worktrees tab tells why a recipe cannot be read. */
+  /** What depends on the repositories, read again once they are saved. */
   let stacks = $state<RepoStack[]>([]);
   function readRepos() {
-    invoke<{ saved: boolean }>("worktree_recipe", { project: id }).then((r) => (recipe = r), () => {});
     invoke<RepoStack[]>("library_stack", { project: id }).then((s) => (stacks = s), () => {});
   }
   /** The cards could not be read: without this, they would show their placeholders forever. */
@@ -233,8 +232,8 @@
     }
   }
 
-  function openLibrary(tab?: typeof library.tab) {
-    Object.assign(library, { global: false, panel: null }, tab ? { tab } : {});
+  function openLibrary() {
+    Object.assign(library, { global: false, panel: null });
     showLibrary();
   }
 
@@ -459,13 +458,13 @@
             <TeamDecisions project={id} />
           </section>
 
-          <section class="sec" hidden={current !== "worktrees"} aria-labelledby="config-worktrees">
-            <h2 id="config-worktrees">{t("wtTitle")}</h2>
-            <p class="help">{t("wtIntro")}</p>
-            <div class="line">
-              <button type="button" class="btn sm" onclick={() => openLibrary("worktrees")}>{t("t5RecipeEdit")}</button>
-              {#if recipe}<span class="muted">{recipe.saved ? t("wtSaved") : t("wtDetected")}</span>{/if}
-            </div>
+          <!-- The Library's own editor, read again when the repositories change. -->
+          <section class="sec flow worktrees" hidden={current !== "worktrees"}>
+            {#if project}
+              {#key project.repos.map((r) => r.path).join("\n")}
+                <WorktreeSetup {project} />
+              {/key}
+            {/if}
           </section>
 
           <section class="sec flow" hidden={current !== "memory"}>
@@ -554,6 +553,11 @@
   /* The memory brings its own spacing. */
   .sec.flow {
     display: block;
+  }
+
+  /* The recipe's editor pads itself for the Library: here the page already does. */
+  .worktrees :global(.pane) {
+    padding: 0;
   }
 
   .sec[hidden] {
@@ -730,11 +734,6 @@
     border-top: 1px solid var(--border);
   }
 
-  .line {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
 
   /* Apart from the rest, at the bottom: what cannot be undone. */
   .danger-zone {

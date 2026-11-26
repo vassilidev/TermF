@@ -79,7 +79,7 @@
       id: "agentenv",
       label: "agentenvSettings",
       icon: Variable,
-      words: ["agentenvSettingsHelp", "agentenvAllow", "agentenvBase", "agentenvAllowHelp"],
+      words: ["agentenvSettingsHelp", "agentEnvWithheld", "agentenvAllow", "agentenvBase", "agentenvAllowHelp"],
     },
     {
       id: "config",

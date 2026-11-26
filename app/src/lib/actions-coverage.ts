@@ -46,6 +46,7 @@ export const READS: string[] = [
   "agentenv_grants",
   "agentenv_requests",
   "agentenv_settings",
+  "agentenv_withheld",
   "api_confirms",
   "artifacts_list",
   "ci_checks",
