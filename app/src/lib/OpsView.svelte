@@ -70,6 +70,9 @@
         ops.result = null;
         ops.proposal = null;
         ops.sql.result = null;
+        // The same name in another project is another server: nothing stays picked.
+        ops.sql.connection = "";
+        ops.redis.connection = "";
         stopFollow();
         ops.live.lines = [];
         ops.live.ended = null;
@@ -437,7 +440,9 @@
                       ...envs.map((e) => ({ id: e, label: e, count: ops.connections.filter((c) => c.env === e).length })),
                     ]}
                     selected={ops.env && envs.includes(ops.env) ? ops.env : ""}
-                    onselect={(e) => (ops.env = (e || null) as typeof ops.env)}
+                    onselect={(e) => {
+                      ops.env = (e || null) as typeof ops.env;
+                    }}
                   />
                 </div>
               {/if}
@@ -665,7 +670,11 @@
           {@const redis = ops.connections.find((c) => c.kind === "redis" && c.name === ops.redis.connection)}
           <div class="pane redis-pane">
             {#if !ops.connections.some((c) => c.kind === "redis")}
-              <EmptyState icon={Database} text={t("opstidyNoRedis")} />
+              <EmptyState
+                icon={Database}
+                text={t("opstidyNoRedis")}
+                action={{ label: t("opsAdd"), icon: Plus, run: () => ((ops.tab = "connections"), (ops.editing = "")) }}
+              />
             {:else if !redis}
               <EmptyState icon={Database} text={t("opstidyPickRedis")} />
             {:else}
