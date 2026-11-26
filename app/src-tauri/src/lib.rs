@@ -663,6 +663,7 @@ pub fn run() {
             agents::agent_handback,
             agents::agent_sessions,
             agents::agent_events,
+            agents::agent_search,
             team::team_start,
             team::team_route,
             team::team_answer,

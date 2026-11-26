@@ -24,7 +24,7 @@ pub use claude::{
     ASK_EXPERT, BROWSER, ClaudeCode, EXPERT, OPS, TOOL_OUTPUT, mcp_settings, mcp_tools,
 };
 pub use cli::{Codex, Gemini};
-pub use store::{events, sessions};
+pub use store::{Found, events, search, sessions};
 
 /// An agent CLI TermF drives (ARCHITECTURE §6.1): Claude Code, Codex CLI, Gemini CLI.
 pub trait AgentRuntime: Send + Sync {
