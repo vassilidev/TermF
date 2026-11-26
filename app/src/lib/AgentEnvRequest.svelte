@@ -3,6 +3,7 @@
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import ActionVault from "$lib/ActionVault.svelte";
   import { dropSecretRequest, type SecretRequest } from "$lib/agentenv.svelte";
   import { t } from "$lib/i18n";
   import { app } from "$lib/state.svelte";
@@ -58,6 +59,15 @@
     <b>{t("agentenvAsk", { who, variable: r.variable })}</b>
   </header>
   <p class="purpose">{t("agentenvFor", { purpose: r.purpose })}</p>
+  {#if r.vault}
+    <!-- Already given to the project's agents: opening the vault is all it takes, TermF then answers the agent. -->
+    <ActionVault
+      need="unlock"
+      text={() => t("vaultCardsKeyText", { variable: r.variable })}
+      onopen={() => dropSecretRequest(r.id)}
+      onrefuse={() => answer(false)}
+    />
+  {:else}
   {#if r.signupUrl && host}
     <button class="btn link signup" onclick={() => invoke("open_url", { url: r.signupUrl }).catch((e) => (error = String(e)))}>
       <ExternalLink size={13} aria-hidden="true" />{t("agentenvSignup", { host })}
@@ -98,6 +108,7 @@
       {/if}
     </span>
   </footer>
+  {/if}
 </article>
 
 <style>

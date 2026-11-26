@@ -12,6 +12,8 @@ export type SecretRequest = {
   signupUrl: string | null;
   agent: { session: number; run: number | null; title: string; role: string | null };
   at: number;
+  /** The project's agents already get the key, but the vault is locked: the user only opens it. */
+  vault: boolean;
 };
 
 /** A variable the project's agents get from the vault; `found`: null while the vault is locked. */

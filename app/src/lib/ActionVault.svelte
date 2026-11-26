@@ -5,19 +5,25 @@
   import ShieldX from "@lucide/svelte/icons/shield-x";
   import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
-  import { actionOf, refuse, resume, type VaultWait } from "$lib/actions.svelte";
   import { t } from "$lib/i18n";
   import { biometryName, failed, followStatus, quickReady, refreshVault, setStatus, vault, type VaultMethods, type VaultStatus } from "$lib/vault.svelte";
 
-  /**
-   * An agent's action stopped at the vault, after the user approved it: the card says why, takes the master password
-   * (or Touch ID, or a security key), then runs the action again. What is typed here never reaches the agent.
-   */
-  let { wait }: { wait: VaultWait } = $props();
+  type Need = "unlock" | "reauth";
 
-  const action = $derived(actionOf(wait.call.session, wait.call.action));
+  /**
+   * What an agent asked for stopped at the vault (an approved action, a key it is given): the card says why (`text`),
+   * takes the master password (or Touch ID, or a security key), then `onopen` lets it go on. What is typed here never
+   * reaches the agent.
+   */
+  let {
+    need: asked,
+    text,
+    onopen,
+    onrefuse,
+  }: { need: Need; text: (need: Need) => string; onopen: () => unknown; onrefuse: () => unknown } = $props();
+
   // Locked meanwhile (idle, its view left): opening it is what is asked now.
-  const need = $derived(vault.status && !vault.status.unlocked ? "unlock" : wait.need);
+  const need = $derived<Need>(vault.status && !vault.status.unlocked ? "unlock" : asked);
   const withKey = $derived(need === "unlock" && !!vault.status?.keys);
   let password = $state("");
   let pin = $state("");
@@ -42,7 +48,7 @@
     try {
       setStatus(await invoke<VaultStatus>(command, args));
       if (opening) void refreshVault();
-      await resume(wait);
+      await onopen();
     } catch (e) {
       error = failed(e);
     } finally {
@@ -63,7 +69,7 @@
       : prove("vault_unlock_biometry", { reason: t("vault2ReasonUnlock") });
 </script>
 
-<p class="said">{t(need === "reauth" ? "vaultCardsReauthText" : "vaultCardsUnlockText", { action: action ? t(action.label) : String(wait.call.action) })}</p>
+<p class="said">{text(need)}</p>
 <form class="prove" onsubmit={submit}>
   {#if quickReady()}
     <button type="button" class="btn sm quick" disabled={busy} onclick={quick}>
@@ -84,7 +90,7 @@
   {#if error}<p class="notice error" role="alert">{error}</p>{/if}
   <p class="muted small">{t("vaultCardsNever")}</p>
   <div class="row">
-    <button type="button" class="btn sm" disabled={busy} onclick={() => refuse(wait.call, "")}>
+    <button type="button" class="btn sm" disabled={busy} onclick={onrefuse}>
       <ShieldX size={14} aria-hidden="true" />{t("chatDeny")}
     </button>
     <button type="submit" class="btn sm primary" disabled={busy || !password}>

@@ -42,7 +42,7 @@
   import Action from "$lib/Action.svelte";
   import ActionAsk from "$lib/ActionAsk.svelte";
   import ActionVault from "$lib/ActionVault.svelte";
-  import { actionOf, agentActions, approve, askFirst, perform, refuse, type Call } from "$lib/actions.svelte";
+  import { actionOf, agentActions, approve, askFirst, perform, refuse, resume, type Call } from "$lib/actions.svelte";
   import StreamSteps, { type Step } from "$lib/ui/StreamSteps.svelte";
   import { toast } from "$lib/ui/toast.svelte";
   import { afterChange, changeOf, diffOf, question, within } from "$lib/ask-logic";
@@ -1186,10 +1186,16 @@
       </div>
     {/each}
     {#each agentActions.vault.filter((w) => w.call.session === session.id) as wait (wait.n)}
+      {@const label = actionOf(wait.call.session, wait.call.action)?.label}
       <!-- An approved action stopped at the vault: TermF asks for it here, then runs it again. -->
       <div class="ask" role="group" aria-label={t("vaultCardsTitle", { who })}>
         <p class="ask-title"><LockKeyhole size={16} aria-hidden="true" />{t("vaultCardsTitle", { who })}</p>
-        <ActionVault {wait} />
+        <ActionVault
+          need={wait.need}
+          text={(need) => t(need === "reauth" ? "vaultCardsReauthText" : "vaultCardsUnlockText", { action: label ? t(label) : String(wait.call.action) })}
+          onopen={() => resume(wait)}
+          onrefuse={() => refuse(wait.call, "")}
+        />
       </div>
     {/each}
     {#if thinking}

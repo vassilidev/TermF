@@ -47,6 +47,8 @@ pub struct SecretRequest {
     pub agent: termf_ops::Agent,
     /// Unix seconds.
     pub at: u64,
+    /// The project's agents already get the key, but the vault is locked: the user only opens it.
+    pub vault: bool,
 }
 
 fn now() -> u64 {
@@ -140,20 +142,35 @@ impl Requests {
     /// answer up to `wait`: the request stays in TermF after that, for the agent's next start.
     fn ask(
         &self,
-        mut request: SecretRequest,
+        request: SecretRequest,
         wait: Duration,
         show: &dyn Fn(&str, &SecretRequest),
         gone: &dyn Fn() -> bool,
     ) -> Result<Value> {
+        self.ask_until(request, wait, show, gone, &|| false)
+    }
+
+    /// `ask`, also granted as soon as `settled` says so (checked every second): the vault opened anywhere.
+    fn ask_until(
+        &self,
+        mut request: SecretRequest,
+        wait: Duration,
+        show: &dyn Fn(&str, &SecretRequest),
+        gone: &dyn Fn() -> bool,
+        settled: &dyn Fn() -> bool,
+    ) -> Result<Value> {
         let variable = request.variable.clone();
         let (tx, rx) = mpsc::channel();
-        {
+        let id = {
             let mut pending = self.pending.lock().unwrap();
-            let same = pending
-                .values_mut()
-                .find(|(r, _)| r.project == request.project && r.variable == variable);
+            let same = pending.iter_mut().find(|(_, (r, _))| {
+                r.project == request.project && r.variable == variable && r.vault == request.vault
+            });
             match same {
-                Some((_, waiting)) => waiting.push(tx),
+                Some((id, (_, waiting))) => {
+                    waiting.push(tx);
+                    *id
+                }
                 None => {
                     let mine = pending
                         .values()
@@ -164,16 +181,26 @@ impl Requests {
                     );
                     request.id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
                     show("agentenv-request", &request);
-                    pending.insert(request.id, (request, vec![tx]));
+                    let id = request.id;
+                    pending.insert(id, (request, vec![tx]));
+                    id
                 }
             }
-        }
+        };
         let deadline = Instant::now() + wait;
+        let mut checked = Instant::now();
         loop {
             match rx.recv_timeout(Duration::from_millis(250).min(wait)) {
                 Ok(granted) => return Ok(answer(&variable, Some(granted))),
                 Err(_) if gone() => bail!("the caller went away"),
                 Err(_) if Instant::now() >= deadline => return Ok(answer(&variable, None)),
+                Err(_) if checked.elapsed() >= Duration::from_secs(1) => {
+                    checked = Instant::now();
+                    if settled() {
+                        // Another waiter may have finished it first: its answer is on the way.
+                        let _ = self.finish(id, true, show);
+                    }
+                }
                 Err(_) => {}
             }
         }
@@ -236,6 +263,7 @@ fn checked(
         signup_url,
         agent,
         at: now(),
+        vault: false,
     })
 }
 
@@ -260,13 +288,50 @@ pub fn request(
     let request = checked(project, variable, purpose, signup_url, agent)?;
     let state = app.state::<AgentEnvState>();
     let vault = crate::vault::shared(app);
-    if let Some(known) = known(&vault, &state.config_dir, project, &request.variable) {
-        return Ok(known);
-    }
     let show = |event: &str, request: &SecretRequest| {
         let _ = app.emit(event, request);
     };
-    state.requests.ask(request, WAIT, &show, gone)
+    let known = known(&vault, &state.config_dir, project, &request.variable);
+    let known = match known {
+        Some(locked) if locked["status"] == "locked" => {
+            let (requests, config) = (&state.requests, state.config_dir.as_path());
+            unlock_first(
+                requests, &vault, config, &request, locked, WAIT, &show, gone,
+            )?
+        }
+        known => known,
+    };
+    match known {
+        Some(known) => Ok(known),
+        None => state.requests.ask(request, WAIT, &show, gone),
+    }
+}
+
+/// The project's agents already get `variable`, but the vault is locked: TermF's vault card asks the user to open
+/// it, then the request goes on (`None`: the vault has no value after all, the user gives one). Refused, the agent
+/// is told; nobody opens it in time, the agent gets `locked` and reports blocked.
+#[allow(clippy::too_many_arguments)]
+fn unlock_first(
+    requests: &Requests,
+    vault: &Vault,
+    config_dir: &Path,
+    request: &SecretRequest,
+    locked: Value,
+    wait: Duration,
+    show: &dyn Fn(&str, &SecretRequest),
+    gone: &dyn Fn() -> bool,
+) -> Result<Option<Value>> {
+    let asking = SecretRequest {
+        vault: true,
+        ..request.clone()
+    };
+    let open = || vault.status().is_ok_and(|s| s.unlocked);
+    let asked = requests.ask_until(asking, wait, show, gone, &open)?;
+    Ok(match asked["status"].as_str() {
+        Some("granted") => known(vault, config_dir, &request.project, &request.variable),
+        Some("refused") => Some(asked),
+        _ => Some(locked),
+    })
 }
 
 /// The answer without asking the user, when the project's agents are already given `variable`: `granted` when the
@@ -700,6 +765,78 @@ mod tests {
                 .unwrap()
                 .signup_url
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn a_locked_vault_is_asked_open_in_a_card_then_the_request_goes_on() {
+        let (root, vault) = fixture("unlock-first");
+        let config = root.join("config");
+        let asking = request("PEXELS_API_KEY");
+        store(&vault, &config, &asking, &Secret::new(KEY.into()), None).unwrap();
+        vault.lock(&Actor::human()).unwrap();
+        let locked = known(&vault, &config, "acme", "PEXELS_API_KEY").unwrap();
+        let requests = Requests::default();
+        let shown: Mutex<Vec<(String, bool)>> = Mutex::default();
+        let show =
+            |event: &str, r: &SecretRequest| shown.lock().unwrap().push((event.into(), r.vault));
+        let never = || false;
+        let ask = |wait| {
+            unlock_first(
+                &requests,
+                &vault,
+                &config,
+                &asking,
+                locked.clone(),
+                wait,
+                &show,
+                &never,
+            )
+        };
+        let card = |id| {
+            while requests.get(id).is_err() {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            requests.get(id).unwrap()
+        };
+
+        // Opened in TermF's vault card, or anywhere: the request goes on, granted, never with the value.
+        let reply = std::thread::scope(|s| {
+            let waiting = s.spawn(|| ask(WAIT));
+            assert!(card(1).vault);
+            vault
+                .unlock(&Actor::human(), Some(PASSWORD), None, None)
+                .unwrap();
+            waiting.join().unwrap().unwrap().unwrap()
+        });
+        assert_eq!(reply["status"], "granted");
+        assert!(!reply.to_string().contains(KEY));
+        assert_eq!(
+            *shown.lock().unwrap(),
+            [
+                ("agentenv-request".into(), true),
+                ("agentenv-request-done".into(), true)
+            ]
+        );
+
+        // Refused in the card: the agent is told.
+        vault.lock(&Actor::human()).unwrap();
+        let reply = std::thread::scope(|s| {
+            let waiting = s.spawn(|| ask(WAIT));
+            card(2);
+            requests.finish(2, false, &show).unwrap();
+            waiting.join().unwrap().unwrap().unwrap()
+        });
+        assert_eq!(reply["status"], "refused");
+
+        // Nobody opens it in time: blocked and said, as before.
+        let reply = ask(Duration::from_millis(300)).unwrap().unwrap();
+        assert_eq!(reply["status"], "locked");
+        assert!(
+            reply["message"]
+                .as_str()
+                .unwrap()
+                .contains("Report blocked")
         );
     }
 
