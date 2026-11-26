@@ -82,12 +82,5 @@ export function menuRuns(id: string, now: { palette: boolean; help: boolean; vie
   return id !== "close_split" || now.view === "terminals";
 }
 
-/**
- * The introduction's step once the project assistant it opened closes: the CTO's when a project was created
- * meanwhile, else the same step.
- */
-export const introResume = (step: number, projectsBefore: number, projectsNow: number) =>
-  projectsNow > projectsBefore ? Math.max(step, 3) : step;
-
 /** The newest first, at most `max`. */
 export const pushRecent = <T>(list: T[], item: T, max = 10): T[] => [item, ...list].slice(0, max);

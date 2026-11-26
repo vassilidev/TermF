@@ -8,6 +8,7 @@
   import Eye from "@lucide/svelte/icons/eye";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import KeyRound from "@lucide/svelte/icons/key-round";
+  import Laptop from "@lucide/svelte/icons/laptop";
   import ListChecks from "@lucide/svelte/icons/list-checks";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Plus from "@lucide/svelte/icons/plus";
@@ -57,6 +58,7 @@
   import { app, onScreen, repoName, setProject, shortPath } from "$lib/state.svelte";
   import { TRIAGE, asks, current, progress, type AskKind, type TeamRun } from "$lib/team-run-logic";
   import { team, upsertRun, waitTitle } from "$lib/team.svelte";
+  import { SETUP_LABEL, dropSetup, loadSetup, pendingSetup, resumeSetup, setup as machineSetup } from "$lib/tour.svelte";
   import { launchTicket, loadInbox, openUrl, showTickets, tickets, upsert, type Resolution, type Run, type TicketSummary } from "$lib/tickets.svelte";
 
   type Onboarding = {
@@ -70,6 +72,12 @@
   let error = $state("");
 
   const waits = $derived(projectWaits(app.project));
+
+  /** The setup steps of this machine put off in the introduction, offered here until done or put away. */
+  const resume = $derived(pendingSetup());
+  $effect(() => {
+    if (visible && machineSetup.passed.length) loadSetup();
+  });
 
   $effect(() => {
     if (!visible) return;
@@ -461,7 +469,16 @@
       <Banner kind="error" ondismiss={() => (error = "")}>{error}</Banner>
     </div>
   {/if}
-  <SyncInvite text="syncVisibleInviteHome" />
+  {#if resume.length}
+    <div class="banners">
+      <Banner icon={Laptop} ondismiss={dropSetup}>
+        {t("obmResumeText", { steps: resume.map((s) => t(SETUP_LABEL[s])).join(", ") })}
+        {#snippet action()}<button class="btn sm" onclick={resumeSetup}>{t("obmResume")}</button>{/snippet}
+      </Banner>
+    </div>
+  {:else}
+    <SyncInvite text="syncVisibleInviteHome" />
+  {/if}
 
   {#if project}
     {@const working = tiles.filter((s) => s.status === "working").length + headless.filter((a) => a.state === "working").length}
