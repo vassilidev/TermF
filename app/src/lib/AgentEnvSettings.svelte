@@ -84,7 +84,7 @@
             <li>
               <code title={name}>{name}</code>
               <button class="btn quiet sm" aria-label={t("agentEnvGiveLabel", { name })} onclick={() => give(name)}>
-                {t("agentEnvGive")}
+                <Plus size={13} aria-hidden="true" />{t("agentEnvGive")}
               </button>
             </li>
           {/each}
