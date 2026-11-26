@@ -158,6 +158,8 @@
   let reasons = $state<Record<string, string>>({});
   /** What the user types in an action's card (a password, a token), by call: never sent. */
   let actionSecrets = $state<Record<string, Record<string, string>>>({});
+  /** "Always allow in this conversation" ticked in a card, by call. */
+  let always = $state<Record<number, boolean>>({});
   const DO_ACTION = "mcp__termf__do_action";
   const who = $derived(session.role ?? session.title);
   let busy = $state("");
@@ -635,7 +637,7 @@
     const key = `call:${call.id}`;
     const secrets = actionSecrets[key] ?? {};
     delete actionSecrets[key];
-    if (always && call.action) grant(call.session, call.action);
+    if (allow && always && call.action) grant(call.session, call.action);
     return allow ? perform(call, secrets) : refuse(call, reasons[key] ?? "");
   }
 
@@ -1161,6 +1163,11 @@
       <div class="ask" role="group" aria-label={t("actCardTitle", { who })}>
         <p class="ask-title"><ShieldQuestionMark size={16} aria-hidden="true" />{t("actCardTitle", { who })}</p>
         <ActionAsk session={session.id} project={call.project} {who} input={call} bind:values={() => actionSecrets[`call:${call.id}`] ?? {}, (v) => (actionSecrets[`call:${call.id}`] = v)} />
+        {#if call.action && gate(call.action) === "change"}
+          <label class="always">
+            <input type="checkbox" bind:checked={() => always[call.id] ?? false, (v) => (always[call.id] = v)} />{t("permAlways")}
+          </label>
+        {/if}
         <div class="answer">
           {@render helpLink()}
           <input
@@ -1172,10 +1179,7 @@
           <button class="btn sm" onclick={() => settleCall(call, false)}>
             <ShieldX size={14} aria-hidden="true" />{t("chatDeny")}
           </button>
-          {#if call.action && gate(call.action) === "change"}
-            <button class="btn sm" onclick={() => settleCall(call, true, true)}>{t("permAlways")}</button>
-          {/if}
-          <button class="btn sm primary" onclick={() => settleCall(call, true)}>
+          <button class="btn sm primary" onclick={() => settleCall(call, true, always[call.id])}>
             <ShieldCheck size={14} aria-hidden="true" />{t("chatAllow")}
           </button>
         </div>
@@ -1782,6 +1786,13 @@
 
   .sys.granted {
     flex-wrap: wrap;
+  }
+
+  .always {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-sm);
   }
 
   .grant {
