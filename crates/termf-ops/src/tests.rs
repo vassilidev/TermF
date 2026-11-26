@@ -256,56 +256,244 @@ secrets = { password = "REDIS_PASSWORD" }
     assert!(cache.check().is_err(), "a folder on an SSH server only");
 }
 
-/// Forge's API as its documentation shows it, for acme: curl's config arrives on stdin, the answer per URL.
-#[cfg(unix)]
-const FAKE_FORGE: &str = r#"config=$(cat)
-printf '%s\n' "$config" > "@DIR@/curl.config"
-case "$config" in
-  *'Bearer bad'*) printf '{"message":"Unauthenticated."}\n401' ;;
-  *'/servers/7/sites/31/env"'*) printf 'APP_NAME=Acme\nDB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_PORT=3306\nDB_DATABASE=acme\nDB_USERNAME=forge\nDB_PASSWORD="s3cr#t pass"\n\n200' ;;
-  *'/servers/7/sites/31/deployment/deploy"'*) printf '\n200' ;;
-  *'/servers/7/sites/31/deployment-history/905/output"'*) printf '{"output":"Cloning acme/api\\nDeployed"}\n200' ;;
-  *'/servers/7/sites/31/deployment-history"'*) printf '{"deployments":[{"id":905,"status":"finished","commit_hash":"4f2a9c1","commit_message":"Export CSV","commit_author":"alex","started_at":"2026-11-25 09:00:00","ended_at":"2026-11-25 09:01:12"}]}\n200' ;;
-  *'/servers/7/sites"'*) printf '{"sites":[{"id":31,"server_id":7,"name":"acme.com","directory":"/home/forge/acme.com","repository":"acme/api","repository_branch":"main"}]}\n200' ;;
-  *'/servers"'*) printf '{"servers":[{"id":7,"name":"acme-app-1","ip_address":"203.0.113.10"}]}\n200' ;;
-  *) printf 'no\n404' ;;
-esac"#;
+/// Forge's API as its documentation shows it, on 127.0.0.1: the organizations `acme` (servers 7 then 8, a page each)
+/// and `beta` (none), and every request kept as `METHOD path`. `Bearer bad` is refused, `Bearer scoped` forbidden,
+/// `Bearer two` sees both organizations, any other token only acme.
+fn fake_forge() -> (String, Arc<Mutex<Vec<String>>>) {
+    use serde_json::{Value, json};
+    use std::io::{BufRead, BufReader, Read, Write};
+    let page = |data: Value, next: Option<&str>| {
+        json!({"data": data, "links": {}, "meta": {"path": "", "per_page": 30, "next_cursor": next, "prev_cursor": null}})
+            .to_string()
+    };
+    let org = |slug: &str, name: &str| json!({"id": "1", "type": "organizations", "attributes": {"name": name, "slug": slug}});
+    let server = |id: u64, name: &str, ip: &str| json!({"id": id.to_string(), "type": "servers", "attributes": {"id": id, "name": name, "ip_address": ip}});
+    let answer = move |method: &str, path: &str, auth: &str| -> (u16, String) {
+        match (auth, method, path) {
+            ("Bearer bad", ..) => (401, r#"{"message":"Unauthenticated."}"#.into()),
+            ("Bearer scoped", ..) => (403, r#"{"message":"This action is unauthorized."}"#.into()),
+            ("Bearer two", "GET", "/api/orgs") => (
+                200,
+                page(json!([org("acme", "Acme"), org("beta", "Beta")]), None),
+            ),
+            (_, "GET", "/api/orgs") => (200, page(json!([org("acme", "Acme")]), None)),
+            (_, "GET", "/api/orgs/beta/servers") => (200, page(json!([]), None)),
+            (_, "GET", "/api/orgs/acme/servers") => (
+                200,
+                page(
+                    json!([server(7, "acme-app-1", "203.0.113.10")]),
+                    Some("eyJpZCI6N30"),
+                ),
+            ),
+            (_, "GET", "/api/orgs/acme/servers?page%5Bcursor%5D=eyJpZCI6N30") => (
+                200,
+                page(json!([server(8, "acme-worker", "203.0.113.11")]), None),
+            ),
+            (_, "GET", "/api/orgs/acme/servers/7/sites") => (
+                200,
+                page(
+                    json!([{"id": "31", "type": "sites", "attributes": {"name": "acme.com", "user": "forge",
+                        "zero_downtime_deployments": true,
+                        "repository": {"provider": "github", "url": "acme/api", "branch": "main", "status": "installed"}}}]),
+                    None,
+                ),
+            ),
+            (_, "GET", "/api/orgs/acme/servers/7/sites/31/environment") => (
+                200,
+                json!({"data": {"id": "31", "type": "environments", "attributes": {"content":
+                    "APP_NAME=Acme\nDB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_PORT=3306\nDB_DATABASE=acme\nDB_USERNAME=forge\nDB_PASSWORD=\"s3cr#t pass\"\n"}}})
+                .to_string(),
+            ),
+            (_, "GET", "/api/orgs/acme/servers/7/sites/31/deployments?sort=-created_at") => (
+                200,
+                page(
+                    json!([{"id": "905", "type": "deployments", "attributes": {"status": "finished",
+                        "commit": {"hash": "4f2a9c1", "author": "alex", "message": "Export CSV", "branch": "main"},
+                        "started_at": "2026-11-25T09:00:00Z", "ended_at": "2026-11-25T09:01:12Z"}}]),
+                    None,
+                ),
+            ),
+            (_, "GET", "/api/orgs/acme/servers/7/sites/31/deployments/905/log") => (
+                200,
+                json!({"data": {"id": "905", "type": "deploymentOutputs", "attributes": {"output": "Cloning acme/api\nDeployed"}}})
+                    .to_string(),
+            ),
+            (_, "POST", "/api/orgs/acme/servers/7/sites/31/deployments") => {
+                (202, json!({"data": {"id": "906"}}).to_string())
+            }
+            _ => (404, r#"{"message":"Not found."}"#.into()),
+        }
+    };
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!(
+        "http://127.0.0.1:{}/api",
+        listener.local_addr().unwrap().port()
+    );
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let log = requests.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            if reader.read_line(&mut line).is_err() {
+                continue;
+            }
+            let mut words = line.split_whitespace();
+            let method = words.next().unwrap_or_default().to_owned();
+            let path = words.next().unwrap_or_default().to_owned();
+            let (mut length, mut auth) = (0, String::new());
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).unwrap_or(0) == 0 {
+                    break;
+                }
+                let Some((name, value)) = header.trim_end().split_once(':') else {
+                    break;
+                };
+                match name.to_ascii_lowercase().as_str() {
+                    "content-length" => length = value.trim().parse().unwrap_or(0),
+                    "authorization" => auth = value.trim().to_owned(),
+                    _ => {}
+                }
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body);
+            let (status, reply) = answer(&method, &path, &auth);
+            log.lock().unwrap().push(format!("{method} {path}"));
+            let _ = write!(
+                reader.into_inner(),
+                "HTTP/1.1 {status} Fake\r\nContent-Type: application/vnd.api+json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                reply.len()
+            );
+        }
+    });
+    (url, requests)
+}
 
-#[cfg(unix)]
 #[test]
-fn a_forge_account_reads_its_servers_sites_and_deployments_its_token_on_stdin() {
+fn a_forge_token_is_checked_and_its_organization_found() {
+    use crate::forge::{Check, Forge, Organization};
+    let (url, _) = fake_forge();
+    let api = |token: &str| Forge::at(&url, token.into(), "curl".into());
+    let acme = Organization {
+        slug: "acme".into(),
+        name: "Acme".into(),
+    };
+    assert_eq!(
+        api("tok-acme").check(None),
+        Check::Ok {
+            organization: acme.clone(),
+            servers: 2
+        },
+        "the only organization, and both pages of servers"
+    );
+    assert_eq!(api("bad").check(None), Check::Refused);
+    assert_eq!(api("scoped").check(None), Check::Forbidden);
+    let both = vec![
+        acme,
+        Organization {
+            slug: "beta".into(),
+            name: "Beta".into(),
+        },
+    ];
+    assert_eq!(
+        api("two").check(None),
+        Check::Organization {
+            wanted: None,
+            organizations: both.clone()
+        },
+        "several: the user picks one"
+    );
+    assert_eq!(
+        api("two").check(Some("gamma")),
+        Check::Organization {
+            wanted: Some("gamma".into()),
+            organizations: both
+        },
+        "not found"
+    );
+    assert!(matches!(
+        api("two").check(Some("beta")),
+        Check::Ok { servers: 0, .. }
+    ));
+    let several = api("two").within(None).err().unwrap();
+    assert!(
+        several
+            .to_string()
+            .contains("several organizations (acme, beta)"),
+        "{several}"
+    );
+    let closed = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let unreachable = Forge::at(
+        &format!("http://127.0.0.1:{closed}/api"),
+        "tok".into(),
+        "curl".into(),
+    )
+    .check(None);
+    assert!(
+        matches!(unreachable, Check::Unreachable { .. }),
+        "{unreachable:?}"
+    );
+}
+
+#[test]
+fn a_forge_account_reads_its_servers_sites_and_deployments_in_its_organization() {
     use crate::forge::{self, Forge};
-    let env = Fixture::new("forge");
-    env.fake("curl", FAKE_FORGE);
-    let curl = env.bin().join("curl");
-    let api = Forge::at("https://forge.test/api/v1", "tok-acme".into(), curl.clone());
+    let (url, requests) = fake_forge();
+    let api = Forge::at(&url, "tok-acme".into(), "curl".into())
+        .within(None)
+        .unwrap();
     let servers = api.servers().unwrap();
     assert_eq!(
-        (servers[0].id, servers[0].ip_address.as_deref()),
-        (7, Some("203.0.113.10"))
+        servers
+            .iter()
+            .map(|s| (s.id, s.ip_address.as_deref()))
+            .collect::<Vec<_>>(),
+        [(7, Some("203.0.113.10")), (8, Some("203.0.113.11"))]
     );
     let sites = api.sites(7).unwrap();
-    assert_eq!(sites[0].repository.as_deref(), Some("acme/api"));
+    assert_eq!(
+        (
+            sites[0].id,
+            sites[0].server_id,
+            sites[0].repository.as_deref(),
+            sites[0].directory.as_deref()
+        ),
+        (
+            31,
+            7,
+            Some("acme/api"),
+            Some("/home/forge/acme.com/current")
+        )
+    );
     let deployments = api.deployments(7, 31).unwrap();
     assert_eq!(
-        (deployments[0].id, deployments[0].status.as_str()),
-        (905, "finished")
+        (
+            deployments[0].id,
+            deployments[0].status.as_str(),
+            deployments[0].commit_hash.as_deref()
+        ),
+        (905, "finished", Some("4f2a9c1"))
     );
     assert_eq!(
         api.output(7, 31, 905).unwrap(),
         "Cloning acme/api\nDeployed"
     );
     api.deploy(7, 31).unwrap();
-    let config = fs::read_to_string(env.root.join("curl.config")).unwrap();
     assert!(
-        config.contains("request = \"POST\"") && config.contains("Authorization: Bearer tok-acme")
+        requests
+            .lock()
+            .unwrap()
+            .contains(&"POST /api/orgs/acme/servers/7/sites/31/deployments".to_owned())
     );
-    let refused = Forge::at("https://forge.test/api/v1", "bad".into(), curl)
-        .servers()
-        .unwrap_err();
+    let missing = api.sites(9).unwrap_err();
     assert!(
-        refused.to_string().contains("refused the token"),
-        "{refused}"
+        missing.to_string().contains("no such organization"),
+        "{missing}"
     );
 
     let vars: BTreeMap<_, _> = crate::env::parse(&api.env(7, 31).unwrap())
@@ -323,7 +511,7 @@ fn a_forge_account_reads_its_servers_sites_and_deployments_its_token_on_stdin() 
             "acme-app-1",
             Some("203.0.113.10"),
             Some("forge"),
-            Some("/home/forge/acme.com")
+            Some("/home/forge/acme.com/current")
         )
     );
     let db = forge::site_database(&sites[0], &vars, &ssh.name).unwrap();
@@ -355,6 +543,26 @@ fn a_forge_account_reads_its_servers_sites_and_deployments_its_token_on_stdin() 
 }
 
 #[test]
+fn the_forge_clis_login_is_read_from_a_home() {
+    use crate::forge::cli_login;
+    let env = Fixture::new("forge-cli");
+    let file = env.root.join(".laravel-forge/config.json");
+    assert_eq!(cli_login(&file), None, "no Forge CLI");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(
+        &file,
+        r#"{"token": "tok-cli", "organization": "acme", "server": 7}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        cli_login(&file),
+        Some(("tok-cli".to_owned(), Some("acme".to_owned())))
+    );
+    fs::write(&file, r#"{"token": " "}"#).unwrap();
+    assert_eq!(cli_login(&file), None, "logged out");
+}
+
+#[test]
 fn a_forge_token_is_named_after_its_account() {
     assert_eq!(
         crate::forge::token_name("Acme agency"),
@@ -378,6 +586,7 @@ fn a_project_names_its_forge_account_and_an_older_file_reads_without_one() {
     let acme = Account {
         label: "Acme agency".into(),
         token: "FORGE_TOKEN_ACME_AGENCY".into(),
+        organization: None,
     };
     save_account(&env.config(), "acme", Some(&acme)).unwrap();
     assert_eq!(account(&env.config(), "acme").unwrap(), Some(acme.clone()));
@@ -387,17 +596,24 @@ fn a_project_names_its_forge_account_and_an_older_file_reads_without_one() {
         connections(&env.config(), "acme").unwrap().is_empty(),
         "connections still read"
     );
-    assert!(
-        save_account(
-            &env.config(),
-            "acme",
-            Some(&Account {
-                token: "1 bad".into(),
-                ..acme
-            })
-        )
-        .is_err()
-    );
+    let in_org = Account {
+        organization: Some("acme-agency".into()),
+        ..acme.clone()
+    };
+    save_account(&env.config(), "acme", Some(&in_org)).unwrap();
+    assert_eq!(account(&env.config(), "acme").unwrap(), Some(in_org));
+    for bad in [
+        Account {
+            token: "1 bad".into(),
+            ..acme.clone()
+        },
+        Account {
+            organization: Some("acme/../x".into()),
+            ..acme
+        },
+    ] {
+        assert!(save_account(&env.config(), "acme", Some(&bad)).is_err());
+    }
     save_account(&env.config(), "acme", None).unwrap();
     assert_eq!(account(&env.config(), "acme").unwrap(), None);
 }
@@ -410,6 +626,7 @@ fn a_forge_token_shared_with_another_project_is_named() {
     let acme = Account {
         label: "Acme agency".into(),
         token: "FORGE_TOKEN_ACME_AGENCY".into(),
+        organization: None,
     };
     save_account(&env.config(), "acme", Some(&acme)).unwrap();
     assert!(
