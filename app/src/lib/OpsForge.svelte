@@ -192,6 +192,7 @@
           <label class="labelled">
             <span>{t("forgefixOrganization")}</span>
             <select class="field" bind:value={organization}>
+              <option value="" disabled>…</option>
               {#each organizations as o (o.slug)}<option value={o.slug}>{o.name} ({o.slug})</option>{/each}
             </select>
           </label>
@@ -207,7 +208,9 @@
         </div>
       </form>
     {/if}
-    {#if check}<p class="notice {check.result === 'ok' ? 'ok' : 'error'}" role="status">{forgeCheckText(check)}</p>{/if}
+    {#if check}
+      <p class="notice {check.result === 'ok' ? 'ok' : check.result === 'organization' ? 'warn' : 'error'}" role="status">{forgeCheckText(check)}</p>
+    {/if}
   </section>
 
   {#if account}
