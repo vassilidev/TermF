@@ -652,6 +652,7 @@ fn the_answers_and_the_card_shape_the_proposal() {
             "reviewer",
             "secops",
             "sre",
+            "termf-expert",
             "ux"
         ],
         "every kept role and every step, even those already on opus: a global setting could say otherwise"

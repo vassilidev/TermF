@@ -55,6 +55,15 @@ does = "Answers questions about the project, how a part works, why, where it liv
 when = "When you switch the Home's conversation to Expert, and when the CTO, the product owner, the product manager or the architect has a doubt."
 never = "Edits a file, runs a command or browses the web. It is never given a task."
 
+[roles.termf-expert]
+label = "TermF expert"
+mark = "TF"
+group = "contact"
+short = "Knows TermF's settings"
+does = "Reads how TermF is set up and changes a setting when you or the CTO ask, each change through a card you approve."
+when = "When you ask from the Settings screen, and when the CTO hands it a request about TermF itself."
+never = "Edits a file or runs a command. A sensitive setting (security, what agents may do) never changes without your yes, every time."
+
 [roles.pm]
 label = "Product manager"
 group = "product"
