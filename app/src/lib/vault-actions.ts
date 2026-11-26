@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { newMaster, vaultNeeds, type Args } from "$lib/actions-logic";
 import type { Action } from "$lib/actions.svelte";
+import { agentEnv, type Grant } from "$lib/agentenv.svelte";
 import { deploys } from "$lib/ci.svelte";
 import { t } from "$lib/i18n";
 import { ops } from "$lib/ops.svelte";
@@ -14,11 +15,16 @@ const SCOPES: Scope[] = ["dev", "staging", "prod"];
 const status = () => invoke<VaultStatus>("vault_status");
 const open = async () => vaultNeeds(await status());
 /** Open, with its secrets' names read for the card's warning when one is replaced, whatever the screen. */
-async function opened() {
+async function opened(_a: Args, project: string) {
+  agentEnv.given[project] = (await invoke<{ grants: Grant[] }>("agentenv_grants", { project })).grants;
   const why = await open();
   if (!why && !vault.secrets.length) vault.secrets = await invoke<SecretInfo[]>("vault_list");
   return why;
 }
+
+/** The project's agents that get this secret in their environment, by variable (`[agents.secrets]`). */
+const givenAs = (a: Args, project: string) =>
+  (agentEnv.given[project] ?? []).filter((g) => g.secret === String(a.name ?? "").trim() && g.scope === a.scope).map((g) => g.variable);
 const projectName = (id: string) => app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
 /** Where a secret goes: the project, or every project (`everywhere`). */
 const where = (a: Args, project: string) => (a.everywhere ? t("vaultGlobal") : projectName(project));
@@ -125,6 +131,10 @@ const setSecret: Action = {
   },
   loses: (a, project) =>
     vault.secrets.some((s) => s.name === a.name && s.scope === a.scope && s.project === owner(a, project)) ? t("actVaultReplaceLoses") : "",
+  gives: (a, project) => {
+    const variables = givenAs(a, project);
+    return variables.length ? t("vaultCardsGiven", { variables: variables.join(", ") }) : "";
+  },
   needs: opened,
   async run(a, secrets, project) {
     const name = named(a);

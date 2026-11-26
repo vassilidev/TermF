@@ -48,16 +48,16 @@ pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path) -> VaultStat
     let vault = Arc::new(vault);
     let (background, config) = (vault.clone(), config_dir.clone());
     std::thread::spawn(move || {
-        // `[vault]` changes by hand or through the sync too: applied whenever termf.toml does.
-        let mut seen = None;
+        // `[vault]` changes by hand or through the sync too: read whenever termf.toml changes.
+        let (mut seen, mut started) = (None, false);
         loop {
             let file = config.join("termf.toml");
             let modified = fs::metadata(&file).and_then(|m| m.modified()).ok();
             if modified != seen {
                 seen = modified;
                 if let Ok(settings) = termf_core::load_settings(&config) {
-                    let _ = background.set_auto_lock(settings.vault.auto_lock_minutes);
-                    background.set_lock_on_leave(settings.vault.lock_on_leave);
+                    apply(&background, &settings.vault, !started);
+                    started = true;
                 }
             }
             background.check();
@@ -68,6 +68,20 @@ pub fn start(app: &AppHandle, config_dir: PathBuf, data_dir: &Path) -> VaultStat
         vault,
         config_dir,
         imported: Arc::default(),
+    }
+}
+
+/// `[vault]` of termf.toml: all of it at startup. Changed while TermF runs (by hand, or by the sync), only what
+/// tightens the vault (a shorter delay, locking on leave): loosening takes the app's own commands, or a restart.
+fn apply(vault: &Vault, settings: &termf_core::VaultSettings, startup: bool) {
+    let Ok(now) = vault.status() else {
+        return;
+    };
+    if startup || settings.auto_lock_minutes < now.auto_lock_minutes {
+        let _ = vault.set_auto_lock(settings.auto_lock_minutes);
+    }
+    if startup || settings.lock_on_leave {
+        vault.set_lock_on_leave(settings.lock_on_leave);
     }
 }
 

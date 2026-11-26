@@ -127,13 +127,14 @@ fn owner(vault: &Vault, project: Option<&str>, grant: &Grant) -> Result<Option<S
         .transpose()
 }
 
-/// A request, and the agents waiting for its answer.
-type Pending = (SecretRequest, Vec<mpsc::Sender<bool>>);
+/// A request, and the agents waiting for its answer, each by its own number.
+type Pending = (SecretRequest, Vec<(u64, mpsc::Sender<bool>)>);
 
 /// The requests waiting for the user.
 #[derive(Default)]
 pub struct Requests {
     next: AtomicU64,
+    waiters: AtomicU64,
     pending: Mutex<BTreeMap<u64, Pending>>,
 }
 
@@ -150,7 +151,8 @@ impl Requests {
         self.ask_until(request, wait, show, gone, &|| false)
     }
 
-    /// `ask`, also granted as soon as `settled` says so (checked every second): the vault opened anywhere.
+    /// `ask`, also granted as soon as `settled` says so (checked every second): the vault opened anywhere. A vault
+    /// request leaves no card behind once nobody waits for it any more.
     fn ask_until(
         &self,
         mut request: SecretRequest,
@@ -160,7 +162,10 @@ impl Requests {
         settled: &dyn Fn() -> bool,
     ) -> Result<Value> {
         let variable = request.variable.clone();
+        let vault = request.vault;
+        let me = self.waiters.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel();
+        let tx = (me, tx);
         let id = {
             let mut pending = self.pending.lock().unwrap();
             let same = pending.iter_mut().find(|(_, (r, _))| {
@@ -192,8 +197,18 @@ impl Requests {
         loop {
             match rx.recv_timeout(Duration::from_millis(250).min(wait)) {
                 Ok(granted) => return Ok(answer(&variable, Some(granted))),
-                Err(_) if gone() => bail!("the caller went away"),
-                Err(_) if Instant::now() >= deadline => return Ok(answer(&variable, None)),
+                Err(_) if gone() => {
+                    if vault {
+                        self.leave(id, me, show);
+                    }
+                    bail!("the caller went away")
+                }
+                Err(_) if Instant::now() >= deadline => {
+                    if vault {
+                        self.leave(id, me, show);
+                    }
+                    return Ok(answer(&variable, None));
+                }
                 Err(_) if checked.elapsed() >= Duration::from_secs(1) => {
                     checked = Instant::now();
                     if settled() {
@@ -222,11 +237,28 @@ impl Requests {
             .unwrap()
             .remove(&id)
             .context("this request is no longer waiting")?;
-        for tx in waiting {
+        for (_, tx) in waiting {
             let _ = tx.send(granted);
         }
         show("agentenv-request-done", &request);
         Ok(())
+    }
+
+    /// `me` no longer waits for request `id`, unanswered: the last one to go takes it down, so that a vault opened
+    /// later from a stale card tells nobody, and it no longer counts in `MOST`.
+    fn leave(&self, id: u64, me: u64, show: &dyn Fn(&str, &SecretRequest)) {
+        let mut pending = self.pending.lock().unwrap();
+        let Some((_, waiting)) = pending.get_mut(&id) else {
+            return;
+        };
+        waiting.retain(|(w, _)| *w != me);
+        if !waiting.is_empty() {
+            return;
+        }
+        if let Some((request, _)) = pending.remove(&id) {
+            drop(pending);
+            show("agentenv-request-done", &request);
+        }
     }
 }
 
@@ -829,7 +861,8 @@ mod tests {
         });
         assert_eq!(reply["status"], "refused");
 
-        // Nobody opens it in time: blocked and said, as before.
+        // Nobody opens it in time: blocked and said, as before, and no card stays behind.
+        shown.lock().unwrap().clear();
         let reply = ask(Duration::from_millis(300)).unwrap().unwrap();
         assert_eq!(reply["status"], "locked");
         assert!(
@@ -837,6 +870,41 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("Report blocked")
+        );
+        assert!(requests.get(3).is_err());
+        assert_eq!(
+            *shown.lock().unwrap(),
+            [
+                ("agentenv-request".into(), true),
+                ("agentenv-request-done".into(), true)
+            ]
+        );
+
+        // Two agents on one card: the first one gone, the card stays for the other; then it goes too.
+        let away = || true;
+        let reply = std::thread::scope(|s| {
+            let other = s.spawn(|| ask(Duration::from_millis(900)));
+            card(4);
+            let request = &asking;
+            let left = unlock_first(
+                &requests,
+                &vault,
+                &config,
+                request,
+                locked.clone(),
+                WAIT,
+                &show,
+                &away,
+            );
+            assert!(left.unwrap_err().to_string().contains("went away"));
+            assert!(requests.get(4).is_ok(), "the other one still waits");
+            other.join().unwrap().unwrap().unwrap()
+        });
+        assert_eq!(reply["status"], "locked");
+        assert!(requests.get(4).is_err());
+        assert!(
+            requests.pending.lock().unwrap().is_empty(),
+            "nothing left to count in MOST"
         );
     }
 

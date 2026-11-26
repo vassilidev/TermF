@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import { Approved, forAgent, refused, secretMissing, vaultBlock, type Args, type Spec } from "$lib/actions-logic";
+import { Approved, forAgent, refused, secretMissing, takeWait, vaultBlock, type Args, type Spec } from "$lib/actions-logic";
 import { ask } from "$lib/ask.svelte";
 import { ciActions, ciHere } from "$lib/ci-actions";
 import { conversationActions } from "$lib/conversation-actions";
@@ -35,6 +35,8 @@ export type Action = Spec & {
   describe: (args: Args, project: string) => string;
   /** What it makes lose, for one that destroys or replaces. */
   loses?: (args: Args, project: string) => string;
+  /** Who else gets what the user types in its card (the project's agents), instead of "never the agent". */
+  gives?: (args: Args, project: string) => string;
   /** What it waits for (no vault yet, no connection…), naming the action that settles it; null when ready. */
   needs?: (args: Args, project: string) => Promise<string | null>;
   /** Runs it, updates the screen and says so in a toast; what the agent reads back, never a secret. `session`: the
@@ -169,8 +171,16 @@ function waitVault(wait: VaultWait, label: Key) {
   return tell(wait.call, label);
 }
 
-/** The user opened the vault, or confirmed prod, in the card: the call runs again. */
-export const resume = (wait: VaultWait) => perform(wait.call, wait.secrets);
+/**
+ * The user opened the vault, or confirmed prod (password or Touch ID), in the card: the call runs again, unless its
+ * wait ended meanwhile (5 minutes, its caller gone), the agent being told it did not run.
+ */
+export function resume(wait: VaultWait) {
+  const [kept, rest] = takeWait(agentActions.vault, wait.n);
+  if (!kept) return;
+  agentActions.vault = rest;
+  return perform(kept.call, kept.secrets);
+}
 
 export function refuse(call: Call, why: string) {
   drop(call.id);

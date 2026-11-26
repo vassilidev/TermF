@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Approved, canon, forAgent, newMaster, noVault, refused, secretMissing, secretsOf, vaultBlock, vaultNeeds } from "../src/lib/actions-logic.ts";
+import { Approved, canon, forAgent, newMaster, noVault, refused, secretMissing, secretsOf, takeWait, vaultBlock, vaultNeeds } from "../src/lib/actions-logic.ts";
 
 const add = {
   id: "ops.add_connection",
@@ -103,6 +103,19 @@ test("a run stopped at the vault asks for it in a card, any other error goes bac
   assert.equal(vaultBlock("no secret ACME_REDIS_PASSWORD in the vault (prod)"), null);
   assert.equal(vaultBlock("wrong master password"), null);
   assert.equal(vaultBlock(undefined), null);
+});
+
+test("a vault card answered after its wait ended runs nothing: the agent was told it did not run", () => {
+  const a = { n: 1, call: { id: 7 } };
+  const b = { n: 2, call: { id: 8 } };
+  const [kept, rest] = takeWait([a, b], 1);
+  assert.equal(kept, a);
+  assert.deepEqual(rest, [b]);
+  // Timed out or its caller gone: dropped from the list, so the late password or Touch ID finds nothing to run.
+  const [late, same] = takeWait(rest, 1);
+  assert.equal(late, undefined);
+  assert.deepEqual(same, [b]);
+  assert.equal(takeWait([], 3)[0], undefined);
 });
 
 test("a run that misses a secret tells the agent to have the user type it in vault.set_secret's card", () => {

@@ -24,6 +24,8 @@ export const agentEnv = $state({
   requests: [] as SecretRequest[],
   /** Grants given here: the Vault view reads its list again. */
   granted: 0,
+  /** What each project's agents get from the vault, read for a card that writes a secret they may get. */
+  given: {} as Record<string, Grant[]>,
 });
 
 /** Listened to from the start, so the Home lists them whatever view is open. */

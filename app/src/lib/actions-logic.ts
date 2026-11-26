@@ -126,6 +126,11 @@ export function vaultBlock(error: unknown): "unlock" | "reauth" | null {
   return /needs the master password again/.test(text) ? "reauth" : null;
 }
 
+/** The wait a vault card answers, taken out of `list`: undefined once it ended (timed out, its caller gone). */
+export function takeWait<T extends { n: number }>(list: T[], n: number): [T | undefined, T[]] {
+  return [list.find((w) => w.n === n), list.filter((w) => w.n !== n)];
+}
+
 /** What the agent proposes for a secret the vault lacks: vault.set_secret, whose card asks the user for it. */
 export const proposeSecret = (name: string, scope: string, then: string) =>
   `The vault has no ${name} (${scope}) for this project: propose vault.set_secret {name: "${name}", scope: "${scope}"}, whose card asks the user for its value (you never see it), then ${then}.`;
