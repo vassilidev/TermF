@@ -72,7 +72,7 @@
             <span class="hint">{t("vaultCardsMissing")}</span>
             <span class="row">
               <input
-                class="field mono"
+                class="field"
                 type="password"
                 autocomplete="off"
                 spellcheck="false"

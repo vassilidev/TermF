@@ -38,9 +38,10 @@
   async function prove(command: string, args: Record<string, unknown>) {
     busy = true;
     error = "";
+    const opening = need === "unlock";
     try {
       setStatus(await invoke<VaultStatus>(command, args));
-      if (need === "unlock") void refreshVault();
+      if (opening) void refreshVault();
       await resume(wait);
     } catch (e) {
       error = failed(e);

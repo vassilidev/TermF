@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { newMaster, noVault, vaultNeeds, type Args } from "$lib/actions-logic";
+import { newMaster, vaultNeeds, type Args } from "$lib/actions-logic";
 import type { Action } from "$lib/actions.svelte";
 import { deploys } from "$lib/ci.svelte";
 import { t } from "$lib/i18n";
@@ -13,7 +13,12 @@ const SCOPES: Scope[] = ["dev", "staging", "prod"];
 
 const status = () => invoke<VaultStatus>("vault_status");
 const open = async () => vaultNeeds(await status());
-const exists = async () => noVault(await status());
+/** Open, with its secrets' names read for the card's warning when one is replaced, whatever the screen. */
+async function opened() {
+  const why = await open();
+  if (!why && !vault.secrets.length) vault.secrets = await invoke<SecretInfo[]>("vault_list");
+  return why;
+}
 const projectName = (id: string) => app.workspace?.projects.find((p) => p.id === id)?.name ?? id;
 /** Where a secret goes: the project, or every project (`everywhere`). */
 const where = (a: Args, project: string) => (a.everywhere ? t("vaultGlobal") : projectName(project));
@@ -72,9 +77,7 @@ const unlock: Action = {
     if (!s.initialized) return "There is no vault yet: propose vault.create instead.";
     if (s.unlocked) return "The vault is open already.";
     // A security key asks for a touch, and maybe a PIN, that only the Vault view's screen asks for.
-    return s.keys > 0
-      ? "This vault opens with a security key too: propose the action that needs the vault instead, TermF asks the user to open it with the key in that card."
-      : null;
+    return s.keys > 0 ? "This vault opens with a security key too: ask the user to open it in the Vault view." : null;
   },
   async run(_a, secrets) {
     setStatus(await invoke<VaultStatus>("vault_unlock", { password: secrets.password ?? "", pin: null }));
@@ -122,7 +125,7 @@ const setSecret: Action = {
   },
   loses: (a, project) =>
     vault.secrets.some((s) => s.name === a.name && s.scope === a.scope && s.project === owner(a, project)) ? t("actVaultReplaceLoses") : "",
-  needs: exists,
+  needs: opened,
   async run(a, secrets, project) {
     const name = named(a);
     const args = { name, scope: a.scope, project: owner(a, project), description: typeof a.description === "string" ? a.description.trim() || null : null };
@@ -155,7 +158,7 @@ const deleteSecret: Action = {
     const users = readers(String(a.name), project);
     return t("actVaultDeleteLoses", { users: users.length ? users.join(", ") : t("actVaultDeleteAnyone") });
   },
-  needs: exists,
+  needs: open,
   async run(a, secrets, project) {
     const name = named(a);
     await confirmProd(a, secrets);
