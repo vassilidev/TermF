@@ -47,6 +47,8 @@
   import GitCleanup from "$lib/GitCleanup.svelte";
   import GitDiff from "$lib/GitDiff.svelte";
   import GitFile from "$lib/GitFile.svelte";
+  import RepoChoice from "$lib/RepoChoice.svelte";
+  import RepoRows from "$lib/RepoRows.svelte";
   import { showRun } from "$lib/commands";
   import { ago, t } from "$lib/i18n";
   import { currentProject, scopeRepos } from "$lib/files.svelte";
@@ -219,11 +221,6 @@
     return shown?.kind === "tag" ? shown.tag.target : null;
   });
 
-  // A repository out of the current project falls back to the project's first one.
-  $effect(() => {
-    if (!repos.some((r) => r.path === git.repo)) git.repo = repos[0]?.path ?? "";
-  });
-
   /** The repository last read while on screen: coming back to it refreshes quietly. */
   let read = "";
   $effect(() => {
@@ -231,11 +228,33 @@
     const visible = onScreen("git");
     void git.reads;
     untrack(() => {
+      // All of the project's repositories: their rows stand in for the one read before.
+      if (!repo) {
+        request++;
+        [snap, graph, prs, cleanup, selected, loadError, loading, read] = [null, null, [], null, null, "", false, ""];
+      }
       if (!visible || !repo) return;
       load(repo === read);
       read = repo;
     });
   });
+
+  /** Bumped to read the rows of all of the project's repositories again. */
+  let again = $state(0);
+  /** By repository, its open pull requests, once gh told. */
+  let openPrs = $state<Record<string, number>>({});
+
+  async function overview(repo: string) {
+    const state = await invoke<GitState>("git_state", { repo });
+    // As for the repository shown: gh comes after, and says nothing when it fails.
+    invoke<Pr[]>("git_prs", { repo }).then(
+      (found) => {
+        openPrs[repo] = found.filter((p) => p.state === "OPEN").length;
+      },
+      () => {},
+    );
+    return state;
+  }
 
   let request = 0;
 
@@ -691,7 +710,7 @@
   }
 </script>
 
-<svelte:window onfocus={() => onScreen("git") && git.repo && load(true)} />
+<svelte:window onfocus={() => onScreen("git") && repos.length && (git.repo ? load(true) : again++)} />
 
 {#snippet aheadBehind(b: Branch)}
   {#if b.ahead}<span class="count" title={t("gitAheadHint", { count: b.ahead })}><ArrowUp size={11} aria-hidden="true" />{b.ahead}</span>{/if}
@@ -737,6 +756,27 @@
   </div>
 {/snippet}
 
+{#snippet repoRow(s: GitState, repo: string)}
+  {@const b = s.branches.find((x) => x.current && !x.remote)}
+  {@const wt = s.worktrees.find((w) => samePath(w.path, repo)) ?? s.worktrees.find((w) => w.main)}
+  <span class="on now">
+    <GitBranch size={13} aria-hidden="true" />{#if s.current}<span class="bname">{s.current}</span>{:else}{t("gitDetached")}{/if}
+  </span>
+  {#if b?.upstream}
+    {@render aheadBehind(b)}
+    {#if b.gone}<span class="count warn">{t("gitGone")}</span>{/if}
+  {:else if b}
+    <span>{t("gitNoUpstream")}</span>
+  {/if}
+  {#if wt}
+    <span class="wt" class:dirty={tally(wt.changes, wt.more).changed} class:conflict={tally(wt.changes).conflicts}>{treeSummary(wt)}</span>
+    {#if wt.operation}<span class="count warn">{opTitle(wt.operation)}</span>{/if}
+  {/if}
+  {#if openPrs[repo]}
+    <span class="count pr open"><GitPullRequest size={11} aria-hidden="true" />{t("mrOpenPrs", { count: openPrs[repo] })}</span>
+  {/if}
+{/snippet}
+
 {#snippet branchRow(b: Branch)}
   {@const pr = prFor(b, prs, snap?.remotes ?? [])}
   {@const picked = shown?.kind === "branch" && shown.branch.name === b.name}
@@ -769,12 +809,11 @@
     {#if repos.length > 1}
       <label class="labelled inline">
         <span>{t("gitRepo")}</span>
-        <select class="field" bind:value={git.repo}>
-          {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
-        </select>
+        <RepoChoice />
       </label>
     {/if}
     {#snippet actions()}
+      {#if git.repo}
       <button
         class="btn sm"
         class:active={shown?.kind === "cleanup"}
@@ -796,7 +835,8 @@
       <button class="btn sm" onclick={() => current && push(current)} disabled={!current || !!busy} title={t("gitPushHint")}>
         {#if busy === `push:${current?.name}`}<LoaderCircle size={14} aria-hidden="true" class="spin" />{:else}<ArrowUpFromLine size={14} aria-hidden="true" />{/if}{t("gitPush")}
       </button>
-      <button class="icon-btn" onclick={() => load(true)} disabled={!git.repo || loading} aria-label={t("gitRefresh")} title={t("gitRefresh")}>
+      {/if}
+      <button class="icon-btn" onclick={() => (git.repo ? load(true) : again++)} disabled={!repos.length || loading} aria-label={t("gitRefresh")} title={t("gitRefresh")}>
         <RefreshCw size={14} aria-hidden="true" class={loading ? "spin" : ""} />
       </button>
     {/snippet}
@@ -863,6 +903,8 @@
         <Pencil size={14} aria-hidden="true" />{t(project ? "ticketsEditProject" : "newProject")}
       </button>
     </EmptyState>
+  {:else if !git.repo}
+    <div class="overview"><RepoRows label={t("mrAll")} read={overview} row={repoRow} reads={git.reads + again} /></div>
   {:else if loadError}
     <EmptyState>
       <p class="notice error"><CircleAlert size={14} aria-hidden="true" /><span class="pre">{loadError}</span></p>
@@ -1532,8 +1574,29 @@
     color: var(--muted);
   }
 
-  .inline select {
+  .inline :global(select) {
     width: 200px;
+  }
+
+  .overview {
+    overflow: auto;
+    padding: 16px;
+  }
+
+  .now {
+    color: var(--text);
+  }
+
+  .wt {
+    color: var(--done);
+  }
+
+  .wt.dirty {
+    color: var(--warning);
+  }
+
+  .wt.conflict {
+    color: var(--danger);
   }
 
   .strip {

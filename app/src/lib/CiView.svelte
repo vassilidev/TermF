@@ -22,6 +22,8 @@
   import CiLog from "$lib/CiLog.svelte";
   import CiStatus from "$lib/CiStatus.svelte";
   import CiTools from "$lib/CiTools.svelte";
+  import RepoChoice from "$lib/RepoChoice.svelte";
+  import RepoRows from "$lib/RepoRows.svelte";
   import Button from "$lib/ui/Button.svelte";
   import Card from "$lib/ui/Card.svelte";
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
@@ -143,15 +145,12 @@
 
   const setupCi = () => askAI({ role: "devops", draft: t("cvSetupDraft") });
 
-  // A repository out of the current project falls back to the project's first one.
-  $effect(() => {
-    if (!repos.some((r) => r.path === ci.repo)) ci.repo = repos[0]?.path ?? "";
-  });
-
   $effect(() => {
     void ci.repo;
     untrack(() => {
       if (form && form.repo !== ci.repo) form = null;
+      // Webhooks are a repository's: all of the project's show their rows.
+      if (!ci.repo && ci.tab === "hooks") ci.tab = "runs";
       ci.branch = null;
       load();
       if (ci.repo) void loadHooks(ci.repo);
@@ -253,7 +252,11 @@
     return fetchPages(1, "load");
   }
 
+  /** Bumped to read the rows of all of the project's repositories again. */
+  let again = $state(0);
+
   const refresh = () => {
+    if (!ci.repo) again++;
     void loadBranch(true);
     if (project && ci.tab === "deploys") void loadDeploys(project, true);
     if (ci.tab === "hooks") void loadHooks(ci.repo);
@@ -424,10 +427,23 @@
     { id: "deploys", label: t("cvDeploys"), count: deploys.targets?.length && (deploys.tokensRead || !deploys.targets.some((x) => x.token)) ? deployCount : null },
     { id: "hooks", label: t("cvHooks"), count: deploys.hooksOf === ci.repo && !deploys.hooksError ? (deploys.hooks?.length ?? null) : null },
     { id: "tools", label: t("cvTools"), count: deploys.targets?.length || null },
-  ]);
+  ].filter((tab) => ci.repo || tab.id !== "hooks"));
   const hookHost = (url: string) => url.replace(/^https?:\/\//, "").split("?")[0];
   const deployTone = (state: string) => (state === "passed" ? "done" : state === "failed" ? "failed" : state === "running" || state === "queued" ? "working" : "");
 </script>
+
+{#snippet repoRow(page: RunPage)}
+  {@const last = page.runs[0]}
+  {#if last}
+    <CiStatus item={last} />
+    <span class="mini" aria-hidden="true">
+      {#each history(page.runs, 10).squares as r (r.id)}<i class={outcome(r)}></i>{/each}
+    </span>
+    <span class="last">{last.workflow}{last.branch ? ` · ${last.branch}` : ""} · {ago(Date.parse(last.created) / 1000)}</span>
+  {:else}
+    <span>{t("ciEmpty")}</span>
+  {/if}
+{/snippet}
 
 {#snippet dispatchForm()}
   {#if form}
@@ -499,9 +515,7 @@
   <ViewHeader title={t("viewCi")} context={currentProject()?.name ?? t("ticketsAll")}>
     <label class="labelled inline">
       <span>{t("ciRepo")}</span>
-      <select class="field" bind:value={ci.repo} disabled={!repos.length}>
-        {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
-      </select>
+      <RepoChoice />
     </label>
     {#snippet actions()}
       <button class="btn sm quiet" onclick={() => showSettings("ci")} title={t("ciNotify")}>
@@ -510,7 +524,7 @@
       <button class="btn sm" onclick={openForm} disabled={!ci.repo || !!form} title={t("uxfT3DispatchHint")}>
         <Rocket size={14} aria-hidden="true" />{t("ciDispatch")}
       </button>
-      <button class="btn sm" onclick={refresh} disabled={!ci.repo || loading}>
+      <button class="btn sm" onclick={refresh} disabled={!repos.length || loading}>
         <RefreshCw size={14} aria-hidden="true" class={loading ? "spin" : ""} />{t("ciRefresh")}
       </button>
     {/snippet}
@@ -527,10 +541,12 @@
     <Tabs id="ci" label={t("viewCi")} {tabs} selected={ci.tab} onselect={(id) => (ci.tab = id as typeof ci.tab)}>
       {#if ci.tab === "deploys"}
         {#if project}<CiDeploys {project} repo={ci.repo} {slug} runs={overview ?? []} onsetup={() => (ci.tab = "tools")} />{/if}
-      {:else if ci.tab === "hooks"}
+      {:else if ci.tab === "hooks" && ci.repo}
         <CiHooks repo={ci.repo} {slug} />
       {:else if ci.tab === "tools"}
         {#if project}<CiTools {project} repos={app.workspace?.projects.find((p) => p.id === project)?.repos ?? []} />{/if}
+      {:else if !ci.repo}
+        <div class="pad"><RepoRows label={t("mrAll")} read={(repo) => invoke<RunPage>("ci_runs", { repo, page: 1 })} row={repoRow} reads={again} /></div>
       {:else if listError}
         <EmptyState>
           <p class="notice error"><CircleAlert size={14} aria-hidden="true" />{listError}</p>
@@ -780,8 +796,14 @@
     color: var(--muted);
   }
 
-  .inline select {
+  .inline :global(select) {
     width: 200px;
+  }
+
+  .last {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .split {

@@ -28,6 +28,7 @@
   import type { Rect, Side } from "$lib/split-logic";
   import { activate, equalize, tabOf, terminals } from "$lib/tabs.svelte";
   import { dropping } from "$lib/workspace.svelte";
+  import RepoTag from "$lib/RepoTag.svelte";
   import { liveLoops, sessionChip, tileName } from "$lib/tile-logic";
   import { grid, loopClock, onScreen, resetContext, ticked, type Session } from "$lib/state.svelte";
 
@@ -152,7 +153,7 @@
       <StatusPill status={pill} label={failed ? `${t("exitedLabel")} (${session.exitCode})` : undefined} />
     {/if}
     <span class="title" title={session.cwd}
-      ><b>{name}</b><span class="tool">{session.agent ?? t("shell")}</span>{#if session.action && session.running}<span class="last"
+      ><b>{name}</b><RepoTag path={session.cwd} said={name} /><span class="tool">{session.agent ?? t("shell")}</span>{#if session.action && session.running}<span class="last"
           ><Action act={{ kind: "tool", ...session.action }} /></span
         >{/if}</span
     >

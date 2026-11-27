@@ -29,15 +29,17 @@
       });
   });
 
+  const status = $derived(files.status[repo] ?? {});
+
   /** A folder shows a dot when anything below it changed. */
   function mark(entry: Entry): string | undefined {
-    if (!entry.dir) return files.status[entry.path];
+    if (!entry.dir) return status[entry.path];
     const prefix = entry.path + "/";
-    return Object.keys(files.status).some((p) => p.startsWith(prefix)) ? "M" : undefined;
+    return Object.keys(status).some((p) => p.startsWith(prefix)) ? "M" : undefined;
   }
 
   function toggle(entry: Entry) {
-    if (!entry.dir) openFile(entry.path);
+    if (!entry.dir) openFile(entry.path, null, repo);
     else if (expanded.has(entry.path)) expanded.delete(entry.path);
     else expanded.add(entry.path);
   }

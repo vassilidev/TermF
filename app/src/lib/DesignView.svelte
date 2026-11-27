@@ -26,6 +26,8 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Type from "@lucide/svelte/icons/type";
   import Users from "@lucide/svelte/icons/users";
+  import RepoChoice from "$lib/RepoChoice.svelte";
+  import RepoRows from "$lib/RepoRows.svelte";
   import Banner from "$lib/ui/Banner.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import SectionNav from "$lib/ui/SectionNav.svelte";
@@ -109,9 +111,8 @@
   const number = (n: number) => fmt.format(n);
   const tt = (key: string, vars?: Record<string, string | number>) => t(key as Key, vars);
 
-  $effect(() => {
-    if (!repos.some((r) => r.path === design.repo)) design.repo = repos[0]?.path ?? "";
-  });
+  /** Bumped to read the rows of all of the project's repositories again. */
+  let again = $state(0);
   // Read again each time it comes on screen: the team may have fixed things meanwhile.
   $effect(() => {
     const repo = design.repo;
@@ -531,18 +532,29 @@
   </div>
 {/snippet}
 
+{#snippet repoRow(d: Design)}
+  {@const issues = tally(d.findings)}
+  {#if !d.tokens.length && !d.components.length}
+    <span>{t("designEmptyTitle")}</span>
+  {:else}
+    <span>{t("mrDesignTokens", { count: d.tokens.length })}</span>
+    <span>{t("mrDesignComponents", { count: d.components.length })}</span>
+  {/if}
+  {#if issues.error || issues.warn}
+    <span class="issues" class:bad={issues.error}><TriangleAlert size={13} aria-hidden="true" />{t("mrDesignIssues", { count: issues.error + issues.warn })}</span>
+  {/if}
+{/snippet}
+
 <div class="design">
   <ViewHeader title={t("designView")} context={currentProject()?.name ?? t("ticketsAll")}>
     {#if repos.length > 1}
       <label class="labelled inline">
         <span>{t("filesRepo")}</span>
-        <select class="field" bind:value={design.repo}>
-          {#each repos as r (r.path)}<option value={r.path}>{r.name}</option>{/each}
-        </select>
+        <RepoChoice />
       </label>
     {/if}
     {#snippet actions()}
-      <button class="btn sm" onclick={() => scan()} disabled={!design.repo || loading}>
+      <button class="btn sm" onclick={() => (design.repo ? scan() : again++)} disabled={!repos.length || loading}>
         <RefreshCw size={14} aria-hidden="true" class={loading ? "spin" : ""} />{t("filesRefresh")}
       </button>
     {/snippet}
@@ -562,6 +574,8 @@
       text={t("designNoRepoHelp")}
       action={app.project ? { label: t("restDesignAddRepo"), run: () => app.project && editProject(app.project, "project") } : undefined}
     />
+  {:else if !design.repo}
+    <div class="overview"><RepoRows label={t("mrAll")} read={(repo) => invoke<Design>("design_scan", { repo })} row={repoRow} reads={design.scans + again} /></div>
   {:else if !data}
     {#if loading}
       <div class="body loading">
@@ -1078,8 +1092,24 @@
     color: var(--muted);
   }
 
-  .inline select {
+  .inline :global(select) {
     width: 200px;
+  }
+
+  .overview {
+    overflow: auto;
+    padding: 16px;
+  }
+
+  .issues {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--warning);
+  }
+
+  .issues.bad {
+    color: var(--danger);
   }
 
   .body {

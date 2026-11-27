@@ -1,12 +1,17 @@
-import { files, openFile, refreshStatus } from "$lib/files.svelte";
+import { chooseRepo, files, openFile, refreshStatus, shownRepo } from "$lib/files.svelte";
 import type { Section } from "$lib/design-logic";
 import { ui } from "$lib/state.svelte";
 
 export const design = $state({
   /** Loaded once first shown, then kept mounted, like the CI/CD view. */
   loaded: false,
-  /** The repository's path, one of the current project's. */
-  repo: "",
+  /** The views' common choice: a repository's path, "" for all of the project's. */
+  get repo() {
+    return shownRepo();
+  },
+  set repo(path: string) {
+    chooseRepo(path);
+  },
   section: "color" as Section,
   /** Bumped to read the repository again (an agent's action). */
   scans: 0,
