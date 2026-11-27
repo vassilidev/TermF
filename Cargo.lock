@@ -6053,6 +6053,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "termf-stack"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "jiff 1.0.1",
+ "serde",
+ "serde_json",
+ "termf-ci",
+ "termf-core",
+ "termf-library",
+ "termf-worktree",
+ "toml 1.2.2+spec-1.1.0",
+ "yaml-rust2",
+]
+
+[[package]]
 name = "termf-sync"
 version = "0.5.0"
 dependencies = [
