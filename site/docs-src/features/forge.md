@@ -10,8 +10,9 @@ Give a project its Laravel Forge account, and TermF imports its servers and site
 ## The project's account {#account}
 
 1. In **Ops**, open **Forge**.
-2. Fill **Account label** and **API token**: create the token on forge.laravel.com, under API Tokens.
-3. **Save**. The token goes to the [vault](vault.md), as a global production secret named after the label, such as `FORGE_TOKEN_ACME_AGENCY`. The project's file keeps only the label and the secret's name, in `[ops.forge]`.
+2. Fill **Account label** and **API token**: create the token on forge.laravel.com, under API Tokens. When the Forge CLI on this machine has a token, **Reuse this token** takes it instead, after your click only.
+3. **Test** checks the token and names its organization and its number of servers; a token that sees several organizations lets you pick yours.
+4. **Save** tests the token first and writes nothing if it fails. The token goes to the [vault](vault.md), as a global production secret named after the label, such as `FORGE_TOKEN_ACME_AGENCY`. The project's file keeps only the label, the organization and the secret's name, in `[ops.forge]`.
 
 Each project has its own account. Agents never see the token: an agent that sets up the account asks you to type it on its card.
 
@@ -40,7 +41,7 @@ The Forge deploy targets of CI/CD use the project's account when they have no to
 
 ## With an agent {#agents}
 
-From <kbd>⌘I</kbd> on Ops, an agent can set up the account, import sites and redeploy one, each through its card. See [Agents that act for you](agent-actions.md).
+From <kbd>⌘I</kbd> on Ops, an agent lists the servers and sites without a card, and sets up the account, imports sites and redeploys one, each through its card. See [Agents that act for you](agent-actions.md).
 
 > [!NOTE]
 > Not yet: the deployment script and the site's environment, daemons, Forge's scheduler, SSL, service restarts, and Forge's own databases and backups.

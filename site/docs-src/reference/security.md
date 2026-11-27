@@ -72,13 +72,13 @@ termf deliver <run>
 
 ## The CTO's session {#cto}
 
-The CTO talks to you and reads your repositories, and that is all its session can do on its own. It runs restricted, with Read, Grep and Glob only: no shell, no file edits, no web, no sub-agents, and only TermF's MCP tools, whose every action waits on your approval card. Its token reaches only its own tools. What it reads from tickets and from other agents comes to it marked as data.
+The CTO talks to you and reads your repositories, and that is all its session can do on its own. It runs restricted, with Read, Grep and Glob only: no shell, no file edits, no web, no sub-agents, and only TermF's MCP tools, plus the project's MCP servers you give it. It reads and tests freely; every change waits on your approval card. Its token reaches only its own tools. What it reads from tickets and from other agents comes to it marked as data.
 
 ## Untrusted input and secrets {#input}
 
 ### Tickets are data, not orders {#security-input}
 
-A ticket is written by someone else, and it may try to give orders. It reaches the agent as a framed file, marked untrusted, never as instructions; the reports of earlier steps are framed the same way in each brief.
+A ticket is written by someone else, and it may try to give orders. It reaches the agent as a framed file, marked untrusted, never as instructions; the reports of earlier steps are framed the same way in each brief, and so is what an [MCP server or a connector](mcp-connectors.md) returns.
 
 The sessions TermF starts are denied `.env` files, private keys, `/proc/*/environ` and the usual ways of dumping the environment (`printenv`, `env`, `export`, `declare -p`…), along with TermF's own token folder. Add to a role's `deny` list for more.
 
@@ -91,18 +91,20 @@ The sessions TermF starts are denied `.env` files, private keys, `/proc/*/enviro
 
 Every agent TermF starts, in a terminal or headless, Claude Code, Codex and Gemini included, gets a short list of variables (the path, the language, the terminal, the proxies, what its own CLI needs to sign in) and nothing else, even after your shell profile has run. A terminal you open yourself is not filtered.
 
+**Settings › Agent variables** lists, under **Not given to agents**, the variables of your shell that no agent gets, by name only: TermF never shows their value. **Give** adds one to what agents keep, from their next start.
+
 When a task needs an API key:
 
 1. The agent asks for it by name. A card appears on the project's Home and in **Waiting for you**: who asks, why, a link to get one, a hidden field.
 2. **Save and give**: the value goes to the vault as a `dev` secret of the project, and the project's file names it in `[agents.secrets]`.
-3. The agent gets it when its step starts again, masked in everything the session logs or shows. A locked vault means the agent starts without it, and is told why.
+3. The agent gets it when its step starts again, masked in everything the session logs or shows. With the vault locked, a card to open it shows on the Home and in **Waiting for you**, and the request goes on once it is open; with no answer in 5 minutes, the agent is told the vault is locked.
 4. The project's vault lists the keys given to agents, each with **Remove**.
 
 A key is never given to the CTO or the expert, never from another project, and never a `prod` secret. Shipped roles that may ask: `motion` (media platforms) and `legal` (official legal APIs).
 
 | Setting | What it does |
 |---|---|
-| `[agents] env_allow` | Names or prefixes of variables every agent may keep (also in **Settings › Agents' environment**) |
+| `[agents] env_allow` | Names or prefixes of variables every agent may keep (also in **Settings › Agent variables**) |
 | `[agents.secrets]` | The vault keys given to agents, globally or per project |
 | `[agents] env = "inherit"` | Gives back the whole environment, as before |
 

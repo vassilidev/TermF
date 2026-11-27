@@ -16,6 +16,8 @@ Press <kbd>?</kbd> in the app for the same list, as it is on your machine. To ch
 | Switch project | <kbd>⌘O</kbd> | <kbd>Ctrl</kbd> <kbd>O</kbd> |
 | Project 1 to 9 | <kbd>⌃1</kbd> … <kbd>⌃9</kbd> | <kbd>Alt</kbd> <kbd>1</kbd> … <kbd>9</kbd> |
 | Talk to the CTO | <kbd>⌘⇧H</kbd> | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>H</kbd> |
+| Expand the Ask panel's conversation | <kbd>⌘⇧I</kbd> | <kbd>Alt</kbd> <kbd>Shift</kbd> <kbd>I</kbd> |
+| Find a conversation | <kbd>⌘⇧K</kbd> | <kbd>Alt</kbd> <kbd>Shift</kbd> <kbd>K</kbd> |
 | Next thing waiting for you | <kbd>⌘J</kbd> | <kbd>Ctrl</kbd> <kbd>J</kbd> |
 | Second panel | <kbd>⌘\</kbd> | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>\</kbd> |
 | Other panel | <kbd>⌥⌘\</kbd> | <kbd>Alt</kbd> <kbd>Shift</kbd> <kbd>\</kbd> |

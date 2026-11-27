@@ -10,9 +10,11 @@ order: 3
 ## Browse the tickets {#browse}
 
 1. Open **Tickets**, then **Browse**, and pick a source: a Jira site, GitHub Issues, a GitHub Project, Linear, GitLab or Azure DevOps.
-2. Filter by project or space, state (**Open**, **Done**, **All**), assignee (**To me**, **To nobody**, **Assigned to anyone**) and **Current sprint**, or search by words.
-3. **List** groups the tickets by space. **Board** sorts them into columns. Both show 50 tickets at a time, and **Load more** brings the next ones.
-4. A click on a ticket opens it in full, in a panel: see [A ticket in full](ticket-details.md).
+2. **Mine, to do**, the default, shows the tickets waiting for you, with their number. **All** shows every ticket: filter by state (**Open**, **Done**, **All**), assignee (**To me**, **To nobody**, **Assigned to anyone**) and **Current sprint**, or search by words.
+3. The source's spaces, such as Jira projects or GitHub repositories, are buttons at the top; beyond six, a list.
+4. **List** groups the tickets by space. **Board** sorts them into columns, and opens first for a source with statuses; GitHub Issues and GitLab, which have none, open on the list. Your choice is kept. Both show 50 tickets at a time, and **Load more** brings the next ones.
+5. With no current project, **Browse** shows the tickets waiting in every project.
+6. A click on a ticket opens it in full, in a panel: see [A ticket in full](ticket-details.md).
 
 ## The board {#board}
 

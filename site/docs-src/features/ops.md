@@ -18,6 +18,12 @@ You declare connections (SSH, Postgres, MySQL, Redis, Kubernetes, CloudWatch, Go
 3. Run a recipe with its form. The exact command shows as you type, and the result comes back masked.
 4. When an agent asks, an approval card shows the command, the target and the environment, with a countdown. A prod target asks your master password.
 
+### The connections, by machine {#tree}
+
+**Connections** is a tree built from the links you already set: a database or a Redis sits under the SSH server it goes through, and a server under its bastion. Machines come first. Above the tree, pick an environment (**All**, dev, staging, prod): a machine of another environment that a connection goes through stays in grey, to keep the path.
+
+The tabs of Ops are **Connections**, **SQL**, **Redis**, **Forge**, **History** and **Recipes**.
+
 ### Defaults
 
 - A connection is invisible to agents until you allow it, masked or in full.
@@ -51,7 +57,7 @@ An SSH connection also shows panels that read the server for you, and a few chan
 - [Nginx](nginx.md): whether it runs, `nginx -t`, its sites, its logs live, a safe reload;
 - [Laravel](laravel.md): `php artisan about`, the scheduler, Horizon, failed jobs, `laravel.log` live.
 
-A [Redis](redis.md) connection lists its keys and reads their values. The **Forge** tab imports a [Laravel Forge](forge.md) account's servers and sites, and redeploys them.
+The **Redis** tab browses a [Redis](redis.md) like a database, read-only until you allow changes. The **Forge** tab imports a [Laravel Forge](forge.md) account's servers and sites, and redeploys them.
 
 From <kbd>⌘I</kbd>, the DevOps engineer can add, change, test or delete a connection and do these changes too, each through its card. See [Agents that act for you](agent-actions.md).
 
@@ -61,11 +67,11 @@ The **SQL** tab of Ops is a database studio for the project's Postgres, MySQL, M
 
 ## Live logs and the production .env {#live-logs}
 
-The **Live** tab follows a log as it is written, masked line by line. The `env-fetch` recipe reads a server's `.env` and shows its keys, values hidden, so you can find the variable that differs between production and your machine.
+The `logs-follow` recipe follows a log as it is written, masked line by line. The `env-fetch` recipe reads a server's `.env` and shows its keys, values hidden, so you can find the variable that differs between production and your machine.
 
 ### Follow a log
 
-1. Open **Ops**, then **Live**. Pick the recipe, the connection and its settings, then **Follow**.
+1. In **Ops › Recipes**, open `logs-follow`, pick the connection and its settings, then **Follow**. Following a log file from a server's panel opens it too.
 2. Filter by text or by level, pause, clear, stop.
 
 Logs come from `journalctl` or a file over SSH, Kubernetes, CloudWatch and Loki. The last 5,000 lines stay on screen, and the stream keeps going from one tab to another.
@@ -88,4 +94,4 @@ termf ops run env-fetch --connection <name> --path <file>
 > [!NOTE]
 > Never run against a real server or log service: the tests use fake `ssh` and `journalctl`, on macOS and Linux.
 >
-> **Tried so far.** Covered by automated tests; the Live tab and the comparison were checked with a simulated backend.
+> **Tried so far.** Covered by automated tests; following a log and the comparison were checked with a simulated backend.

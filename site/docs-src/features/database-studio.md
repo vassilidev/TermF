@@ -16,8 +16,8 @@ The database studio reads your Postgres, MySQL, MariaDB, SQLite and ClickHouse d
 
 ## Query it {#query}
 
-1. Open **Ops**, then **SQL**, and pick a database.
-2. **Schema**, on the left, lists the tables with their columns, types and keys, and the indexes. A click puts a name in the query.
+1. Open **Ops**, then **SQL**, and pick a database in the picker at the top. No database is chosen for you.
+2. **Schema**, on the left, lists the tables in order, grouped by schema when there are several, with their columns, types, keys (primary, foreign, unique, index) and, for each foreign key, the column it points to. An open table also lists what points to it, under **Referenced by**. A click puts a name in the query.
 3. The editor completes table and column names. As you type, TermF shows the exact query that will run, or why it is refused, in plain words.
 4. **Run** it with <kbd>⌘↵</kbd>. Sort the result by any column, **Copy** it (TSV, CSV, JSON, Markdown) or **Export** it (CSV, TSV, JSON, NDJSON, Markdown, SQL, Excel), up to 100,000 rows.
 5. **Explain** asks the DBA what the query does; **Optimize** sends it the query with its plan.
@@ -34,16 +34,17 @@ The database studio reads your Postgres, MySQL, MariaDB, SQLite and ClickHouse d
 
 ## The whole schema {#schema}
 
-**Query** and **Schema**, in the database's bar, switch the studio to a diagram of every table, with its columns, types and keys, and a line for each foreign key.
+**Diagram**, in the schema's header, opens on the right a diagram of every table, with its columns, types and keys, and a line for each foreign key.
 
 ![The schema of a database as a diagram: tables as cards linked by their foreign keys, and the orders table open with its columns, indexes and relations](shot:schema "The whole schema, the orders table open. Sample data.")
 
+- **Query**, above the diagram, returns to the editor.
 - Search a table or a column: the others fade. Zoom with the buttons, a pinch or <kbd>⌘</kbd> and the wheel, drag to move, **Fit** to see everything.
 - Click a table: its columns, indexes, **Points to** and **Pointed to by** (a click goes to the other table), **Query this table** and **Ask the DBA**.
 
 ## Ask the DBA {#dba}
 
-The **DBA** tab, on the right, takes a request in your own words and answers with one query and a few lines. It is the same conversation as everywhere else in TermF: streamed answers, cards, images and **Topic done** work the same, see [Ask from any screen](ask-panel.md#conversation).
+**Ask the DBA**, next to the editor, opens its conversation on the right; it is the main button while the editor is empty. The DBA takes a request in your own words and answers with one query and a few lines. It is the same conversation as everywhere else in TermF: streamed answers, cards, images and **Topic done** work the same, see [Ask from any screen](ask-panel.md#conversation).
 
 - It sees the schema. It sees rows only if the connection lets agents in: each of its reads is a query you approve in TermF, with personal data masked.
 - Each query it writes is checked like yours: **Checked: a read**, or why it is refused. **Put in the editor**, **Run** or **Save** it.
