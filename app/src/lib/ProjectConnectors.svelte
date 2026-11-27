@@ -142,29 +142,33 @@
             <span class="what">
               <span class="name">{row.label}</span>
               {#if row.target}<span class="mono target">{row.target}</span>{/if}
+              <span class="who">
+                {#if row.roles === null}
+                  {t("connEverySession")}
+                {:else if row.roles.length}
+                  {row.roles.join(" · ")}
+                {:else}
+                  {t("connNoRole")}
+                {/if}
+              </span>
             </span>
-            <span class="badge">{row.account ? t("connOriginAccount") : t("connOriginTermf")}</span>
-            <span class="who">
-              {#if row.roles === null}
-                {t("connEverySession")}
-              {:else if row.roles.length}
-                {row.roles.join(", ")}
+            <span class="cell"><span class="badge">{row.account ? t("connOriginAccount") : t("connOriginTermf")}</span></span>
+            <span class="cell">
+              {#if row.write === null}
+                <span class="badge">{t("connUnbounded")}</span>
+              {:else if row.write}
+                <span class="badge warn">{t("connWrite")}</span>
               {:else}
-                {t("connNoRole")}
+                <span class="badge ok">{t("connReadOnly")}</span>
               {/if}
             </span>
-            {#if row.write === null}
-              <span class="badge">{t("connUnbounded")}</span>
-            {:else if row.write}
-              <span class="badge warn">{t("connWrite")}</span>
-            {:else}
-              <span class="badge ok">{t("connReadOnly")}</span>
-            {/if}
-            {#if row.health}
-              <span class="badge {tone[row.health]}">{healthLabel(row.health)}</span>
-            {:else if checking && row.account}
-              <span class="badge">{t("connChecking")}</span>
-            {/if}
+            <span class="cell">
+              {#if row.health}
+                <span class="badge {tone[row.health]}">{healthLabel(row.health)}</span>
+              {:else if checking && row.account}
+                <span class="badge">{t("connChecking")}</span>
+              {/if}
+            </span>
             <span class="actions">
               {#if row.configured}
                 <button class="btn sm" aria-expanded={open === row.name} onclick={() => (open = open === row.name ? "" : row.name)}>
@@ -178,7 +182,7 @@
                   onclick={() => run(row.name, "connectors_remove", { name: row.name })}><Trash2 size={14} aria-hidden="true" /></button
                 >
               {:else}
-                <button class="btn sm primary" disabled={!!busy} onclick={() => give(row)}>{t("connGive")}</button>
+                <button class="btn sm" disabled={!!busy} onclick={() => give(row)}>{t("connGive")}</button>
               {/if}
             </span>
           </div>
@@ -333,9 +337,10 @@
   }
 
   .line {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 112px 128px 128px 156px;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     min-height: 48px;
     padding: 6px 12px;
   }
@@ -360,17 +365,18 @@
   }
 
   .who {
-    max-width: 220px;
-    overflow: hidden;
     color: var(--soft);
     font-size: var(--text-sm);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  }
+
+  .cell {
+    display: flex;
   }
 
   .actions {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 4px;
   }
 
@@ -440,6 +446,7 @@
   }
 
   .add-open {
+    align-self: flex-start;
     margin-top: 12px;
   }
 
@@ -494,13 +501,13 @@
     align-self: flex-start;
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: 900px) {
     .line {
-      flex-wrap: wrap;
+      grid-template-columns: minmax(0, 1fr) auto;
     }
 
-    .who {
-      max-width: none;
+    .line > :not(.what, .actions) {
+      grid-column: 1 / -1;
     }
   }
 </style>

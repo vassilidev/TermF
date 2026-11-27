@@ -292,7 +292,12 @@ fn saves_and_removes_keeping_the_rest() {
         save(&dir, "acme", "nope", None, &po).is_err(),
         "no server to give"
     );
-    assert!(save(&dir, "acme", "../x", Some(&server), &po).is_err());
+    for name in ["../x", "a__b", "claude.ai ../x", ""] {
+        assert!(
+            save(&dir, "acme", name, Some(&server), &po).is_err(),
+            "{name}"
+        );
+    }
     let bad = Access {
         roles: vec!["po\"]".into()],
         write: false,

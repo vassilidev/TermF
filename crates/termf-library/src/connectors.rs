@@ -377,9 +377,11 @@ pub fn check_name(name: &str) -> Result<()> {
         own.chars()
             .all(|c| c.is_ascii_alphanumeric() || "_-".contains(c) || extra.contains(c))
     };
+    // `__` would make `mcp__<server>__<tool>` ambiguous in Claude Code's permission rules.
     let valid = !own.trim().is_empty()
         && own.len() <= 64
         && own == own.trim()
+        && !own.contains("__")
         && match is_account(name) {
             true => chars(" ."),
             false => chars(""),
