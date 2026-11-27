@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hasWords, mostRecent, projectsOf, rank, tally, validProject } from "../src/lib/nav-logic.ts";
+import { ALL_REPOS, hasWords, mostRecent, pickRepo, projectsOf, rank, repoOf, tally, validProject } from "../src/lib/nav-logic.ts";
 
 const repo = (path, modified = null) => ({ name: path.split(/[/\\]/).pop(), path, modified });
 const projects = [
@@ -52,6 +52,33 @@ test("the stored current project is dropped once it no longer exists", () => {
 test("the most recent repository", () => {
   assert.equal(mostRecent(projects[0].repos).path, "/home/alex/code/acme/web");
   assert.equal(mostRecent([]), null);
+});
+
+test("the views' common repository: all of a project's by default, kept per scope, a vanished one falls back", () => {
+  const [api, web] = projects[0].repos;
+  // A project of several repositories opens on all of them; one of a single repository, or no project, on a repository.
+  assert.equal(pickRepo(undefined, [api, web], true), ALL_REPOS);
+  assert.equal(pickRepo(undefined, projects[1].repos, true), "/home/alex/code/docs");
+  assert.equal(pickRepo(undefined, [api, web], false), web.path);
+  assert.equal(pickRepo(undefined, [], true), "");
+  // The stored choice holds while it is still there.
+  assert.equal(pickRepo(api.path, [api, web], true), api.path);
+  assert.equal(pickRepo(ALL_REPOS, [api, web], true), ALL_REPOS);
+  // A repository gone from the project: back to all; once the project has a single one: that one.
+  assert.equal(pickRepo("/home/alex/code/acme/old", [api, web], true), ALL_REPOS);
+  assert.equal(pickRepo(ALL_REPOS, [api], true), api.path);
+  assert.equal(pickRepo(web.path, [api], true), api.path);
+  // "All" is a project's: never every project's repositories at once.
+  assert.equal(pickRepo(ALL_REPOS, [api, web], false), web.path);
+  assert.equal(pickRepo(42, [api, web], true), ALL_REPOS);
+});
+
+test("a folder says its repository only in a project of several", () => {
+  const run = { project: "acme", worktree: "/data/worktrees/acme/9/web", repo: "/home/alex/code/acme/web" };
+  assert.equal(repoOf("/home/alex/code/acme/api/src", projects, []).path, "/home/alex/code/acme/api");
+  assert.equal(repoOf("/data/worktrees/acme/9/web", projects, [run]).path, "/home/alex/code/acme/web");
+  assert.equal(repoOf("/home/alex/code/docs", projects, []), null);
+  assert.equal(repoOf("/home/alex/perso/blog", projects, [run]), null);
 });
 
 const cmd = (id, label, group, extra = {}) => ({ id, label, group, icon: null, run() {}, ...extra });
