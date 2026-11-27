@@ -2,12 +2,12 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Check from "@lucide/svelte/icons/check";
-  import LibraryBig from "@lucide/svelte/icons/library-big";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import ClaudeTrust from "$lib/ClaudeTrust.svelte";
+  import LibraryView from "$lib/LibraryView.svelte";
   import MemorySettings from "$lib/MemorySettings.svelte";
   import ProjectConnectors from "$lib/ProjectConnectors.svelte";
   import OnboardingJournal from "$lib/OnboardingJournal.svelte";
@@ -31,7 +31,7 @@
   import { toast } from "$lib/ui/toast.svelte";
   import { provide } from "$lib/ask.svelte";
   import { t } from "$lib/i18n";
-  import { library, showLibrary, type RepoStack } from "$lib/library.svelte";
+  import type { RepoStack } from "$lib/library.svelte";
   import { hasWords } from "$lib/nav-logic";
   import { cards, forgetCards, readCards } from "$lib/newproject.svelte";
   import { closeProject, config, configSections, type ConfigSection } from "$lib/project.svelte";
@@ -233,11 +233,6 @@
     }
   }
 
-  function openLibrary() {
-    Object.assign(library, { global: false, panel: null });
-    showLibrary();
-  }
-
   const stepLabel = {
     analysis: "obStepAnalysis",
     questions: "obStepQuestions",
@@ -296,12 +291,12 @@
         }))}
         {current}
         label={t("ux3t3Config")}
-        onselect={(s) => (s === "library" && id ? openLibrary() : select(s))}
+        onselect={select}
         top={search}
         empty={t("filesNoResults")}
       />
 
-      <div class="page">
+      <div class="page" class:full={current === "library"}>
         <section class="sec" hidden={current !== "project"} aria-labelledby="config-project">
           <h2 id="config-project">{t("runMetaProject")}</h2>
           <form id="project-form" class="form" onsubmit={save}>
@@ -397,14 +392,9 @@
           {/if}
         </section>
 
-        <section class="sec" hidden={current !== "library"} aria-labelledby="config-library">
-          <h2 id="config-library">{t("viewLibrary")}</h2>
-          <p class="help">{t("t6bHelpLibrary")}</p>
-          <div>
-            <button type="button" class="btn" onclick={() => openLibrary()}>
-              <LibraryBig size={14} aria-hidden="true" />{t("showLibrary")}
-            </button>
-          </div>
+        <!-- The project's library in place, its tabs and its sheet included: the sections stay in reach. -->
+        <section class="sec lib" hidden={current !== "library"} aria-label={t("viewLibrary")}>
+          {#if current === "library"}<LibraryView embedded />{/if}
         </section>
 
         {#if project}
@@ -554,6 +544,23 @@
     flex-direction: column;
     gap: 16px;
     max-width: 760px;
+  }
+
+  /* The library scrolls its own list beside its sheet, over the page's whole width and height. */
+  .page.full {
+    display: flex;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .sec.lib {
+    flex: 1;
+    max-width: none;
+    min-height: 0;
+  }
+
+  .lib > :global(.library) {
+    flex: 1;
   }
 
   /* The memory brings its own spacing. */
