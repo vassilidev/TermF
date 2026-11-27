@@ -384,7 +384,7 @@ def head(title, desc, url, prefix, ld=""):
 <meta name="twitter:image" content="{BASE}og.png">
 <meta name="twitter:image:alt" content="{OG_ALT}">
 <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0b0b12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#1a1a19" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/svg+xml" href="{prefix}icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="{prefix}favicon.png">
