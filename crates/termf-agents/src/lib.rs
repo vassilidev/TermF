@@ -152,6 +152,10 @@ pub struct SessionSpec {
     /// `--add-dir`: other folders its tools may reach, such as the other repositories of a team's run.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub add_dirs: Vec<PathBuf>,
+    /// `--strict-mcp-config`: no MCP server but TermF's, no connector: a step of a run that read prod (the trifecta
+    /// rule).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub strict_mcp: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]

@@ -144,7 +144,7 @@
               {#if row.target}<span class="mono target">{row.target}</span>{/if}
               <span class="who">
                 {#if row.roles === null}
-                  {t("connEverySession")}
+                  {row.account ? t("connRoleless") : t("connEverySession")}
                 {:else if row.roles.length}
                   {row.roles.join(" · ")}
                 {:else}
@@ -235,6 +235,7 @@
   {#if account?.error}
     <p class="help">{t("connAccountError", { error: account.error })}</p>
   {/if}
+  <p class="help">{t("connClaudeOwn")}</p>
 
   {#if adding}
     <form class="add" onsubmit={add}>

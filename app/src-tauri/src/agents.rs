@@ -64,7 +64,17 @@ pub fn state(
             }
         };
     });
-    let (app, gone, secrets) = (app.clone(), app.clone(), app.clone());
+    let (app, gone, secrets, keys) = (app.clone(), app.clone(), app.clone(), app.clone());
+    agents.serve_keys(move |session, project, wanted| {
+        if keys.try_state::<crate::vault::VaultState>().is_none() {
+            return termf_agents::Given::default();
+        }
+        let actor = termf_vault::Actor::agent(
+            crate::ops::run_of(&keys, session),
+            Some(session.to_string()),
+        );
+        crate::connectors::keys(&crate::vault::shared(&keys), project, wanted, &actor)
+    });
     if let Some(termf) = api::termf_binary() {
         agents.serve_guard(termf);
     }

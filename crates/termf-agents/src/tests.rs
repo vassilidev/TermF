@@ -2607,3 +2607,77 @@ fn a_session_is_no_child_of_the_claude_code_termf_runs_in() {
         }
     }
 }
+
+/// A server's key reaches the session of a role it is given to in its plugin's config only (0600, gone with the
+/// process), never in its environment; a role session gets no account connector it is not given; a step after a
+/// prod read loads no MCP server but TermF's.
+#[test]
+fn a_server_s_key_stays_in_its_config_and_a_step_after_prod_is_strict() {
+    let env = Env::new("connector-keys");
+    let config = env.root.join("config");
+    fs::create_dir_all(config.join("projects")).unwrap();
+    fs::write(
+        config.join("projects/acme.toml"),
+        format!(
+            "name = \"Acme\"\n[[repos]]\npath = \"{}\"\n\n[mcp.docs]\ntype = \"http\"\nurl = \"https://docs.acme.test/mcp\"\nheaders = {{ Authorization = \"${{MCP_DOCS_AUTHORIZATION}}\" }}\n\n[connectors.docs]\nroles = [\"po\"]\nwrite = true\n",
+            env.dir.display()
+        ),
+    )
+    .unwrap();
+    env.agents.serve_keys(|_, project, wanted| {
+        assert_eq!(
+            (project, wanted),
+            ("acme", &["MCP_DOCS_AUTHORIZATION".to_owned()][..])
+        );
+        Given {
+            vars: vec![("MCP_DOCS_AUTHORIZATION".into(), "Bearer s3cr3t-docs".into())],
+            note: None,
+        }
+    });
+    let spec = SessionSpec {
+        project: Some("acme".into()),
+        role: Some("po".into()),
+        ..env.spec()
+    };
+    let po = env.agents.start(spec.clone(), Some("say hello")).unwrap();
+    env.settle(po.id, 1, State::Idle);
+    let args = env.args().pop().unwrap();
+    let plugin = PathBuf::from(arg_after(&args, "--plugin-dir").unwrap());
+    let file = plugin.join(".mcp.json");
+    let config: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(
+        config["mcpServers"]["docs"]["headers"]["Authorization"],
+        "Bearer s3cr3t-docs"
+    );
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let process = env.log("env");
+    assert!(
+        !process.contains("s3cr3t") && !process.contains("MCP_DOCS"),
+        "{process}"
+    );
+    assert!(
+        process.contains("ENABLE_CLAUDEAI_MCP_SERVERS=false"),
+        "no account connector for this role"
+    );
+    env.agents.stop(po.id).unwrap();
+    env.until("its config gone", || !file.exists());
+
+    let after_prod = SessionSpec {
+        strict_mcp: true,
+        ..spec
+    };
+    let step = env.agents.start(after_prod, Some("say hello")).unwrap();
+    env.settle(step.id, 1, State::Idle);
+    let args = env.args().pop().unwrap();
+    assert!(args.contains(&"--strict-mcp-config".into()), "{args:?}");
+    let plugin = PathBuf::from(arg_after(&args, "--plugin-dir").unwrap());
+    let config = fs::read_to_string(plugin.join(".mcp.json")).unwrap_or_default();
+    assert!(
+        !config.contains("s3cr3t"),
+        "no key for a step that read prod: {config}"
+    );
+}

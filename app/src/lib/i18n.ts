@@ -6032,6 +6032,9 @@ const fr = {
   connOriginTermf: "Projet",
   connOriginAccount: "Compte Claude",
   connEverySession: "Toutes les sessions, sauf CTO et expert",
+  connRoleless: "Sessions sans rôle seulement (terminaux, conversations)",
+  connClaudeOwn:
+    "Les serveurs MCP de Claude Code lui-même (niveau utilisateur, .mcp.json d'un dépôt, plugins) ne passent pas par ici : toutes les sessions sauf CTO et expert les reçoivent, sans limite de TermF. Gère-les dans la vue Claude.",
   connNoRole: "Aucun rôle",
   connUnbounded: "Sans limite TermF",
   connWrite: "Écriture autorisée",
@@ -6062,7 +6065,8 @@ const fr = {
   connValue: "Valeur",
   connShow: "Afficher la valeur",
   connAddPair: "Ajouter",
-  connSecrets: "Une valeur qui ressemble à une clé va dans le coffre du projet : le fichier du projet ne garde que son nom.",
+  connSecrets:
+    "Une valeur qui ressemble à une clé va dans le coffre du projet : le fichier du projet ne garde que son nom, et seules les sessions des rôles cochés la reçoivent, dans la config du serveur.",
   connVaultPassword: "Mot de passe du coffre",
   connAddSubmit: "Ajouter",
 };
@@ -12062,6 +12066,9 @@ const en: Record<Key, string> = {
   connOriginTermf: "Project",
   connOriginAccount: "Claude account",
   connEverySession: "Every session but the CTO and the expert",
+  connRoleless: "Sessions without a role only (terminals, conversations)",
+  connClaudeOwn:
+    "Claude Code's own MCP servers (user level, a repository's .mcp.json, plugins) do not go through here: every session but the CTO and the expert gets them, not bounded by TermF. Manage them in the Claude view.",
   connNoRole: "No role",
   connUnbounded: "Not bounded by TermF",
   connWrite: "Writing allowed",
@@ -12092,7 +12099,8 @@ const en: Record<Key, string> = {
   connValue: "Value",
   connShow: "Show the value",
   connAddPair: "Add",
-  connSecrets: "A value that looks like a key goes to the project's vault: the project's file only keeps its name.",
+  connSecrets:
+    "A value that looks like a key goes to the project's vault: the project's file only keeps its name, and only the sessions of the ticked roles get it, in the server's config.",
   connVaultPassword: "Vault password",
   connAddSubmit: "Add",
 };

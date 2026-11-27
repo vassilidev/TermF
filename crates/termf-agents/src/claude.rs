@@ -220,6 +220,9 @@ impl AgentRuntime for ClaudeCode {
         } else if spec.actions {
             screen_permissions(&mut settings["permissions"]);
         }
+        if spec.strict_mcp && !spec.mcp {
+            args.push("--strict-mcp-config".into());
+        }
         if launch.connectors.is_object() {
             termf_core::claude::merge_settings(&mut settings, launch.connectors);
         }

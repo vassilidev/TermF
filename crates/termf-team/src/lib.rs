@@ -4457,9 +4457,11 @@ impl Inner {
         let old = self.agents.session(session)?;
         ensure!(old.spec.cwd == path, "its session worked elsewhere");
         let denied = self.disallowed(run, i);
+        let tainted = self.tainted(run);
         self.agents.respec(session, |spec| {
             // A session's budget counts what it spent: what it may spend from now on comes on top.
             spec.budget = budget.map(|b| old.cost + b);
+            spec.strict_mcp |= tainted;
             for tool in denied {
                 if !spec.disallowed_tools.contains(&tool) {
                     spec.disallowed_tools.push(tool);
@@ -4970,6 +4972,7 @@ impl Inner {
             permission_mode: (!has(&["permission_mode", "permissionMode"]))
                 .then(|| "acceptEdits".into()),
             disallowed_tools: self.disallowed(run, i),
+            strict_mcp: self.tainted(run),
             // The ticket is untrusted, as in a ticket run's tile: the same hook refuses what `DENIED` misses.
             guard: true,
             read_freely: self.read_freely(run, i, &cwd)?,
@@ -5071,30 +5074,26 @@ impl Inner {
     /// Once a recipe read prod for the run, its next sessions have no way out (the trifecta rule, ARCHITECTURE
     /// §12.4).
     fn disallowed(&self, run: &TeamRun, i: usize) -> Vec<String> {
-        let tainted = termf_core::taint::run(&self.data_dir, run.target.run);
-        let mut denied: Vec<String> = DENIED
+        DENIED
             .iter()
             .chain(if run.steps[i].kind == StepKind::Review {
                 &READ_ONLY[..]
             } else {
                 &[]
             })
-            .chain(if tainted {
+            .chain(if self.tainted(run) {
                 termf_core::taint::EGRESS_DENY
             } else {
                 &[]
             })
             .map(|d| d.to_string())
-            .collect();
-        // A connector's calls leave the machine too.
-        if tainted {
-            let project = &run.target.project;
-            denied.extend(termf_library::connectors::denied_after_prod(
-                &self.config_dir,
-                project,
-            ));
-        }
-        denied
+            .collect()
+    }
+
+    /// A recipe read prod for the run: its next sessions load no MCP server but TermF's (`strict_mcp`), since
+    /// every other one's calls leave the machine.
+    fn tainted(&self, run: &TeamRun) -> bool {
+        termf_core::taint::run(&self.data_dir, run.target.run)
     }
 
     /// The most turns a step of `size` takes: `[team] max_turns.<size>` of the project's file, else of
