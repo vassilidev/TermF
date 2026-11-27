@@ -49,6 +49,8 @@ The screen sends what you are looking at as chips above the message, and you can
 
 A vault item or an Ops connection is sent by its name only, never its value. Each chip carries 4,000 characters at most.
 
+Beyond the screen, the agent reads what TermF knows of the whole project, from any screen and without a card: the stack with its dependencies, vulnerabilities and end of support, the CI runs with the log around a failed job's first error, the git state with the open pull requests, the tickets and the settings. Ops' reads stay on the Ops screen, since they reach prod. The agent reads before it answers, then offers what it could do next. An empty panel suggests two or three questions for the screen; a click sends one.
+
 ## Nothing changes without you {#approval}
 
 When the agent wants to use a tool outside TermF, a card says in plain words what it wants to do, shows the lines of a file it would change, and keeps the raw call under **Details**. **Deny**, with a reason if you like, or **Allow**.
@@ -63,6 +65,8 @@ The agent can also act in TermF itself, on the screen you asked from: add a conn
 
 These work in every conversation: the panel, the CTO, the expert, **Conversations** and the DBA of the [database studio](database-studio.md).
 
+- **In the background.** A command or a subagent the agent leaves running shows under **In the background**, with what the subagent does at the moment. When it ends, the agent says what it found in a turn of its own.
+- **Copy.** **Copy the answer**, on the line under an answer, copies it; a code block has its own copy button in its corner.
 - **Write while it works.** A message sent during a turn waits in a queue above the box, where you can remove it, and goes as one message when the turn ends.
 - **Images.** Paste them with <kbd>⌘V</kbd>, drop them on the conversation, or use the paperclip: PNG, JPEG, GIF or WebP, 7.5 MB at most each. Each shows as a thumbnail you can remove before sending. Images live only in the message: after a restart, the thread says how many there were. Codex and Gemini read text only.
 - **Ask about a card.** While a card waits, the box stays open: type a question, or click **Ask for help**. The question answers the card; the agent replies, then asks again if it still needs to.
