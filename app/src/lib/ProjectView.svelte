@@ -10,6 +10,7 @@
   import ClaudeTrust from "$lib/ClaudeTrust.svelte";
   import MemorySettings from "$lib/MemorySettings.svelte";
   import ProjectConnectors from "$lib/ProjectConnectors.svelte";
+  import { initial, mark } from "$lib/ProjectSwitcher.svelte";
   import OnboardingJournal from "$lib/OnboardingJournal.svelte";
   import RepoCard from "$lib/RepoCard.svelte";
   import RemoteSettings from "$lib/RemoteSettings.svelte";
@@ -44,6 +45,11 @@
   const seed = app.workspace?.projects.find((p) => p.id === id);
   const project = $derived(app.workspace?.projects.find((p) => p.id === id));
   let name = $state(seed?.name ?? "");
+  /** Its mark's color (`#rrggbb`) and icon, "" for none. */
+  let color = $state(seed?.look?.color ?? "");
+  let icon = $state(seed?.look?.icon ?? "");
+  const look = $derived({ color: color || null, icon: icon.trim() || null });
+  const preview = $derived(mark({ name: name || "?", look }));
   let chosen = $state(seed?.repos.map((r) => r.path) ?? []);
   /** Each repository's check command, by path: what the team runs before delivering. */
   let checks = $state<Record<string, string>>({ ...(seed?.checks ?? {}) });
@@ -62,7 +68,7 @@
   let pending = $state<{ leave: () => void; stay?: () => void }>();
   /** Set once the user chose to leave: nothing asks again on the way out. */
   let released = false;
-  const form = () => JSON.stringify([name, chosen, chosen.map((p) => checks[p]?.trim() ?? "")]);
+  const form = () => JSON.stringify([name, chosen, chosen.map((p) => checks[p]?.trim() ?? ""), color, icon.trim()]);
   let savedForm = $state(form());
   const dirty = $derived(form() !== savedForm || !!sources?.dirty());
   // An id that names no project (deleted, or gone after a reload) never shows a form that would create a copy.
@@ -191,7 +197,7 @@
     error = "";
     try {
       const asked = Object.fromEntries(chosen.map((p) => [p, checks[p] ?? ""]));
-      app.workspace!.projects = await invoke<Project[]>("project_save", { id, name, repos: chosen, checks: asked });
+      app.workspace!.projects = await invoke<Project[]>("project_save", { id, name, repos: chosen, checks: asked, look });
       savedForm = form();
       await sources?.save();
       readRepos();
@@ -211,8 +217,8 @@
 
   /** The form goes back to what is saved. */
   function discard() {
-    const [n, c, k] = JSON.parse(savedForm) as [string, string[], string[]];
-    [name, chosen, checks] = [n, c, Object.fromEntries(c.map((p, i) => [p, k[i]]))];
+    const [n, c, k, col, ic] = JSON.parse(savedForm) as [string, string[], string[], string, string];
+    [name, chosen, checks, color, icon] = [n, c, Object.fromEntries(c.map((p, i) => [p, k[i]])), col, ic];
     adding = false;
     round++;
   }
@@ -314,6 +320,25 @@
                 autocomplete="off"
                 spellcheck="false"
               />
+            </div>
+
+            <div>
+              <h3>{t("projectLook")}</h3>
+              <div class="look">
+                <span class="mark" style={preview.style} aria-hidden="true">{preview.text}</span>
+                <label class="labelled">
+                  <span>{t("projectColor")}</span>
+                  <!-- Without a color, the picker opens on the accent the mark has by default. -->
+                  <input class="swatch" type="color" value={color || "#4446d6"} oninput={(e) => (color = e.currentTarget.value)} />
+                </label>
+                {#if color}
+                  <button type="button" class="btn sm quiet" onclick={() => (color = "")}>{t("projectColorNone")}</button>
+                {/if}
+                <label class="labelled">
+                  <span>{t("projectIcon")}</span>
+                  <input class="field icon" bind:value={icon} maxlength="8" placeholder={initial(name || "?")} autocomplete="off" spellcheck="false" />
+                </label>
+              </div>
             </div>
 
             <div>
@@ -611,6 +636,51 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
+  }
+
+  .look {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+  }
+
+  .look .labelled {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  /* As big as the Home's: a preview of the navigation's mark. */
+  .look .mark {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font-size: var(--text-md);
+    font-weight: 700;
+  }
+
+  .swatch {
+    width: 32px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: none;
+    cursor: pointer;
+  }
+
+  .look .icon {
+    width: 72px;
+    height: 28px;
+    text-align: center;
   }
 
   .name {

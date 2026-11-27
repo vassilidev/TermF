@@ -1,6 +1,15 @@
 <script lang="ts" module>
+  import { inkOn } from "$lib/nav-logic";
+  import type { Project } from "$lib/state.svelte";
+
   /** The first letter of a project's name, for its mark. */
   export const initial = (name: string) => ([...name.trim()][0] ?? "?").toUpperCase();
+
+  /** A project's mark: its icon, else its initial, on its color when it has one. */
+  export function mark(p: { name: string; look?: Project["look"] }): { text: string; style?: string } {
+    const color = p.look?.color;
+    return { text: p.look?.icon ?? initial(p.name), style: color ? `background: ${color}; color: ${inkOn(color)}` : undefined };
+  }
 </script>
 
 <script lang="ts">
@@ -101,7 +110,8 @@
         {#if option.id === null}
           <span class="mark all" aria-hidden="true"><Layers size={14} /></span>
         {:else}
-          <span class="mark" aria-hidden="true">{initial(option.name)}</span>
+          {@const m = mark(option)}
+          <span class="mark" style={m.style} aria-hidden="true">{m.text}</span>
         {/if}
         <span class="grow">
           {option.name}

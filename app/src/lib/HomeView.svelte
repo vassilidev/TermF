@@ -25,7 +25,7 @@
   import Avatar from "$lib/ui/Avatar.svelte";
   import Checklist from "$lib/ui/Checklist.svelte";
   import WaitCard from "$lib/ui/WaitCard.svelte";
-  import { initial } from "$lib/ProjectSwitcher.svelte";
+  import { mark } from "$lib/ProjectSwitcher.svelte";
   import { ticketKey } from "$lib/TeamRunDetail.svelte";
   import OpsRequest from "$lib/OpsRequest.svelte";
   import SetupJobs from "$lib/SetupJobs.svelte";
@@ -393,7 +393,7 @@
   <button class="rrow hot" class:shown={home.shown === w.key} onclick={() => goFrom(w)}>
     <span class="bell"><r.icon size={14} aria-hidden="true" /></span>
     <span class="t"><b>{r.title}</b>{#if r.context}<span>{r.context}</span>{/if}</span>
-    {#if p}<span class="pm"><span class="mark" aria-hidden="true">{initial(p.name)}</span>{p.name}</span>{/if}
+    {#if p}<span class="pm"><span class="mark" style={mark(p).style} aria-hidden="true">{mark(p).text}</span>{p.name}</span>{/if}
     <ChevronRight size={14} aria-hidden="true" class="chev" />
   </button>
 {/snippet}
@@ -412,7 +412,7 @@
         <span class="live"><b>{doing.role}</b><Action act={doing.act} /></span>
       {:else if line.text}<span>{line.text}</span>{/if}
     </span>
-    {#if p}<span class="pm"><span class="mark" aria-hidden="true">{initial(p.name)}</span>{p.name}</span>{/if}
+    {#if p}<span class="pm"><span class="mark" style={mark(p).style} aria-hidden="true">{mark(p).text}</span>{p.name}</span>{/if}
     <span class="state"><StatusPill status={line.pill[0]} label={line.pill[1]} hint={line.pill[2]} /></span>
   {/snippet}
   {#if go}
@@ -648,7 +648,7 @@
               {@const at = activity(p.id)}
               <button class="trow" role="row" onclick={() => openProject(p.id)}>
                 <span class="t" role="cell">
-                  <span class="mark big" aria-hidden="true">{initial(p.name)}</span>
+                  <span class="mark big" style={mark(p).style} aria-hidden="true">{mark(p).text}</span>
                   <span class="names"><b>{p.name}</b><span>{p.repos.map((r) => r.name).join(", ")}</span></span>
                 </span>
                 <span class="agents" role="cell">

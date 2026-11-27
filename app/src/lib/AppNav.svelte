@@ -22,7 +22,7 @@
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import X from "@lucide/svelte/icons/x";
-  import ProjectSwitcher, { initial } from "$lib/ProjectSwitcher.svelte";
+  import ProjectSwitcher, { mark } from "$lib/ProjectSwitcher.svelte";
   import ProjectTally from "$lib/ProjectTally.svelte";
   import RemoteList from "$lib/RemoteList.svelte";
   import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
@@ -301,6 +301,7 @@
     <ul class="projects" bind:this={list}>
       {#each projects as project, i (project.id)}
         {@const open = app.project === project.id}
+        {@const m = mark(project)}
         <li>
           <button
             class="nav-item project"
@@ -310,7 +311,7 @@
             title={i < 9 && keys.project(i + 1) ? `${t("navSwitchTo", { name: project.name })} (${keys.project(i + 1)})` : project.name}
             onclick={() => setProject(project.id)}
           >
-            <span class="mark" aria-hidden="true">{initial(project.name)}</span>
+            <span class="mark" style={m.style} aria-hidden="true">{m.text}</span>
             <span class="label">{project.name}</span>
             <ProjectTally tally={counts[project.id]} />
           </button>
