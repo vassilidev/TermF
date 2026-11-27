@@ -10,7 +10,7 @@
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { askAI } from "$lib/ask.svelte";
   import { focusSession } from "$lib/commands";
-  import { t } from "$lib/i18n";
+  import { lang, t } from "$lib/i18n";
   import { app, openSession } from "$lib/state.svelte";
   import { stack } from "$lib/stack.svelte";
   import { ending, matches, proposal, rows, tally, worst, type Check, type Filter, type RepoMap, type Row, type Severity } from "$lib/stack-logic";
@@ -36,7 +36,7 @@
     unknown: "stackSevUnknown",
   };
   const bumpKey = { patch: "stackPatch", minor: "stackMinor", major: "stackMajor" } as const;
-  const date = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  const date = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString(lang, { year: "numeric", month: "short", day: "numeric" });
 
   const filters = $derived([
     { id: "all", label: t("stackFilterAll"), count: counts.all },

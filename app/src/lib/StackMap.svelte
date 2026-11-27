@@ -5,7 +5,7 @@
   import CircleArrowUp from "@lucide/svelte/icons/circle-arrow-up";
   import CalendarX from "@lucide/svelte/icons/calendar-x";
   import { t } from "$lib/i18n";
-  import { arc, drop, headline, layout, short, type Box, type StackMap } from "$lib/stack-logic";
+  import { arc, dbLabel, drop, headline, layout, short, type Box, type StackMap } from "$lib/stack-logic";
 
   type Tally = { updates: number; vulnerable: number; eol: number; worst: string | null; bySeverity: Record<string, number> };
 
@@ -124,7 +124,7 @@
         >
           <Cylinder size={14} aria-hidden="true" />
           <span class="db-text">
-            <span class="db-name">{db.db.name}</span>
+            <span class="db-name">{dbLabel(db.db)}</span>
             <span class="db-engine">{db.db.engine}{db.repos.length > 1 ? ` · ${db.repos.length}` : ""}</span>
           </span>
         </div>
@@ -170,7 +170,7 @@
   }
 
   .link.calls {
-    stroke: var(--accent);
+    stroke: var(--accent-ink);
   }
 
   .link.package {
@@ -184,7 +184,7 @@
   }
 
   .head.calls {
-    fill: var(--accent);
+    fill: var(--accent-ink);
   }
 
   .head.package {

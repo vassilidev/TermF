@@ -151,7 +151,7 @@ export type Box = { x: number; y: number; w: number; h: number };
 export type DbNode = Box & { key: string; db: Database; repos: string[] };
 export type Layout = { repos: Box[]; dbs: DbNode[]; width: number; height: number; top: number };
 
-const NODE = { w: 196, h: 96, gap: 28 };
+const NODE = { min: 164, max: 212, h: 92, gap: 22 };
 const DB = { w: 164, h: 46, gap: 18 };
 const LOCAL = ["localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal", "::1", ""];
 
@@ -162,7 +162,7 @@ export function dbKey(db: Database, repo: string): string {
 }
 
 /** How far an arc between two nodes of a row rises: the farther apart, the higher, so that arcs nest. */
-export const rise = (slots: number) => 30 + 20 * slots;
+export const rise = (slots: number) => 22 + 16 * slots;
 
 /**
  * Where the map draws the repositories (rows of up to as many as fit `width`) and, under them, each database once
@@ -170,18 +170,20 @@ export const rise = (slots: number) => 30 + 20 * slots;
  */
 export function layout(map: StackMap, width: number): Layout {
   const n = map.repos.length;
-  const per = Math.max(1, Math.min(n, Math.floor((width + NODE.gap) / (NODE.w + NODE.gap))));
+  const per = Math.max(1, Math.min(n, Math.floor((width + NODE.gap) / (NODE.min + NODE.gap))));
+  const w = Math.min(NODE.max, (width - (per - 1) * NODE.gap) / per);
   const rowsOf = Math.ceil(n / per);
   const linked = map.links.filter((l) => l.kind !== "database");
   const index = new Map(map.repos.map((r, i) => [r.path, i]));
   const spread = linked.reduce((m, l) => Math.max(m, Math.abs((index.get(l.from) ?? 0) - (index.get(l.to) ?? 0))), 0);
-  const top = linked.length ? rise(Math.min(spread, per)) + 12 : 12;
+  // A cubic curve peaks at three quarters of its control points' height.
+  const top = linked.length ? Math.round(rise(Math.min(spread, per)) * 0.75) + 14 : 12;
   const repos: Box[] = map.repos.map((_, i) => {
     const row = Math.floor(i / per);
     const inRow = Math.min(per, n - row * per);
-    const span = inRow * NODE.w + (inRow - 1) * NODE.gap;
-    const x = Math.max(0, (width - span) / 2) + (i % per) * (NODE.w + NODE.gap);
-    return { x, y: top + row * (NODE.h + 56), w: NODE.w, h: NODE.h };
+    const span = inRow * w + (inRow - 1) * NODE.gap;
+    const x = Math.max(0, (width - span) / 2) + (i % per) * (w + NODE.gap);
+    return { x, y: top + row * (NODE.h + 56), w, h: NODE.h };
   });
   const dbs = new Map<string, { db: Database; repos: string[] }>();
   for (const repo of map.repos) {
@@ -195,7 +197,9 @@ export function layout(map: StackMap, width: number): Layout {
   }
   const below = top + rowsOf * (NODE.h + 56) + 8;
   const dbPer = Math.max(1, Math.floor((width + DB.gap) / (DB.w + DB.gap)));
-  const list = [...dbs.entries()];
+  // Each database under the repositories that use it, so that its lines do not cross.
+  const middle = (users: string[]) => users.reduce((s, p) => s + (index.get(p) ?? 0), 0) / users.length;
+  const list = [...dbs.entries()].sort((a, b) => middle(a[1].repos) - middle(b[1].repos));
   const placed: DbNode[] = list.map(([key, { db, repos: users }], i) => {
     const row = Math.floor(i / dbPer);
     const inRow = Math.min(dbPer, list.length - row * dbPer);
@@ -216,7 +220,7 @@ export function arc(a: Box, b: Box, lane = 0): string {
   const ax = a.x + a.w / 2 + offset;
   const bx = b.x + b.w / 2 + offset;
   if (a.y === b.y) {
-    const slots = Math.round(Math.abs(bx - ax) / (a.w + 28));
+    const slots = Math.round(Math.abs(bx - ax) / (a.w + NODE.gap));
     const h = rise(slots) - Math.abs(offset) / 2;
     return `M ${ax} ${a.y} C ${ax} ${a.y - h}, ${bx} ${b.y - h}, ${bx} ${b.y}`;
   }
@@ -241,6 +245,10 @@ export function headline(tags: Tag[], max = 3): Tag[] {
   const minor = ["web", "docker", "compose", "github-actions", "typescript", "sql"];
   return [...tags].sort((a, b) => Number(minor.includes(a.name)) - Number(minor.includes(b.name)) || Number(!a.version) - Number(!b.version)).slice(0, max);
 }
+
+/** A database as the map names it: Redis' numbered databases by where they run. */
+export const dbLabel = (db: Database) =>
+  db.engine === "redis" && /^\d*$/.test(db.name) ? `${db.host || "localhost"}${db.port ? `:${db.port}` : ""}` : db.name;
 
 /** A version as a node shows it: its major and minor. */
 export const short = (v: string | null) => (v ? v.replace(/^v/, "").split(".").slice(0, 2).join(".") : "");

@@ -48,7 +48,7 @@ test("the map of five services fits one row, arcs above, and a shared database i
   const map = layout({ repos, links }, 1200);
   assert.equal(new Set(map.repos.map((b) => b.y)).size, 1);
   assert.ok(map.repos.every((b) => b.x >= 0 && b.x + b.w <= 1200));
-  assert.ok(map.top > 100, "room for an arc over four nodes");
+  assert.ok(map.top > 70, "room for an arc over four nodes");
   assert.equal(map.dbs.length, 4);
   assert.deepEqual(map.dbs[0].repos, ["/code/users", "/code/orders"]);
   assert.ok(map.dbs.every((d) => d.y > map.repos[0].y + map.repos[0].h));

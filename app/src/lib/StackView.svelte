@@ -32,7 +32,7 @@
   import type { Connection } from "$lib/ops-logic";
   import { editProject } from "$lib/project.svelte";
   import { app, onScreen } from "$lib/state.svelte";
-  import { ending, headline, rows, short, tally, type Check, type Database, type RepoMap, type StackMap as Map } from "$lib/stack-logic";
+  import { dbLabel, ending, headline, rows, short, tally, type Check, type Database, type RepoMap, type StackMap as Map } from "$lib/stack-logic";
 
   const inProject = $derived(app.project !== null);
   /** The map is the project's; out of a project, the repository chosen. */
@@ -338,8 +338,8 @@
               {#each selected.databases as db (db.source)}
                 {@const conns = connectionsOf(db)}
                 <div class="db">
-                  <span class="main mono">{db.name}</span>
-                  <span class="sub">{db.engine}{db.host ? ` · ${db.host}${db.port ? `:${db.port}` : ""}` : ""} · {db.source}</span>
+                  <span class="main mono">{dbLabel(db)}</span>
+                  <span class="sub" title={db.source}>{db.engine}{db.host && dbLabel(db) === db.name ? ` · ${db.host}${db.port ? `:${db.port}` : ""}` : ""} · {db.source}</span>
                   {#each conns as c (c.name)}
                     {@const schema = schemaOf(c)}
                     <div class="conn">
@@ -490,6 +490,7 @@
   .facts {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    align-items: start;
     gap: 12px;
   }
 

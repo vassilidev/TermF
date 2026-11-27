@@ -1753,6 +1753,9 @@ export const scenarios = [
   },
   viewOnly("ops", "Ops: the project's connections and recipes"),
   viewOnly("ci", "CI/CD: the project's runs (fake gh, none yet)"),
+  viewOnly("stack", "stack: the project's repository on the map, read from its files (fake curl: nothing leaves)", async (t) => {
+    await t.s.wait(async () => !!(await t.s.text(`${t.shown("stack")} .node .name`)), { what: "the repository on the map" });
+  }),
   {
     name: "design system: the repository's own font, its specimen, its components and every button of the view",
     views: ["design"],
