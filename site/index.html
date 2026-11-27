@@ -21,9 +21,8 @@
 <meta name="twitter:description" content="Tickets in. Reviewed pull requests out. A CTO and a team of Claude Code agents, working live on your machine. Free and open source.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="TermF. Stop using Claude Code (alone). Tickets in. Reviewed pull requests out.">
-<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#1a1a19" media="(prefers-color-scheme: dark)">
-<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fbfbfd">
+<meta name="color-scheme" content="light">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
@@ -123,7 +122,7 @@
     </div>
     <script>
       // The film follows the theme, set before the first paint; once started it keeps its source and a theme switch pauses it
-      const dark = () => { const t = document.documentElement.dataset.theme; return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; };
+      const dark = () => { const t = document.documentElement.dataset.theme; return t === 'dark'; };
       const reel = document.getElementById('film'), video = reel.querySelector('video');
       const syncFilm = () => {
         if (reel.classList.contains('playing')) return video.pause();
@@ -192,7 +191,7 @@
           <a class="more" href="docs/team.html#cto"><span>How the CTO works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
         </div>
         <div class="card-vis shot">
-          <picture><source media="(prefers-color-scheme: dark)" srcset="shots/home-dark-800.webp 800w, shots/home-dark.webp 1600w" sizes="880px"><img src="shots/home-light.webp" srcset="shots/home-light-800.webp 800w, shots/home-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The Home of a project: what waits for your answer, the agents at work live, and the bar to ask the CTO."></picture>
+          <picture><source media="not all" srcset="shots/home-dark-800.webp 800w, shots/home-dark.webp 1600w" sizes="880px"><img src="shots/home-light.webp" srcset="shots/home-light-800.webp 800w, shots/home-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The Home of a project: what waits for your answer, the agents at work live, and the bar to ask the CTO."></picture>
         </div>
       </article>
       <article class="card" style="--i:1">
@@ -202,7 +201,7 @@
           <a class="more" href="docs/agent-actions.html"><span>How agents act for you</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
         </div>
         <div class="card-vis shot">
-          <picture><source media="(prefers-color-scheme: dark)" srcset="shots/act-dark-800.webp 800w, shots/act-dark.webp 1600w" sizes="880px"><img src="shots/act-light.webp" srcset="shots/act-light-800.webp 800w, shots/act-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The Ask panel on Ops: an agent wants to add a production database, and its card asks for the password, which goes to the vault."></picture>
+          <picture><source media="not all" srcset="shots/act-dark-800.webp 800w, shots/act-dark.webp 1600w" sizes="880px"><img src="shots/act-light.webp" srcset="shots/act-light-800.webp 800w, shots/act-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The Ask panel on Ops: an agent wants to add a production database, and its card asks for the password, which goes to the vault."></picture>
         </div>
       </article>
       <article class="card" style="--i:2" id="live">
@@ -238,7 +237,7 @@
           <a class="more" href="docs/visual-review.html"><span>How the visual review works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
         </div>
         <div class="card-vis shot">
-          <picture><source media="(prefers-color-scheme: dark)" srcset="shots/review-dark-800.webp 800w, shots/review-dark.webp 1600w" sizes="880px"><img src="shots/review-light.webp" srcset="shots/review-light-800.webp 800w, shots/review-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The visual review of a run: a changed screen of the invoices page, why it changed, and the buttons to refuse, ask for a change or approve."></picture>
+          <picture><source media="not all" srcset="shots/review-dark-800.webp 800w, shots/review-dark.webp 1600w" sizes="880px"><img src="shots/review-light.webp" srcset="shots/review-light-800.webp 800w, shots/review-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The visual review of a run: a changed screen of the invoices page, why it changed, and the buttons to refuse, ask for a change or approve."></picture>
         </div>
       </article>
       <article class="card" style="--i:4">
@@ -248,7 +247,7 @@
           <a class="more" href="docs/kanban.html"><span>How the ticket board works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
         </div>
         <div class="card-vis shot">
-          <picture><source media="(prefers-color-scheme: dark)" srcset="shots/board-dark-800.webp 800w, shots/board-dark.webp 1600w" sizes="880px"><img src="shots/board-light.webp" srcset="shots/board-light-800.webp 800w, shots/board-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The ticket board of a Jira site: To do, In Progress, In Review and Done, each card with its key, title and assignee."></picture>
+          <picture><source media="not all" srcset="shots/board-dark-800.webp 800w, shots/board-dark.webp 1600w" sizes="880px"><img src="shots/board-light.webp" srcset="shots/board-light-800.webp 800w, shots/board-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The ticket board of a Jira site: To do, In Progress, In Review and Done, each card with its key, title and assignee."></picture>
         </div>
       </article>
       <article class="card" style="--i:5">
@@ -258,7 +257,7 @@
           <a class="more" href="docs/database-studio.html"><span>How the database studio works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
         </div>
         <div class="card-vis shot">
-          <picture><source media="(prefers-color-scheme: dark)" srcset="shots/chart-dark-800.webp 800w, shots/chart-dark.webp 1600w" sizes="880px"><img src="shots/chart-light.webp" srcset="shots/chart-light-800.webp 800w, shots/chart-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The database studio: a read-only query, its result drawn as a bar chart, and the saved queries beside it."></picture>
+          <picture><source media="not all" srcset="shots/chart-dark-800.webp 800w, shots/chart-dark.webp 1600w" sizes="880px"><img src="shots/chart-light.webp" srcset="shots/chart-light-800.webp 800w, shots/chart-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The database studio: a read-only query, its result drawn as a bar chart, and the saved queries beside it."></picture>
         </div>
       </article>
       <article class="card" style="--i:6">
@@ -375,11 +374,10 @@ const root = document.documentElement, reduce = matchMedia('(prefers-reduced-mot
 const themeBtn = document.querySelector('.theme');
 const syncTheme = () => {
   themeBtn.setAttribute('aria-label', dark() ? 'Switch to light theme' : 'Switch to dark theme');
-  for (const s of document.querySelectorAll('picture source')) s.media = root.dataset.theme ? (dark() ? 'all' : 'not all') : '(prefers-color-scheme: dark)';
+  for (const s of document.querySelectorAll('picture source')) s.media = dark() ? 'all' : 'not all';
   syncFilm();
 };
 themeBtn.addEventListener('click', () => { root.dataset.theme = dark() ? 'light' : 'dark'; try { localStorage.setItem('theme', root.dataset.theme); } catch {} syncTheme(); });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
 syncTheme();
 
 for (const b of document.querySelectorAll('.cmd .copy')) b.addEventListener('click', async () => {
