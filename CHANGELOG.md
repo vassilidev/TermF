@@ -3,6 +3,22 @@
 What changed from one release of TermF to the next, by feature. Every feature has its page on the
 [website](https://vassilidev.github.io/TermF/features.html), with its defaults and its limits.
 
+## 0.6.2
+
+Smarter conversations: they read what TermF knows of the project on their own, show what runs in the background,
+and let you copy what they say.
+
+- **The whole project, from any conversation.** The agents of the ⌘I panel, the CTO and the expert read the stack
+  (dependencies, vulnerabilities, end of support), the CI runs with the log around a failed job's first error, the
+  git state with the open pull requests, the tickets and the settings, from whatever screen you ask; Ops' reads stay
+  on the Ops screen, since they reach prod. They read before answering, then offer what they could do next.
+- **Questions to start with.** The empty ⌘I panel suggests two or three questions for the screen you are on: which
+  vulnerabilities to fix first on Stack, why the last run failed on CI/CD. One click sends it.
+- **Background work you can see.** A command or a subagent the agent leaves running shows under *In the background*,
+  with what the subagent does at the moment; the turn the agent starts on its own to report shows as work, and your
+  next message waits for its end. The CTO can run read-only subagents too.
+- **Copy an answer** from the line under it, or a code block from its corner.
+
 ## 0.6.1
 
 - **Every dependency to devops in one go.** The dependency table gets **Hand all N to devops**: every line shown,
