@@ -632,9 +632,12 @@ pub struct DepCheck {
     pub latest: Option<String>,
     /// The newest version without a major, when newer than the one used.
     pub safe: Option<String>,
-    /// How far going to `latest` goes.
+    /// How far going to `latest` goes, and to `safe`.
     pub bump: Option<Bump>,
+    pub safe_bump: Option<Bump>,
     pub vulns: Vec<Vuln>,
+    /// The vulnerabilities the safe update fixes, by id.
+    pub safe_fixes: Vec<String>,
     /// The package manager's command for the safe update, typed in a terminal of the repository.
     pub command: Option<String>,
 }
@@ -858,6 +861,17 @@ pub fn check(
         let used = dep.version.as_deref();
         let (latest, safe) = version::best(listed.iter().map(String::as_str), used);
         let bump = latest.as_deref().and_then(|l| version::bump(used?, l));
+        let safe_bump = safe.as_deref().and_then(|s| version::bump(used?, s));
+        let safe_fixes = vulns
+            .iter()
+            .filter(|v| {
+                let (Some(fix), Some(to)) = (v.fixed.as_deref(), safe.as_deref()) else {
+                    return false;
+                };
+                version::compare(to, fix).is_some_and(|o| o.is_ge())
+            })
+            .map(|v| v.id.clone())
+            .collect();
         out.deps.push(DepCheck {
             name: dep.name.clone(),
             ecosystem: dep.ecosystem,
@@ -866,7 +880,9 @@ pub fn check(
             latest,
             safe,
             bump,
+            safe_bump,
             vulns,
+            safe_fixes,
         });
     }
 

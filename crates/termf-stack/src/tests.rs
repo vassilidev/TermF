@@ -429,6 +429,10 @@ fn a_check_asks_once_then_reads_the_cache_and_says_when_offline() {
         Some("npm install lodash@4.17.21")
     );
     assert_eq!(lodash.vulns[0].fixed.as_deref(), Some("4.17.21"));
+    assert_eq!(
+        (lodash.safe_bump, lodash.safe_fixes.clone()),
+        (Some(Bump::Patch), vec!["GHSA-35jh-r3h4-6jhm".to_owned()])
+    );
     let requests = &checked.deps[1];
     assert_eq!(
         (

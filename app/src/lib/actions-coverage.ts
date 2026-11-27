@@ -167,6 +167,8 @@ export const READS: string[] = [
   "ssh_host_delete_preview",
   "ssh_inventory",
   "ssh_test",
+  "stack_check",
+  "stack_map",
   "sync_compare",
   "sync_devices",
   "sync_probe",

@@ -5822,6 +5822,7 @@ dependencies = [
  "termf-ops",
  "termf-schedule",
  "termf-ssh",
+ "termf-stack",
  "termf-sync",
  "termf-team",
  "termf-term",
