@@ -145,7 +145,8 @@ fn repo_path(project: &Project, repo: Option<&str>) -> Result<PathBuf> {
 /// `read_prod`: the data folder, when the sender read prod data (the trifecta rule): the session that gets the
 /// message is marked first, and only one behind `termf guard` gets it (a new one has no way out at all).
 /// `direct`: always the direct conversation, never a step at work (a question asked from a screen). `panel`: the
-/// conversation is the ⌘I panel's, which acts on TermF's screens (`SessionSpec::actions`).
+/// conversation is the ⌘I panel's, which acts on TermF's screens (`SessionSpec::actions`). `by_user`: the user wrote
+/// it, not another agent (what the user allowed for the conversation holds only in the user's own turns).
 #[allow(clippy::too_many_arguments)]
 pub fn address(
     app: &AppHandle,
@@ -156,11 +157,16 @@ pub fn address(
     read_prod: Option<&Path>,
     direct: bool,
     panel: bool,
+    by_user: bool,
 ) -> Result<Addressed> {
     ensure!(!text.trim().is_empty(), "the message is empty");
     // The TermF expert changes TermF's settings through the screens' actions, whoever writes to it.
     let panel = panel || role == TERMF_EXPERT;
     let agents = agents(app);
+    let send = |session: i64| match by_user {
+        true => agents.send(session, text),
+        false => agents.send_from_agent(session, text),
+    };
     let project = project(app, id)?;
     let mark = |session: i64| -> Result<()> {
         if let Some(data) = read_prod {
@@ -178,7 +184,10 @@ pub fn address(
         } else {
             memory::before_expert(app, &session, text);
         }
-        let queued = agents.send_or_queue(session.id, text)?;
+        let queued = match by_user {
+            true => agents.send_or_queue(session.id, text)?,
+            false => agents.send_or_queue_from_agent(session.id, text)?,
+        };
         return Ok(Addressed {
             session: agents.session(session.id)?,
             via: if queued { "queued" } else { "direct" },
@@ -192,7 +201,7 @@ pub fn address(
         step_at_work(&team::team(app).runs()?, id, role)
     };
     let busy = match route(at_work, |session| {
-        mark(session).is_ok() && agents.send(session, text).is_ok()
+        mark(session).is_ok() && send(session).is_ok()
     }) {
         Route::Step { run, step, session } => {
             return Ok(Addressed {
@@ -212,7 +221,7 @@ pub fn address(
     let session = match direct_conversation(mine.collect(), id, role, &cwd) {
         Some(session) => {
             mark(session.id)?;
-            agents.send(session.id, text)?;
+            send(session.id)?;
             agents.session(session.id)?
         }
         None => {
@@ -236,7 +245,7 @@ pub fn address(
             };
             let created = agents.create(spec)?;
             mark(created.id)?;
-            agents.send(created.id, text)?;
+            send(created.id)?;
             agents.session(created.id)?
         }
     };
@@ -586,7 +595,7 @@ fn run_tool(
                 if let Some(data) = read_prod {
                     termf_core::taint::mark_session(data, &agents.session(session)?.session_id)?;
                 }
-                agents.send(session, &text)?;
+                agents.send_from_agent(session, &text)?;
                 json!({ "via": "step", "run": run, "step": key, "conversation": session })
             }
             (None, None, Some(role)) => {
@@ -597,6 +606,7 @@ fn run_tool(
                     &text,
                     repo.as_deref(),
                     read_prod,
+                    false,
                     false,
                     false,
                 )?;
@@ -821,6 +831,7 @@ pub async fn cto_address(
             None,
             direct.unwrap_or(false),
             panel.unwrap_or(false),
+            true,
         )?;
         if let Err(e) = tell(app, &project, &role, &text, &to) {
             eprintln!("termf: the CTO conversation was not told: {e:#}");

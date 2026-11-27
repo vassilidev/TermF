@@ -1163,6 +1163,9 @@
       <div class="ask" role="group" aria-label={t("actCardTitle", { who })}>
         <p class="ask-title"><ShieldQuestionMark size={16} aria-hidden="true" />{t("actCardTitle", { who })}</p>
         <ActionAsk session={session.id} project={call.project} {who} input={call} bind:values={() => actionSecrets[`call:${call.id}`] ?? {}, (v) => (actionSecrets[`call:${call.id}`] = v)} />
+        {#if !call.byUser && call.action && gate(call.action) === "change"}
+          <p class="notice warn"><CircleAlert size={14} aria-hidden="true" />{t("permNotYours")}</p>
+        {/if}
         {#if call.action && gate(call.action) === "change"}
           <label class="always">
             <input type="checkbox" bind:checked={() => always[call.id] ?? false, (v) => (always[call.id] = v)} />{t("permAlways")}

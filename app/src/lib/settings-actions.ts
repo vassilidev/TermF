@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { claudeSettingOf } from "$lib/actions-logic";
 import type { Action } from "$lib/actions.svelte";
 import { ci, type CiNotify } from "$lib/ci.svelte";
 import type { Effective, McpServer, Preview } from "$lib/claude.svelte";
@@ -84,6 +85,8 @@ const SETTINGS: Record<string, Setting> = {
     label: "keepAwake",
     about: "Keeps the machine awake: while agents work (auto), always, or never (off).",
     values: { auto: "keepAwakeAuto", always: "keepAwakeAlways", off: "keepAwakeOff" },
+    // Always awake keeps the session from locking.
+    sensitive: true,
     read: async () => (await keepAwake()).mode,
     write: async (value) => setAwake(value as KeepAwakeState["mode"], (await keepAwake()).displayOn),
   },
@@ -91,6 +94,7 @@ const SETTINGS: Record<string, Setting> = {
     label: "keepDisplayOn",
     about: "While the machine is kept awake, keeps the screen on too (which also prevents locking).",
     values: ONOFF,
+    sensitive: true,
     read: async () => onOff((await keepAwake()).displayOn),
     write: async (value) => setAwake((await keepAwake()).mode, value === "on"),
   },
@@ -183,7 +187,7 @@ const SETTINGS: Record<string, Setting> = {
     about: "The project's team runs the commands that only read, and its checks and tests, without asking the user.",
     values: ONOFF,
     sensitive: true,
-    read: async (project) => onOff(await invoke<boolean>("team_read_freely", { project })),
+    read: async (project) => onOff(await invoke<boolean>("team_reads_freely", { project })),
     write: (value, project) => invoke("team_read_freely", { project, on: value === "on" }),
   },
   remote_control: {
@@ -312,7 +316,7 @@ function json(text: string): unknown {
 const claudeSetting: Action = {
   id: "settings.claude_code",
   description:
-    "Sets or removes one of Claude Code's settings (settings.json), as the Claude view does: a dotted key (model, permissions.defaultMode, env.NODE_ENV) and its value as JSON (\"acceptEdits\", true, [\"Bash(npm test)\"]), empty to remove it. Sensitive: the user confirms each change in TermF's card. settings.read with claude_code true shows the current values, secrets masked.",
+    "Sets or removes one of Claude Code's settings (settings.json), as the Claude view does: a dotted key (model, permissions.defaultMode, env.NODE_ENV) and its value as JSON (\"acceptEdits\", true, [\"Bash(npm test)\"]), empty to remove it. Sensitive: the user confirms each change in TermF's card. settings.read with claude_code true shows which keys are set (the value of a few).",
   fields: {
     scope: scopeField,
     key: { type: "string", description: "The dotted key." },
@@ -371,7 +375,7 @@ const claudeMcp: Action = {
 export const settingsRead: Action = {
   id: "settings.read",
   description:
-    "Reads TermF's settings: each one's value, its values, what it does, and the action that changes it; the keyboard shortcuts; with `claude_code`, Claude Code's settings (secrets masked) and MCP servers. Never a secret's value. Reads only.",
+    "Reads TermF's settings: each one's value, its values, what it does, and the action that changes it; the keyboard shortcuts; with `claude_code`, Claude Code's settings (the value of a few, such as model and permissions.defaultMode; the others by name only) and MCP servers by name. Never a secret's value. Reads only.",
   fields: { claude_code: { type: "boolean", description: "Also Claude Code's settings and MCP servers (slower)." } },
   label: "permSettingsRead",
   describe: () => "",
@@ -388,16 +392,20 @@ export const settingsRead: Action = {
     const bound = current();
     const keys = shortcuts.filter((k) => !k.typed).map((k) => ({ action: k.id, does: t(k.label), keys: bound[k.id] ?? "" }));
     if (a.claude_code !== true) return { settings, shortcuts: keys };
-    const claude = await invoke<{ settings: { effective: Effective[] }; mcp: { servers: McpServer[] } }>("claude_overview", { repo: null }).then(
-      (o) => ({
-        settings: o.settings.effective.map((e) => ({ key: e.key, value: e.value, scope: e.scope })),
-        mcp: o.mcp.servers.map((m) => ({ name: m.name, scope: m.scope, status: m.status })),
-      }),
-      (e) => `unread: ${String(e)}`,
-    );
-    return { settings, shortcuts: keys, claude_code: claude };
+    if (!claudeRead || Date.now() - claudeRead.at > CLAUDE_READ_FOR) {
+      const read = invoke<{ settings: { effective: Effective[] }; mcp: { servers: McpServer[] } }>("claude_overview", { repo: null }).then(
+        (o) => ({ settings: o.settings.effective.map(claudeSettingOf), mcp: o.mcp.servers.map((m) => ({ name: m.name, scope: m.scope, status: m.status })) }),
+        (e) => `unread: ${String(e)}`,
+      );
+      claudeRead = { at: Date.now(), read };
+    }
+    return { settings, shortcuts: keys, claude_code: await claudeRead.read };
   },
 };
+
+/** `claude mcp list` takes seconds: one read serves every `settings.read` of the next 30 s. */
+const CLAUDE_READ_FOR = 30_000;
+let claudeRead: { at: number; read: Promise<unknown> } | null = null;
 
 /** `settings.read` is an action of anywhere. */
 export const settingsActions: Action[] = [set, setSensitive, shortcut, claudeSetting, claudeMcp];

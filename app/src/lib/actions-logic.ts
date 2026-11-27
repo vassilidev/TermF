@@ -157,29 +157,44 @@ export function newMaster(secrets: Record<string, string>): { password: string }
  */
 export type Gate = "read" | "change" | "ask";
 
-/** Actions that only read, list or test: the coverage test checks they invoke nothing but reads. */
-export const READ_ACTIONS: readonly string[] = [
-  "design.scan",
-  "env.scan",
-  "ops.forge_list",
-  "ops.run_query",
-  "ops.test_connection",
-  "settings.read",
-  "tickets.board",
-  "tickets.browse",
-  "tickets.jira_spaces",
-  "tickets.test_source",
-];
+/**
+ * Actions that only read, list or test, with every command each one invokes, its helpers' included: the coverage
+ * test fails when one invokes a command out of its list, or one that is not in `READS`.
+ */
+export const READ_ACTIONS: Readonly<Record<string, readonly string[]>> = {
+  "design.scan": ["design_scan"],
+  "env.scan": ["env_scan"],
+  "ops.forge_list": ["forge_account", "forge_sites"],
+  // Ops' agent path: refused where agents may not look, Ops' card in prod, masked output.
+  "ops.run_query": ["ops_overview", "ops_agent_run"],
+  // Its card still shows for a route the user has not seen (`Action.cardAnyway`).
+  "ops.test_connection": ["ops_overview", "ops_test"],
+  "settings.read": [
+    "agentenv_settings",
+    "artifacts_list",
+    "ci_notify",
+    "claude_overview",
+    "context_settings",
+    "keep_awake_state",
+    "memory_status",
+    "sync_status",
+    "team_reads_freely",
+    "tray_settings",
+    "update_state",
+    "vault_status",
+  ],
+  "tickets.board": ["tickets_sources", "tickets_board", "tickets_browse"],
+  "tickets.browse": ["tickets_sources", "tickets_browse"],
+  "tickets.jira_spaces": ["tickets_sources", "tickets_mcp_projects", "tickets_jira_projects", "tickets_resolve"],
+  "tickets.test_source": ["tickets_sources", "tickets_source_test"],
+};
 
-/** Changes the user may allow for the rest of a conversation, from their card. */
+/**
+ * Changes the user may allow for the rest of a conversation, from their card: the permission is the action's, not
+ * its target's, so nothing here may reach another server, run, or change where data goes.
+ */
 export const CHANGE_ACTIONS: readonly string[] = [
-  "ci.add_webhook",
-  "ci.cancel",
-  "ci.connect_deploy",
-  "ci.edit_deploy",
   "ci.redeliver",
-  "ci.rerun",
-  "ci.update_webhook",
   "conversation.new_topic",
   "env.add",
   "env.edit",
@@ -188,13 +203,9 @@ export const CHANGE_ACTIONS: readonly string[] = [
   "git.switch",
   "library.copy",
   "ops.add_connection",
-  "ops.edit_connection",
   "ops.edit_query",
   "ops.make_recipe",
   "ops.save_query",
-  "scheduler.create_task",
-  "scheduler.edit_task",
-  "scheduler.run_now",
   "settings.set",
   "settings.set_shortcut",
   "tickets.add_source",
@@ -205,8 +216,15 @@ export const CHANGE_ACTIONS: readonly string[] = [
   "tickets.move",
 ];
 
+/** Claude Code's settings an agent reads the value of: none can hold a secret. Any other, by its name only. */
+const CLAUDE_VALUES = ["model", "permissions.defaultMode", "outputStyle", "includeCoAuthoredBy", "cleanupPeriodDays", "alwaysThinkingEnabled"];
+
+/** A Claude Code setting as `settings.read` gives it: `env.*`, headers, URLs and the rest by name only. */
+export const claudeSettingOf = (e: { key: string; value: unknown; scope: string }) =>
+  CLAUDE_VALUES.includes(e.key) ? { key: e.key, value: e.value, scope: e.scope } : { key: e.key, scope: e.scope };
+
 export function gate(id: string): Gate {
-  if (READ_ACTIONS.includes(id)) return "read";
+  if (Object.hasOwn(READ_ACTIONS, id)) return "read";
   return CHANGE_ACTIONS.includes(id) ? "change" : "ask";
 }
 

@@ -84,6 +84,10 @@ struct Live {
     wake: bool,
     /// The user's messages written during a turn: they go, as one, once it ends.
     queued: Vec<String>,
+    /// Another agent's message among `queued`.
+    queued_by_agent: bool,
+    /// The turn under way was started by the user alone: no other agent's message, no notice of TermF in it.
+    by_user: bool,
     /// The library's instructions, for the first message of a runtime that reads them there.
     instructions: Option<String>,
     /// A process that runs one turn: the state its end of turn sets, once it has exited (a message sent sooner
@@ -232,7 +236,7 @@ impl Agents {
         let mut live = inner.live.lock().unwrap();
         let entry = live.entry(id).or_default();
         match prompt.filter(|p| !p.trim().is_empty()) {
-            Some(text) => inner.deliver(&store, id, entry, Some(text), &[])?,
+            Some(text) => inner.deliver(&store, id, entry, Some(text), &[], true)?,
             // A runtime that runs a process per turn starts with its first message.
             None if inner.runtime(&store, id)?.per_turn() => {}
             None => inner.launch(&store, id, entry)?,
@@ -262,6 +266,21 @@ impl Agents {
 
     /// Sends a message and its images, which go in the message only: nothing stores them.
     pub fn send_with(&self, id: i64, text: &str, images: &[Image]) -> Result<()> {
+        self.send_by(id, text, images, true)
+    }
+
+    /// Sends another agent's message (the CTO's `send_message`): the turn it starts is not the user's.
+    pub fn send_from_agent(&self, id: i64, text: &str) -> Result<()> {
+        self.send_by(id, text, &[], false)
+    }
+
+    /// Whether the turn under way, or the last one, was started by the user alone (`Live::by_user`).
+    pub fn turn_by_user(&self, id: i64) -> bool {
+        let live = self.inner.live.lock().unwrap();
+        live.get(&id).is_some_and(|e| e.by_user)
+    }
+
+    fn send_by(&self, id: i64, text: &str, images: &[Image], by_user: bool) -> Result<()> {
         ensure!(
             !text.trim().is_empty() || !images.is_empty(),
             "the message is empty"
@@ -287,12 +306,28 @@ impl Agents {
             runtime.label()
         );
         let mut live = inner.live.lock().unwrap();
-        inner.deliver(&store, id, live.entry(id).or_default(), Some(text), images)
+        inner.deliver(
+            &store,
+            id,
+            live.entry(id).or_default(),
+            Some(text),
+            images,
+            by_user,
+        )
     }
 
     /// Sends a message now between two turns; during one, keeps it for its end (`true`), when it goes as the
     /// user's message, so that nothing written to a busy agent is lost.
     pub fn send_or_queue(&self, id: i64, text: &str) -> Result<bool> {
+        self.send_or_queue_by(id, text, true)
+    }
+
+    /// `send_or_queue` of another agent's message: the turn it goes in is not the user's.
+    pub fn send_or_queue_from_agent(&self, id: i64, text: &str) -> Result<bool> {
+        self.send_or_queue_by(id, text, false)
+    }
+
+    fn send_or_queue_by(&self, id: i64, text: &str, by_user: bool) -> Result<bool> {
         ensure!(!text.trim().is_empty(), "the message is empty");
         let inner = &self.inner;
         let store = inner.store()?;
@@ -301,9 +336,10 @@ impl Agents {
         let entry = live.entry(id).or_default();
         if matches!(store.session(id)?.state, State::Working | State::Waiting) {
             entry.queued.push(text.to_owned());
+            entry.queued_by_agent |= !by_user;
             return Ok(true);
         }
-        inner.deliver(&store, id, entry, Some(text), &[])?;
+        inner.deliver(&store, id, entry, Some(text), &[], by_user)?;
         Ok(false)
     }
 
@@ -319,7 +355,7 @@ impl Agents {
         entry.wake |= wake;
         inner.record(&store, id, AgentEvent::Notice(notice));
         if entry.wake && !entry.busy && store.session(id)?.state == State::Idle {
-            inner.deliver(&store, id, entry, None, &[])?;
+            inner.deliver(&store, id, entry, None, &[], false)?;
         }
         Ok(())
     }
@@ -818,6 +854,7 @@ impl Inner {
         entry: &mut Live,
         text: Option<&str>,
         images: &[Image],
+        by_user: bool,
     ) -> Result<()> {
         ensure!(!entry.busy, BUSY);
         let session = store.session(id)?;
@@ -839,6 +876,13 @@ impl Inner {
             self.launch(store, id, entry)?;
         }
         let runtime = self.runtime(store, id)?;
+        // A notice or another agent's message in it: not the user's turn (`turn_by_user`).
+        let user = entry.notices.is_empty()
+            && !entry.queued_by_agent
+            && match text {
+                Some(_) => by_user,
+                None => !entry.queued.is_empty(),
+            };
         let mut said = entry.queued.clone();
         said.extend(text.map(str::to_owned));
         let text = (!said.is_empty()).then(|| said.join("\n\n"));
@@ -850,6 +894,8 @@ impl Inner {
             );
         }
         self.write(entry, &runtime.message(&line, images))?;
+        entry.by_user = user;
+        entry.queued_by_agent = false;
         if runtime.per_turn()
             && let Some(process) = entry.process.as_mut()
         {
@@ -1187,7 +1233,7 @@ impl Inner {
         }
         let due = entry.wake || !entry.queued.is_empty();
         if current && due && !entry.busy && session.state == State::Idle {
-            self.deliver(store, id, entry, None, &[])?;
+            self.deliver(store, id, entry, None, &[], false)?;
         }
         Ok(())
     }
@@ -1313,7 +1359,7 @@ impl Inner {
         // What waited for the end of the turn: a message written meanwhile, a notice that wakes the agent.
         let due = entry.wake || !entry.queued.is_empty();
         if runtime.per_turn() && due && !entry.busy && session.state == State::Idle {
-            self.deliver(store, id, entry, None, &[])?;
+            self.deliver(store, id, entry, None, &[], false)?;
         }
         Ok(())
     }

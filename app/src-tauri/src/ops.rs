@@ -1027,6 +1027,36 @@ pub(crate) fn run_of(app: &AppHandle, session: i64) -> Option<i64> {
         .map(|r| r.target.run)
 }
 
+/// A screen's action of an agent that runs a recipe (`ops.run_query`): the agent's own path, as `ops_run` of
+/// `termf mcp` (refused where agents may not look, Ops' card in prod or when the recipe asks, masking, the prod
+/// mark, the audit in the agent's name), never the user's. A recipe that writes is only proposed.
+#[tauri::command]
+pub async fn ops_agent_run(
+    app: AppHandle,
+    session: i64,
+    project: String,
+    recipe: String,
+    connection: String,
+    params: BTreeMap<String, String>,
+) -> CmdResult<Value> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let session = crate::agents::agents(&app).session(session)?;
+        let params = params
+            .into_iter()
+            .map(|(k, v)| (k, Value::String(v)))
+            .collect();
+        let call = McpCall::OpsRun {
+            recipe,
+            connection: Some(connection),
+            params,
+        };
+        mcp(&app, &session, &project, call, &|| false)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(err)
+}
+
 /// `ops_recipes` and `ops_run` of `termf mcp`, for `session` in `project`; `gone`: its caller went away.
 pub fn mcp(
     app: &AppHandle,

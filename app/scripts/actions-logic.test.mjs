@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { forAgent, newMaster, noVault, refused, secretMissing, secretsOf, takeWait, vaultBlock, vaultNeeds, withoutCard } from "../src/lib/actions-logic.ts";
+import { claudeSettingOf, forAgent, newMaster, noVault, refused, secretMissing, secretsOf, takeWait, vaultBlock, vaultNeeds, withoutCard } from "../src/lib/actions-logic.ts";
+
+test("an agent reads Claude Code's settings by name, the value of a few harmless ones only", () => {
+  assert.deepEqual(claudeSettingOf({ key: "model", value: "opus", scope: "user" }), { key: "model", value: "opus", scope: "user" });
+  for (const key of ["env.REDIS_PASS", "env.SENTRY_DSN", "env.K", "apiKeyHelper", "permissions.allow", "hooks.PreToolUse"])
+    assert.deepEqual(claudeSettingOf({ key, value: "s3cret", scope: "user" }), { key, scope: "user" }, key);
+});
 
 const add = {
   id: "ops.add_connection",

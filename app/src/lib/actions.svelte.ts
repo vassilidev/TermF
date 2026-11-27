@@ -41,6 +41,8 @@ export type Action = Spec & {
   gives?: (args: Args, project: string) => string;
   /** What it waits for (no vault yet, no connection…), naming the action that settles it; null when ready. */
   needs?: (args: Args, project: string) => Promise<string | null>;
+  /** Whether its card shows even for a read (a connection's route the user has not seen yet). */
+  cardAnyway?: (args: Args, project: string) => Promise<boolean>;
   /** Runs it, updates the screen and says so in a toast; what the agent reads back, never a secret. `session`: the
    * conversation that asked. */
   run: (args: Args, secrets: Record<string, string>, project: string, session: number) => Promise<unknown>;
@@ -89,6 +91,8 @@ export type Call = {
   action: string | null;
   args: Args;
   hints: Record<string, string>;
+  /** Asked in a turn the user started alone: what they allowed for the conversation holds only there. */
+  byUser: boolean;
 };
 
 /** How long a card waits for the user. */
@@ -226,7 +230,9 @@ async function answer(call: Call) {
   if (!action) return reply(call.id, null, `No action ${call.action} here: actions lists those you may do from the user's screen.`);
   const why = refused(action, call.args, call.hints) ?? (await prerequisite(action, call.args, call.project));
   if (why) return reply(call.id, null, why);
-  if (withoutCard(action, call.args, agentActions.granted[call.session] ?? [])) return perform(call, {});
+  const granted = call.byUser ? (agentActions.granted[call.session] ?? []) : [];
+  const anyway = action.cardAnyway ? await action.cardAnyway(call.args, call.project).catch(() => true) : false;
+  if (!anyway && withoutCard(action, call.args, granted)) return perform(call, {});
   agentActions.waiting = [...agentActions.waiting, call];
   setTimeout(() => {
     if (!agentActions.waiting.some((c) => c.id === call.id)) return;

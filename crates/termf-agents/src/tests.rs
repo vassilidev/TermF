@@ -515,6 +515,36 @@ fn a_message_written_during_a_turn_goes_once_it_ends() {
 }
 
 #[test]
+fn a_turn_is_the_users_only_when_nothing_else_is_in_it() {
+    let env = Env::new("turn-origin");
+    let id = env.agents.create(env.spec()).unwrap().id;
+    assert!(!env.agents.turn_by_user(id), "no turn yet");
+    env.agents.send(id, "hello").unwrap();
+    env.settle(id, 1, State::Idle);
+    assert!(env.agents.turn_by_user(id));
+    env.agents.send_from_agent(id, "the CTO asks").unwrap();
+    env.settle(id, 2, State::Idle);
+    assert!(!env.agents.turn_by_user(id), "another agent's message");
+    env.agents
+        .notify(
+            id,
+            Notice {
+                about: "waiting".into(),
+                text: "Run 3 waits.".into(),
+                ..Notice::default()
+            },
+            false,
+        )
+        .unwrap();
+    env.agents.send(id, "and now?").unwrap();
+    env.settle(id, 3, State::Idle);
+    assert!(!env.agents.turn_by_user(id), "a notice of TermF in it");
+    env.agents.send(id, "thanks").unwrap();
+    env.settle(id, 4, State::Idle);
+    assert!(env.agents.turn_by_user(id));
+}
+
+#[test]
 fn consults_an_agent_for_another_and_waits_for_its_answer() {
     let env = Env::new("consult");
     let ask = |prompt: &str| {
