@@ -3,6 +3,16 @@
 What changed from one release of TermF to the next, by feature. Every feature has its page on the
 [website](https://vassilidev.github.io/TermF/features.html), with its defaults and its limits.
 
+## 0.6.3
+
+- **A project's conversations under it.** *Conversations* unfolds under the project in the navigation: its CTO and
+  its expert first, one click to open or start them, then its four latest conversations with their state, and a
+  line to all the others.
+- **The library inside the project's Configuration.** Its *Library* section shows the project's library in place,
+  the other sections still on the left; *Edit the roles* of the Team section opens it on the roles.
+- **A color and an emoji for each project.** Set them in *Configuration › Project › Appearance*; the project's mark
+  takes them in the navigation, the project search and the Home.
+
 ## 0.6.2
 
 Smarter conversations: they read what TermF knows of the project on their own, show what runs in the background,
