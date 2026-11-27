@@ -424,6 +424,8 @@ export const scenarios = [
       await s.wait(async () => (await secrets()).some((x) => x.name === "E2E_REF" && x.reference === "op://Acme/E2E/token"), { what: "E2E_REF as a reference" });
       const at = await s.exec((css) => [...document.querySelectorAll(css)].findIndex((e) => e.textContent.includes("E2E_TOKEN")), `${pane} .pick`);
       await s.click(`${pane} .pick`, at);
+      // The entry shown changes after the click: deleting before it does deletes the previous one.
+      await s.wait(async () => (await s.text(`${pane} .entry h2`))?.trim() === "E2E_TOKEN", { what: "E2E_TOKEN shown" });
       await s.click(`${pane} .entry .head-actions .icon-btn`);
       await s.waitFor("dialog.confirm[open]");
       await s.click("dialog.confirm .btn.danger");
@@ -931,6 +933,7 @@ export const scenarios = [
         { what: "the stash in the list" },
       );
       await s.click(pick, index - 1);
+      await s.wait(async () => (await s.text(`${pane} button.pick[aria-current="true"]`))?.includes("e2e stash"), { what: "the stash shown" });
       await s.click(`${pane} dl.meta + .actions .btn.primary:not([disabled])`);
       await s.wait(() => read(join(box.acme, "README.md")).includes("Stashed by e2e.") && box.git("stash", "list") === "", {
         what: "the change back and the stash gone",
