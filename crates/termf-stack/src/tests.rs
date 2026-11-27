@@ -27,6 +27,29 @@ fn write(root: &Path, files: &[(&str, &str)]) {
 }
 
 #[test]
+fn each_registry_lists_its_versions_without_the_yanked_ones() {
+    let packagist = br#"{"packages": {"laravel/framework": [{"version": "v12.10.0"}, {"version": "v10.48.29"}]}}"#;
+    assert_eq!(
+        remote::versions(Ecosystem::Packagist, "laravel/framework", packagist),
+        ["12.10.0", "10.48.29"]
+    );
+    let crates = b"{\"name\":\"serde\",\"vers\":\"1.0.1\",\"yanked\":false}\n{\"name\":\"serde\",\"vers\":\"1.0.2\",\"yanked\":true}\n";
+    assert_eq!(
+        remote::versions(Ecosystem::Crates, "serde", crates),
+        ["1.0.1"]
+    );
+    assert_eq!(
+        remote::versions(Ecosystem::Go, "x", b"v1.9.0\nv1.10.0\n"),
+        ["v1.9.0", "v1.10.0"]
+    );
+    let gems = br#"[{"number": "7.1.3"}, {"number": "7.2.0.rc1"}]"#;
+    assert_eq!(
+        remote::versions(Ecosystem::RubyGems, "rails", gems),
+        ["7.1.3", "7.2.0.rc1"]
+    );
+}
+
+#[test]
 fn versions_compare_across_ecosystems() {
     use std::cmp::Ordering::*;
     for (a, b, want) in [

@@ -296,26 +296,19 @@ fn registry(eco: Ecosystem, name: &str) -> Request {
 pub fn versions(eco: Ecosystem, name: &str, body: &[u8]) -> Vec<String> {
     let text = String::from_utf8_lossy(body);
     let json = || serde_json::from_str::<Value>(&text).unwrap_or_default();
-    let strings = |v: &Value| -> Vec<String> {
-        v.as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|x| x.as_str().map(str::to_owned))
-            .collect()
-    };
     match eco {
         Ecosystem::Npm => json()["versions"]
             .as_object()
             .map(|o| o.keys().cloned().collect())
             .unwrap_or_default(),
-        Ecosystem::Packagist => strings(&Value::Array(
-            json()["packages"][name]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|p| p["version"].clone())
-                .collect(),
-        )),
+        // `v6.4.1` as the lockfile's version is read: `6.4.1`.
+        Ecosystem::Packagist => json()["packages"][name]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|p| p["version"].as_str())
+            .map(|v| v.trim_start_matches('v').to_owned())
+            .collect(),
         Ecosystem::Crates => text
             .lines()
             .filter_map(|l| serde_json::from_str::<Value>(l).ok())
