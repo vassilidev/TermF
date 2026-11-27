@@ -42,6 +42,16 @@ export function tally(sessions: Session[], projects: Project[], runs: Run[]): Re
 }
 
 /** A stored current project, kept only while it still exists; null is every project. */
+/** The text that reads on a `#rrggbb` color: black on a light one, white on a dark one (WCAG relative luminance). */
+export function inkOn(hex: string): "#000" | "#fff" {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  // Above it, black contrasts more than white does.
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? "#000" : "#fff";
+}
+
 export function validProject(id: unknown, projects: { id: string }[]): string | null {
   return typeof id === "string" && projects.some((p) => p.id === id) ? id : null;
 }

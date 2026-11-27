@@ -19,7 +19,15 @@ import { place } from "$lib/tabs.svelte";
 import { tickets } from "$lib/tickets.svelte";
 
 export type Repo = { name: string; path: string; modified: number | null };
-export type Project = { id: string; name: string; repos: Repo[]; remoteControl: RemotePolicy; checks?: Record<string, string> };
+export type Project = {
+  id: string;
+  name: string;
+  repos: Repo[];
+  remoteControl: RemotePolicy;
+  checks?: Record<string, string>;
+  /** Its mark's color (`#rrggbb`) and icon; absent from a TermF older than them (a remote machine). */
+  look?: { color: string | null; icon: string | null };
+};
 export type Workspace = {
   configDir: string;
   home: string;

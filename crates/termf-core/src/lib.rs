@@ -502,6 +502,61 @@ pub struct Project {
     pub remote: remote::Policy,
     /// Each repository's `checks` by path: the command the team runs before delivering.
     pub checks: BTreeMap<String, String>,
+    pub look: Look,
+}
+
+/// How a project's mark shows: its `color` (`#rrggbb`) and its `icon` (an emoji, or a few letters) instead of its
+/// initial.
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
+pub struct Look {
+    pub color: Option<String>,
+    pub icon: Option<String>,
+}
+
+impl Look {
+    /// Written by hand or synced: a value that is not valid is left aside, and the project still loads.
+    fn read(color: Option<&toml::Value>, icon: Option<&toml::Value>) -> Self {
+        Look {
+            color: color.and_then(toml::Value::as_str).and_then(hex_color),
+            icon: icon.and_then(toml::Value::as_str).and_then(short_icon),
+        }
+    }
+}
+
+fn hex_color(s: &str) -> Option<String> {
+    let s = s.trim();
+    let digits = s.strip_prefix('#')?;
+    (digits.len() == 6 && digits.chars().all(|c| c.is_ascii_hexdigit()))
+        .then(|| s.to_ascii_lowercase())
+}
+
+fn short_icon(s: &str) -> Option<String> {
+    let s = s.trim();
+    (!s.is_empty() && s.chars().count() <= 8 && !s.chars().any(char::is_control))
+        .then(|| s.to_owned())
+}
+
+/// Sets the project's `color` and `icon`; an empty or missing one is removed, an invalid one refused.
+fn set_look(doc: &mut DocumentMut, look: &Look) -> Result<()> {
+    let checked = |key: &str, given: &Option<String>, valid: fn(&str) -> Option<String>| {
+        given
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(|v| valid(v).with_context(|| format!("invalid project {key}: {v:?}")))
+            .transpose()
+    };
+    let color = checked("color", &look.color, hex_color)?;
+    let icon = checked("icon", &look.icon, short_icon)?;
+    for (key, set) in [("color", color), ("icon", icon)] {
+        match set {
+            Some(v) => doc[key] = value(v),
+            None => {
+                doc.remove(key);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -511,6 +566,8 @@ struct ProjectFile {
     repos: Vec<RepoEntry>,
     remote_control: Option<toml::Value>,
     remote_control_roles: Option<toml::Value>,
+    color: Option<toml::Value>,
+    icon: Option<toml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -730,6 +787,7 @@ pub fn load_projects(config_dir: &Path) -> Result<Vec<Project>> {
                 file.remote_control.as_ref(),
                 file.remote_control_roles.as_ref(),
             ),
+            look: Look::read(file.color.as_ref(), file.icon.as_ref()),
         });
     }
     projects.sort_by_key(|p| p.name.to_lowercase());
@@ -759,16 +817,18 @@ pub fn save_project(
     name: &str,
     repos: &[String],
 ) -> Result<String> {
-    save_project_with(config_dir, id, name, repos, &BTreeMap::new())
+    save_project_with(config_dir, id, name, repos, &BTreeMap::new(), None)
 }
 
-/// [`save_project`], the repositories' `checks` set as [`set_checks`] does, in the same write.
+/// [`save_project`], the repositories' `checks` set as [`set_checks`] does, and the project's look when given, in
+/// the same write.
 pub fn save_project_with(
     config_dir: &Path,
     id: Option<&str>,
     name: &str,
     repos: &[String],
     checks: &BTreeMap<String, String>,
+    look: Option<&Look>,
 ) -> Result<String> {
     let name = name.trim();
     ensure!(!name.is_empty(), "a project needs a name");
@@ -800,6 +860,9 @@ pub fn save_project_with(
     };
     fill(&mut doc, name, repos).with_context(|| format!("cannot write {}", file.display()))?;
     set_checks(&mut doc, checks);
+    if let Some(look) = look {
+        set_look(&mut doc, look)?;
+    }
     write_atomic(&file, &doc.to_string())?;
     Ok(id)
 }
@@ -1758,7 +1821,7 @@ mod tests {
             (web.clone(), "pnpm lint".into()),
         ]);
         // One write: a new project is never on disk without its checks.
-        let id = save_project_with(&dir, None, "Acme", &repos, &checks).unwrap();
+        let id = save_project_with(&dir, None, "Acme", &repos, &checks, None).unwrap();
         // Saving the project again (a rename from the Configuration) keeps them.
         save_project(&dir, Some(&id), "Acme Inc", &repos).unwrap();
         let read = |dir: &Path| load_projects(dir).unwrap().remove(0).checks;
@@ -1770,7 +1833,7 @@ mod tests {
             ])
         );
         let empty = BTreeMap::from([(web, " ".into())]);
-        save_project_with(&dir, Some(&id), "Acme Inc", &repos, &empty).unwrap();
+        save_project_with(&dir, Some(&id), "Acme Inc", &repos, &empty, None).unwrap();
         assert_eq!(read(&dir), BTreeMap::from([(api, "npm test".into())]));
 
         // Written by hand as a list: left aside, and the project still loads.
@@ -1780,6 +1843,66 @@ mod tests {
         let projects = load_projects(&dir).unwrap();
         assert_eq!(projects.len(), 1);
         assert!(projects[0].checks.is_empty());
+    }
+
+    #[test]
+    fn saves_the_project_s_look_and_leaves_a_bad_one_aside() {
+        let dir = temp_dir("save-look");
+        let repos = [home_path("src/api")];
+        let none = BTreeMap::new();
+        let look = |color: &str, icon: &str| Look {
+            color: Some(color.into()),
+            icon: Some(icon.into()),
+        };
+        let id = save_project_with(
+            &dir,
+            None,
+            "Acme",
+            &repos,
+            &none,
+            Some(&look(" #3B82F6 ", "🚀")),
+        )
+        .unwrap();
+        let read = |dir: &Path| load_projects(dir).unwrap().remove(0).look;
+        assert_eq!(read(&dir), look("#3b82f6", "🚀"));
+        // Saved without a look (the setup, ⌘I), the project keeps it.
+        save_project(&dir, Some(&id), "Acme Inc", &repos).unwrap();
+        assert_eq!(read(&dir), look("#3b82f6", "🚀"));
+        for (color, icon) in [
+            ("blue", "🚀"),
+            ("#3b82f", "🚀"),
+            ("#3b82f6", "far too long"),
+            ("#3b82f6", "a\nb"),
+        ] {
+            assert!(
+                save_project_with(
+                    &dir,
+                    Some(&id),
+                    "Acme",
+                    &repos,
+                    &none,
+                    Some(&look(color, icon))
+                )
+                .is_err(),
+                "{color:?} {icon:?} accepted"
+            );
+        }
+        assert_eq!(
+            read(&dir),
+            look("#3b82f6", "🚀"),
+            "a refused look writes nothing"
+        );
+        save_project_with(&dir, Some(&id), "Acme", &repos, &none, Some(&look("", " "))).unwrap();
+        assert_eq!(read(&dir), Look::default());
+
+        let file = dir.join(format!("projects/{id}.toml"));
+        let text = fs::read_to_string(&file).unwrap();
+        fs::write(&file, format!("color = 12\nicon = \"\"\n{text}")).unwrap();
+        assert_eq!(
+            read(&dir),
+            Look::default(),
+            "written by hand wrong, the project still loads"
+        );
     }
 
     #[test]

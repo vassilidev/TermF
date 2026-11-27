@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ALL_REPOS, hasWords, mostRecent, pickRepo, projectsOf, rank, repoOf, tally, validProject } from "../src/lib/nav-logic.ts";
+import { ALL_REPOS, hasWords, inkOn, mostRecent, pickRepo, projectsOf, rank, repoOf, tally, validProject } from "../src/lib/nav-logic.ts";
 
 const repo = (path, modified = null) => ({ name: path.split(/[/\\]/).pop(), path, modified });
 const projects = [
@@ -122,4 +122,12 @@ test("a page's search finds the sections holding every word, case and accents as
   assert.equal(hasWords(text, "  memoire "), true);
   assert.equal(hasWords(text, "EXPERT mém"), true);
   assert.equal(hasWords(text, "mémoire tickets"), false);
+});
+
+test("a project's mark writes in black on a light color, in white on a dark one", () => {
+  assert.equal(inkOn("#ffffff"), "#000");
+  assert.equal(inkOn("#000000"), "#fff");
+  assert.equal(inkOn("#f2b03d"), "#000", "amber");
+  assert.equal(inkOn("#4446d6"), "#fff", "the accent");
+  assert.equal(inkOn("#C42B1C"), "#fff", "upper case too");
 });

@@ -2,12 +2,12 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
-use termf_core::{Layout, Project, QUICK_TERMINAL_GLOBAL};
+use termf_core::{Layout, Look, Project, QUICK_TERMINAL_GLOBAL};
 
 use crate::{AppState, CmdResult, err, quick_terminal};
 
 /// Creates (`id: None`) or updates a project, then returns every project. `checks`: the repositories' check
-/// commands by path, an empty one removed.
+/// commands by path, an empty one removed; `look`: its color and icon, kept when not given.
 #[tauri::command]
 pub fn project_save(
     state: State<AppState>,
@@ -15,11 +15,18 @@ pub fn project_save(
     name: String,
     repos: Vec<String>,
     checks: Option<BTreeMap<String, String>>,
+    look: Option<Look>,
 ) -> CmdResult<Vec<Project>> {
     let checks = checks.unwrap_or_default();
-    let saved =
-        termf_core::save_project_with(&state.config_dir, id.as_deref(), &name, &repos, &checks)
-            .map_err(err)?;
+    let saved = termf_core::save_project_with(
+        &state.config_dir,
+        id.as_deref(),
+        &name,
+        &repos,
+        &checks,
+        look.as_ref(),
+    )
+    .map_err(err)?;
     if id.is_none() {
         crate::onboarding::created(&state.config_dir, &saved);
     }
