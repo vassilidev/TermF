@@ -21,6 +21,8 @@ async function written(project: string, recipe: string, conn: Connection, params
   const ran = await runRecipe(project, recipe, conn.name, params, conn.env);
   const ok = ran.output.exit === 0;
   toast(ok ? t("opsmoreDone", { what }) : ran.output.errors || ran.output.text, { kind: ok ? "ok" : "error" });
+  // Run as the user, unmasked: what prod says goes to the user only, never to the agent.
+  if (conn.env === "prod") return { exit: ran.output.exit, note: "The output, from prod, shows to the user only: ask them what you need from it." };
   return { exit: ran.output.exit, output: ran.output.text.slice(0, 2000), errors: ran.output.errors.slice(0, 2000) };
 }
 

@@ -75,22 +75,21 @@ pub fn mcp_tools(spec: &SessionSpec) -> Vec<&'static str> {
     tools
 }
 
-/// The permissions of the screens' actions: their list freely, each action only once the user approves it (TermF
-/// shows its own card besides).
+/// The permissions of the screens' actions: no permission prompt of Claude Code. TermF decides each `do_action` in
+/// its own card: a read runs at once, a change once the user allows it (for the conversation, if they say so), the
+/// rest every time.
 fn screen_permissions(permissions: &mut Value) {
-    let [list, act] = MCP_SCREEN.map(|t| Value::from(format!("mcp__termf__{t}")));
-    for (key, tool) in [("allow", list), ("ask", act)] {
-        match permissions[key].as_array_mut() {
-            Some(rules) => rules.push(tool),
-            None => permissions[key] = json!([tool]),
-        }
+    let tools = MCP_SCREEN.map(|t| Value::from(format!("mcp__termf__{t}")));
+    match permissions["allow"].as_array_mut() {
+        Some(rules) => rules.extend(tools),
+        None => permissions["allow"] = json!(tools),
     }
 }
 
 /// What a session with TermF's tools may do: call its read tools, and each of its actions only once the user
 /// approves it (`ask` wins over any `allow`, the managed settings' included); no command, no edit, no web. The
-/// expert, read-only, has no action but the screens', and its read-only sub-agents search wide. Ops are allowed
-/// here: TermF asks the user in its own card, with the exact command.
+/// expert, read-only, has no action but the screens', and its read-only sub-agents search wide. Ops and the screens'
+/// actions are allowed here: TermF asks the user in its own card, with the exact command or action.
 pub fn mcp_settings(spec: &SessionSpec) -> Value {
     let tools = |names: &[&str]| -> Vec<String> {
         names.iter().map(|n| format!("mcp__termf__{n}")).collect()

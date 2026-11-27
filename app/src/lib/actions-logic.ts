@@ -53,6 +53,7 @@ export function forAgent(spec: Spec) {
     description: spec.description,
     arguments: { type: "object", properties, required, additionalProperties: false },
     ...(asked.length ? { askedToUser: asked } : {}),
+    ...(gate(spec.id) === "read" ? { readOnly: true } : {}),
   };
 }
 
@@ -149,40 +150,90 @@ export function newMaster(secrets: Record<string, string>): { password: string }
   return { password };
 }
 
-/** The same text whatever the order of an object's keys. */
-export function canon(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canon).join(",")}]`;
-  if (isObject(value))
-    return `{${Object.keys(value)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${canon(value[k])}`)
-      .join(",")}}`;
-  return JSON.stringify(value) ?? "null";
+/**
+ * How an agent's action reaches the user. `read`: it only reads, lists or tests, and runs without a card. `change`:
+ * a card, from which the user may allow it for the rest of the conversation. `ask`: a card every time. An action in
+ * neither list below asks every time: deletions, the vault, writes in prod, and what widens what agents may do.
+ */
+export type Gate = "read" | "change" | "ask";
+
+/**
+ * Actions that only read, list or test, with every command each one invokes, its helpers' included: the coverage
+ * test fails when one invokes a command out of its list, or one that is not in `READS`.
+ */
+export const READ_ACTIONS: Readonly<Record<string, readonly string[]>> = {
+  "design.scan": ["design_scan"],
+  "env.scan": ["env_scan"],
+  "ops.forge_list": ["forge_account", "forge_sites"],
+  // Ops' agent path: refused where agents may not look, Ops' card in prod, masked output.
+  "ops.run_query": ["ops_overview", "ops_agent_run"],
+  // Its card still shows for a route the user has not seen (`Action.cardAnyway`).
+  "ops.test_connection": ["ops_overview", "ops_test"],
+  "settings.read": [
+    "agentenv_settings",
+    "artifacts_list",
+    "ci_notify",
+    "claude_overview",
+    "context_settings",
+    "keep_awake_state",
+    "memory_status",
+    "sync_status",
+    "team_reads_freely",
+    "tray_settings",
+    "update_state",
+    "vault_status",
+  ],
+  "tickets.board": ["tickets_sources", "tickets_board", "tickets_browse"],
+  "tickets.browse": ["tickets_sources", "tickets_browse"],
+  "tickets.jira_spaces": ["tickets_sources", "tickets_mcp_projects", "tickets_jira_projects", "tickets_resolve"],
+  "tickets.test_source": ["tickets_sources", "tickets_source_test"],
+};
+
+/**
+ * Changes the user may allow for the rest of a conversation, from their card: the permission is the action's, not
+ * its target's, so nothing here may reach another server, run, or change where data goes.
+ */
+export const CHANGE_ACTIONS: readonly string[] = [
+  "ci.redeliver",
+  "conversation.new_topic",
+  "env.add",
+  "env.edit",
+  "git.create_branch",
+  "git.rename_branch",
+  "git.switch",
+  "library.copy",
+  "ops.add_connection",
+  "ops.edit_query",
+  "ops.make_recipe",
+  "ops.save_query",
+  "settings.set",
+  "settings.set_shortcut",
+  "tickets.add_source",
+  "tickets.assign",
+  "tickets.comment",
+  "tickets.connect_jira",
+  "tickets.edit_source",
+  "tickets.move",
+];
+
+/** Claude Code's settings an agent reads the value of: none can hold a secret. Any other, by its name only. */
+const CLAUDE_VALUES = ["model", "permissions.defaultMode", "outputStyle", "includeCoAuthoredBy", "cleanupPeriodDays", "alwaysThinkingEnabled"];
+
+/** A Claude Code setting as `settings.read` gives it: `env.*`, headers, URLs and the rest by name only. */
+export const claudeSettingOf = (e: { key: string; value: unknown; scope: string }) =>
+  CLAUDE_VALUES.includes(e.key) ? { key: e.key, value: e.value, scope: e.scope } : { key: e.key, scope: e.scope };
+
+export function gate(id: string): Gate {
+  if (Object.hasOwn(READ_ACTIONS, id)) return "read";
+  return CHANGE_ACTIONS.includes(id) ? "change" : "ask";
 }
 
 /**
- * What the user approved in a conversation's permission card, with what they typed there, kept until the call they
- * allowed reaches TermF (two minutes at most): one card for both. Taken once.
+ * Whether a call runs without a card: a read, or a change the user allowed in this conversation (`granted`); never
+ * one whose card asks the user to type something.
  */
-export class Approved<T> {
-  #kept = new Map<string, { at: number; value: T }>();
-  #ttl: number;
-
-  constructor(ttl = 120_000) {
-    this.#ttl = ttl;
-  }
-
-  #key = (session: number, action: string, args: unknown) => `${session} ${action} ${canon(args ?? {})}`;
-
-  keep(session: number, action: string, args: unknown, value: T, now = Date.now()) {
-    for (const [key, kept] of this.#kept) if (now - kept.at > this.#ttl) this.#kept.delete(key);
-    this.#kept.set(this.#key(session, action, args), { at: now, value });
-  }
-
-  take(session: number, action: string, args: unknown, now = Date.now()): T | undefined {
-    const key = this.#key(session, action, args);
-    const kept = this.#kept.get(key);
-    this.#kept.delete(key);
-    return kept && now - kept.at <= this.#ttl ? kept.value : undefined;
-  }
+export function withoutCard(spec: Spec, args: Args, granted: readonly string[]): boolean {
+  if (secretsOf(spec, args).length) return false;
+  const how = gate(spec.id);
+  return how === "read" || (how === "change" && granted.includes(spec.id));
 }

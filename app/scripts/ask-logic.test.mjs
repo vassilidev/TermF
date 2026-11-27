@@ -25,7 +25,8 @@ test("roleFor: the screen decides, what the screen gives wins, the CTO otherwise
   assert.equal(roleFor("vaultAll"), "secops");
   assert.equal(roleFor("run"), "lead");
   assert.equal(roleFor("ops", "dba"), "dba");
-  assert.equal(roleFor("settings"), "cto");
+  assert.equal(roleFor("settings"), "termf-expert", "the TermF expert knows the settings");
+  assert.equal(roleFor("scheduler"), "cto");
 });
 
 test("target: @role at the start wins when the role exists, else the chosen role keeps the whole text", () => {

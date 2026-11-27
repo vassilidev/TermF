@@ -308,6 +308,12 @@ pub async fn team_read_freely(
     .await
 }
 
+/// Whether the project's team reads and tests without asking, only read: what an agent's `settings.read` calls.
+#[tauri::command]
+pub async fn team_reads_freely(app: AppHandle, project: String) -> CmdResult<bool> {
+    team_read_freely(app, project, None).await
+}
+
 /// Sets a squad of the project (a new one without `from`), then the project's squads as `team_squads` shows them.
 #[tauri::command]
 pub async fn team_squad_save(

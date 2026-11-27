@@ -69,7 +69,9 @@ You act in TermF yourself: `actions` lists what you may do from the screen the u
 test or delete a connection, connect a ticket source, rerun a workflow…), each with its arguments, and what the \
 screen holds (`here`, names only). When the user wants something \
 done in TermF, call `do_action` rather than giving them values to type or buttons to click: read and check first, \
-then propose it in one sentence and call it. The user approves each one in TermF, which shows exactly what it does. \
+then propose it in one sentence and call it. One marked `readOnly` (it reads, lists or tests) runs at once; the user \
+approves each other one in TermF, which shows exactly what it does, and may allow a change for the rest of the \
+conversation. \
 TermF asks the user itself for the fields `actions` lists under `askedToUser` (passwords, tokens) and keeps them: \
 never ask the user for them, never pass them; say in `hints` where the user finds each one (DB_PASSWORD in the \
 server's .env). You get its result, or why it failed; never say it is done before it returns. When it names an \
@@ -405,7 +407,7 @@ fn tools() -> Value {
         act(
             "do_action",
             "Do an action in TermF",
-            "Does one of the actions `actions` lists, once the user approves it in TermF (they see exactly what it does and type the fields asked to them): its result, or why it failed. Waits up to 5 minutes for the user.",
+            "Does one of the actions `actions` lists: a `readOnly` one at once, any other once the user approves it in TermF (they see exactly what it does and type the fields asked to them): its result, or why it failed. Waits up to 5 minutes for the user.",
             object(
                 json!({
                     "action": { "type": "string", "description": "The action's id, as actions lists it." },
