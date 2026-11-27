@@ -4,6 +4,7 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Play from "@lucide/svelte/icons/play";
   import Sparkles from "@lucide/svelte/icons/sparkles";
+  import RepoTag from "$lib/RepoTag.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import StatusPill, { type Status } from "$lib/ui/StatusPill.svelte";
@@ -147,6 +148,7 @@
                   <div class="foot">
                     {#if ticket.assignees.length}<span class="who" title={ticket.assignees.join(", ")}>{ticket.assignees[0]}</span>{/if}
                     {#each ticket.labels.slice(0, 2) as label (label)}<span class="tag">{label}</span>{/each}
+                    {#if run}<RepoTag path={run.repo} />{/if}
                     <span class="grow"></span>
                     {#if run}
                       {@const crew = team.runs.find((r) => r.run === run.id)}

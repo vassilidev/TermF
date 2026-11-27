@@ -50,6 +50,29 @@ export function mostRecent<R extends Repo>(repos: R[]): R | null {
   return repos.reduce<R | null>((best, r) => (!best || (r.modified ?? 0) > (best.modified ?? 0) ? r : best), null);
 }
 
+/** Every repository of the project at once, in the views' common choice. */
+export const ALL_REPOS = "*";
+
+/**
+ * The views' repository from the one stored for the scope (`inProject`: a project's, not every project's), kept while it
+ * is still there; else every repository of a project that has several, else the most recent one ("" without any).
+ */
+export function pickRepo(saved: unknown, repos: Repo[], inProject: boolean): string {
+  const all = inProject && repos.length > 1;
+  if (typeof saved === "string" && (saved === ALL_REPOS ? all : repos.some((r) => r.path === saved))) return saved;
+  return all ? ALL_REPOS : (mostRecent(repos)?.path ?? "");
+}
+
+/** The repository a folder (or a ticket run's worktree) is in, when its project has several; null otherwise. */
+export function repoOf<R extends Repo>(cwd: string, projects: { repos: R[] }[], runs: (Run & { repo: string })[]): R | null {
+  const path = runs.find((r) => r.worktree && inside(cwd, r.worktree))?.repo ?? cwd;
+  for (const p of projects) {
+    const repo = p.repos.length > 1 ? p.repos.find((r) => inside(path, r.path)) : undefined;
+    if (repo) return repo;
+  }
+  return null;
+}
+
 export type Group = "projects" | "sessions" | "conversations" | "repos" | "others" | "views" | "machine" | "vault" | "actions";
 export type Command = {
   id: string;

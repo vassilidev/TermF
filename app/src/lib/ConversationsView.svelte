@@ -11,6 +11,7 @@
   import ContextChips from "$lib/ContextChips.svelte";
   import Conversation from "$lib/Conversation.svelte";
   import GitProposal from "$lib/GitProposal.svelte";
+  import RepoTag from "$lib/RepoTag.svelte";
   import Square from "@lucide/svelte/icons/square";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Banner from "$lib/ui/Banner.svelte";
@@ -361,7 +362,7 @@
               <span class="desc">{hit}</span>
             {:else}
               <span class="desc"
-                >{runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · {ago(session.updated)}{#if ask.origins[session.id] && !pinned(session)}
+                ><RepoTag path={session.cwd} said={session.title} />{runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · {ago(session.updated)}{#if ask.origins[session.id] && !pinned(session)}
                   · {t("aigFrom", { screen: screenName(ask.origins[session.id]) })}{/if}</span
               >
             {/if}
@@ -553,6 +554,11 @@
 
   .role :global(svg) {
     color: var(--accent-ink);
+  }
+
+  .desc :global(.repo-tag) {
+    margin-right: 6px;
+    vertical-align: bottom;
   }
 
   .name :global(.pin) {

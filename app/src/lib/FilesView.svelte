@@ -3,14 +3,17 @@
   import FileFinder from "$lib/FileFinder.svelte";
   import FileSearch from "$lib/FileSearch.svelte";
   import FileTree from "$lib/FileTree.svelte";
-  import { onMount, untrack } from "svelte";
+  import RepoChoice from "$lib/RepoChoice.svelte";
+  import { onMount } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import X from "@lucide/svelte/icons/x";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t } from "$lib/i18n";
   import ViewHeader from "$lib/ui/ViewHeader.svelte";
   import { display, pressed } from "$lib/keymap.svelte";
-  import { app, ui } from "$lib/state.svelte";
+  import { ui } from "$lib/state.svelte";
   import { provide } from "$lib/ask.svelte";
   import {
     activate,
@@ -19,7 +22,8 @@
     currentProject,
     files,
     refreshStatus,
-    scopeRepo,
+    scopeRepos,
+    shownRepos,
     sync,
     tabKey,
   } from "$lib/files.svelte";
@@ -39,6 +43,9 @@
   });
 
   const project = $derived(currentProject());
+  const repos = $derived(scopeRepos());
+  /** With all of the project's repositories: the ones unfolded in the tree. */
+  const unfolded = new SvelteSet<string>();
 
   // The ⌘I panel: the project's expert, with the file open and the lines selected in it.
   $effect(() => {
@@ -54,11 +61,6 @@
           ]
         : [],
     });
-  });
-
-  $effect(() => {
-    void app.project;
-    untrack(scopeRepo);
   });
 
   $effect(() => {
@@ -84,7 +86,7 @@
 
   // Only while this view is shown (their scope): Ctrl+P belongs to the shell in a terminal.
   function onkeydown(e: KeyboardEvent) {
-    const asked = files.repo ? pressed(e)?.id : null;
+    const asked = shownRepos().length ? pressed(e)?.id : null;
     if (asked === "find_file") {
       e.preventDefault();
       files.finder = true;
@@ -104,29 +106,7 @@
   <div class="body">
     <aside class="side">
       <div class="bar">
-        <select class="field" bind:value={files.repo} aria-label={t("filesRepo")}>
-          {#if !files.repo}
-            <option value="">{t("noRepos")}</option>
-          {/if}
-          {#if project}
-            {#each project.repos as repo (repo.path)}
-              <option value={repo.path}>{repo.name}</option>
-            {/each}
-          {:else}
-            {#each app.workspace?.projects ?? [] as project (project.id)}
-              <optgroup label={project.name}>
-                {#each project.repos as repo (repo.path)}
-                  <option value={repo.path}>{repo.name}</option>
-                {/each}
-              </optgroup>
-            {/each}
-            <optgroup label={t("repos")}>
-              {#each app.workspace?.repos ?? [] as repo (repo.path)}
-                <option value={repo.path}>{repo.name}</option>
-              {/each}
-            </optgroup>
-          {/if}
-        </select>
+        <RepoChoice />
         <button class="icon-btn" onclick={refresh} aria-label={t("filesRefresh")} title={t("filesRefresh")}>
           <RefreshCw size={14} aria-hidden="true" />
         </button>
@@ -147,9 +127,27 @@
         <p class="notice error" role="alert">{files.error}</p>
       {/if}
       <div class="panel">
-        {#if files.repo}
+        {#if files.repo || repos.length}
           {#key files.repo}
-            <div hidden={files.panel !== "tree"}><FileTree repo={files.repo} dir="" /></div>
+            <div hidden={files.panel !== "tree"}>
+              {#if files.repo}
+                <FileTree repo={files.repo} dir="" />
+              {:else}
+                {#each repos as repo (repo.path)}
+                  {@const open = unfolded.has(repo.path)}
+                  <button
+                    class="root"
+                    title={repo.path}
+                    aria-expanded={open}
+                    onclick={() => (open ? unfolded.delete(repo.path) : unfolded.add(repo.path))}
+                  >
+                    <span class="chevron" class:open aria-hidden="true"><ChevronRight size={12} /></span>
+                    <span class="name">{repo.name}</span>
+                  </button>
+                  {#if open}<FileTree repo={repo.path} dir="" depth={1} />{/if}
+                {/each}
+              {/if}
+            </div>
             <div hidden={files.panel !== "search"}><FileSearch bind:input={searchInput} /></div>
           {/key}
         {/if}
@@ -222,9 +220,46 @@
     padding: 0 8px;
   }
 
-  select {
+  .bar :global(select) {
     flex: 1;
     min-width: 0;
+  }
+
+  .root {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    height: 26px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    font-weight: 600;
+    text-align: left;
+  }
+
+  .root:hover {
+    background: var(--hover);
+  }
+
+  .chevron {
+    display: grid;
+    place-items: center;
+    width: 14px;
+    flex-shrink: 0;
+    color: var(--muted);
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+
+  .chevron.open {
+    transform: rotate(90deg);
+  }
+
+  .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .bar .icon-btn {

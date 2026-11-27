@@ -1,3 +1,4 @@
+import { chooseRepo, shownRepo } from "$lib/files.svelte";
 import { ui } from "$lib/state.svelte";
 
 export type Tip = { oid: string; author: string; date: number; subject: string };
@@ -129,8 +130,13 @@ export type Plan = { repo: string; keys: string[]; apply: boolean; id: number };
 export const git = $state({
   /** Loaded once first shown, then kept mounted. */
   loaded: false,
-  /** The repository's path, one of the current project's. */
-  repo: "",
+  /** The views' common choice: a repository's path, "" for all of the project's. */
+  get repo() {
+    return shownRepo();
+  },
+  set repo(path: string) {
+    chooseRepo(path);
+  },
   /** The last cleanup proposed, for the view to show. */
   plan: null as Plan | null,
   /** Bumped by a change made elsewhere (an agent's action): the view reads the repository again. */

@@ -2,32 +2,40 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { t } from "$lib/i18n";
-  import { files, openFile } from "$lib/files.svelte";
+  import { files, openFile, scopeRepos, shownRepos } from "$lib/files.svelte";
+
+  type Found = { repo: string; path: string; rank: number };
 
   let dialog: HTMLDialogElement;
   let query = $state("");
-  let results = $state<string[]>([]);
+  let results = $state<Found[]>([]);
   let selected = $state(0);
   // The first query of each opening walks the repository again, so new files show up.
   let fresh = true;
   let seq = 0;
+  const repos = shownRepos();
+  const names = new Map(scopeRepos().map((r) => [r.path, r.name]));
 
   onMount(() => dialog.showModal());
 
   $effect(() => {
     const n = ++seq;
-    invoke<string[]>("files_find", { repo: files.repo, query, fresh })
-      .then((list) => {
-        if (n !== seq) return;
-        results = list;
-        selected = 0;
-      })
-      .catch((e) => (files.error = String(e)));
+    const asked = { query, fresh };
+    Promise.allSettled(
+      repos.map(async (repo) => (await invoke<string[]>("files_find", { repo, ...asked })).map((path, rank) => ({ repo, path, rank }))),
+    ).then((found) => {
+      if (n !== seq) return;
+      // Ranked within each repository only: every repository's best matches come first.
+      results = found.flatMap((f) => (f.status === "fulfilled" ? f.value : [])).sort((a, b) => a.rank - b.rank);
+      selected = 0;
+      const failed = found.find((f) => f.status === "rejected");
+      if (failed) files.error = String(failed.reason);
+    });
     fresh = false;
   });
 
-  function pick(path: string | undefined) {
-    if (path) openFile(path);
+  function pick(found: Found | undefined) {
+    if (found) openFile(found.path, null, found.repo);
     files.finder = false;
   }
 
@@ -61,18 +69,18 @@
     {onkeydown}
   />
   <ul id="finder-results" role="listbox" aria-label={t("filesFind")}>
-    {#each results as path, i (path)}
-      {@const slash = path.lastIndexOf("/")}
+    {#each results as found, i (`${found.repo}\n${found.path}`)}
+      {@const slash = found.path.lastIndexOf("/")}
       <!-- svelte-ignore a11y_click_events_have_key_events (the input drives the list with the arrow keys) -->
       <li
         id="finder-{i}"
         role="option"
         aria-selected={i === selected}
-        onclick={() => pick(path)}
+        onclick={() => pick(found)}
         onmousemove={() => (selected = i)}
       >
-        <span class="name">{path.slice(slash + 1)}</span>
-        <span class="dir">{path.slice(0, Math.max(slash, 0))}</span>
+        <span class="name">{found.path.slice(slash + 1)}</span>
+        <span class="dir">{[repos.length > 1 ? names.get(found.repo) : "", found.path.slice(0, Math.max(slash, 0))].filter(Boolean).join(" · ")}</span>
       </li>
     {:else}
       <li class="none muted">{t("filesNoResults")}</li>

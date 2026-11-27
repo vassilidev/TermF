@@ -15,6 +15,7 @@
   import Ticket from "@lucide/svelte/icons/ticket";
   import Users from "@lucide/svelte/icons/users";
   import Plug from "@lucide/svelte/icons/plug";
+  import RepoTag from "$lib/RepoTag.svelte";
   import RunProgress from "$lib/RunProgress.svelte";
   import TeamOptions from "$lib/TeamOptions.svelte";
   import { openTile } from "$lib/tickets.svelte";
@@ -530,7 +531,7 @@
             <div class="what">
               <span class="name">{ticket.title}</span>
               <span class="desc">
-                <span class="mono">{ticket.key}</span> · {sourceName(ticket.source)}
+                <span class="mono">{ticket.key}</span>{#if run}{" "}<RepoTag path={run.repo} />{/if} · {sourceName(ticket.source)}
                 · {t("ticketUpdated", { ago: ago(Date.parse(ticket.updated) / 1000) })}
                 {#if ticket.assignees.length}
                   · {t("ticketsUiAssignees", { names: ticket.assignees.join(", ") })}

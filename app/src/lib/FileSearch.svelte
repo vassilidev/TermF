@@ -3,9 +3,9 @@
   import Regex from "@lucide/svelte/icons/regex";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
-  import { files, openFile } from "$lib/files.svelte";
+  import { openFile, scopeRepos, shownRepos } from "$lib/files.svelte";
 
-  type Hit = { path: string; line: number; text: string };
+  type Hit = { repo: string; path: string; line: number; text: string };
 
   let { input = $bindable() }: { input?: HTMLInputElement } = $props();
 
@@ -19,28 +19,34 @@
   // Until this query answers, the hits on screen are an older one's: a large repository takes seconds.
   const pending = $derived(!!query && query !== searched);
 
+  const repos = $derived(shownRepos());
+  const names = $derived(new Map(scopeRepos().map((r) => [r.path, r.name])));
+
   const groups = $derived(
-    hits.reduce<{ path: string; hits: Hit[] }[]>((groups, hit) => {
+    hits.reduce<{ repo: string; path: string; hits: Hit[] }[]>((groups, hit) => {
       const last = groups[groups.length - 1];
-      if (last?.path === hit.path) last.hits.push(hit);
-      else groups.push({ path: hit.path, hits: [hit] });
+      if (last?.repo === hit.repo && last.path === hit.path) last.hits.push(hit);
+      else groups.push({ repo: hit.repo, path: hit.path, hits: [hit] });
       return groups;
     }, []),
   );
 
+  // Every repository shown at once: one that fails leaves the others' hits.
   $effect(() => {
-    const args = { repo: files.repo, query, regex };
+    const [list, args] = [repos, { query, regex }];
     const n = ++seq;
     const timer = setTimeout(async () => {
-      try {
-        const result = await invoke<{ hits: Hit[]; truncated: boolean }>("files_search", args);
-        if (n !== seq) return;
-        ({ hits, truncated } = result);
-        searched = args.query;
-        error = "";
-      } catch (e) {
-        if (n === seq) error = String(e);
-      }
+      const found = await Promise.allSettled(
+        list.map(async (repo) => {
+          const result = await invoke<{ hits: Omit<Hit, "repo">[]; truncated: boolean }>("files_search", { repo, ...args });
+          return { ...result, hits: result.hits.map((hit) => ({ ...hit, repo })) };
+        }),
+      );
+      if (n !== seq) return;
+      const done = found.flatMap((f) => (f.status === "fulfilled" ? [f.value] : []));
+      error = found.flatMap((f, i) => (f.status === "rejected" ? [list.length > 1 ? `${names.get(list[i])}: ${f.reason}` : String(f.reason)] : [])).join("\n");
+      if (list.length && !done.length) return;
+      [hits, truncated, searched] = [done.flatMap((r) => r.hits), done.some((r) => r.truncated), args.query];
     }, 250);
     return () => clearTimeout(timer);
   });
@@ -77,13 +83,15 @@
     <p class="muted note">{t("filesTruncated", { count: hits.length })}</p>
   {/if}
   <ul hidden={pending}>
-    {#each groups as group (group.path)}
+    {#each groups as group (`${group.repo}\n${group.path}`)}
       <li>
-        <div class="file" title={group.path}>{group.path}</div>
+        <div class="file" title={group.path}>
+          {#if repos.length > 1}<span class="repo">{names.get(group.repo)}</span>{/if}{group.path}
+        </div>
         <ul>
           {#each group.hits as hit (hit.line)}
             <li>
-              <button class="hit" onclick={() => openFile(hit.path, hit.line)}>
+              <button class="hit" onclick={() => openFile(hit.path, hit.line, hit.repo)}>
                 <span class="line">{hit.line}</span>
                 <span class="text">{hit.text}</span>
               </button>
@@ -138,6 +146,7 @@
   .error {
     color: var(--danger);
     overflow-wrap: anywhere;
+    white-space: pre-line;
   }
 
   ul {
@@ -153,6 +162,16 @@
     white-space: nowrap;
     font-weight: 600;
     font-size: var(--text-sm);
+  }
+
+  .repo {
+    margin-right: 6px;
+    padding: 0 5px;
+    border-radius: var(--radius-pill);
+    background: var(--hover);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 500;
   }
 
   .hit {

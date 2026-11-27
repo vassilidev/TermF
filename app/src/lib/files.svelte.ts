@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "$lib/i18n";
-import { mostRecent } from "$lib/nav-logic";
+import { ALL_REPOS, pickRepo } from "$lib/nav-logic";
 import { app, ui, type Project, type Repo } from "$lib/state.svelte";
 import { zoomed } from "$lib/tabs.svelte";
 
@@ -27,11 +27,59 @@ export type Tab = {
   line: number | null;
 };
 
+const choiceKey = "termf.repos";
+
+function storedChoice(): Record<string, string> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(choiceKey) ?? "{}");
+    return saved && typeof saved === "object" ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+/** The repository the views show, as chosen per project ("" for every project): see `pickRepo`. */
+const chosen = $state(storedChoice());
+
+/** The views' common repository: `ALL_REPOS`, a repository's path, or "" without any. */
+export function chosenRepo(): string {
+  return pickRepo(chosen[app.project ?? ""], scopeRepos(), app.project !== null);
+}
+
+/** Remembered on this machine, per project, for every view. */
+export function chooseRepo(value: string) {
+  chosen[app.project ?? ""] = value;
+  try {
+    localStorage.setItem(choiceKey, JSON.stringify(chosen));
+  } catch {
+    // Storage off: the choice holds until the app closes.
+  }
+}
+
+/** The one repository the views show, "" for all of the project's (or none). */
+export function shownRepo(): string {
+  const repo = chosenRepo();
+  return repo === ALL_REPOS ? "" : repo;
+}
+
+/** The repositories the views show: the one chosen, or all of the project's. */
+export function shownRepos(): string[] {
+  const repo = chosenRepo();
+  return repo === ALL_REPOS ? scopeRepos().map((r) => r.path) : repo ? [repo] : [];
+}
+
 export const files = $state({
   /** The Files view is only loaded once first shown, then kept mounted. */
   loaded: false,
-  repo: "",
-  status: {} as Record<string, string>,
+  /** The views' common choice, "" for all of the project's repositories. */
+  get repo() {
+    return shownRepo();
+  },
+  set repo(path: string) {
+    chooseRepo(path);
+  },
+  /** By repository, its files' git status. */
+  status: {} as Record<string, Record<string, string>>,
   tabs: [] as Tab[],
   active: null as Tab | null,
   panel: "tree" as "tree" | "search",
@@ -67,17 +115,10 @@ export function scopeRepos(): Repo[] {
   return app.project === null ? allRepos() : (currentProject()?.repos ?? []);
 }
 
-/** Keeps the Files view's repository when the current project has it, else takes the project's most recent one. */
-export function scopeRepo() {
-  const repos = scopeRepos();
-  if (!repos.some((r) => r.path === files.repo)) files.repo = mostRecent(repos)?.path ?? "";
-}
-
-/** Shows the Files view on the zoomed session's repository, else keeps the current one or takes the most recent. */
+/** Shows the Files view on the zoomed session's repository, else on the views' common choice. */
 export function showFiles() {
   const focused = zoomed()?.cwd;
   if (focused && scopeRepos().some((r) => r.path === focused)) files.repo = focused;
-  else scopeRepo();
   ui.view = "files";
   files.loaded = true;
   refreshStatus();
@@ -85,10 +126,11 @@ export function showFiles() {
 }
 
 export async function refreshStatus() {
-  const repo = files.repo;
-  if (!repo) return;
-  const status = await invoke<Record<string, string>>("files_status", { repo }).catch(() => ({}));
-  if (repo === files.repo) files.status = status;
+  await Promise.all(
+    shownRepos().map(async (repo) => {
+      files.status[repo] = await invoke<Record<string, string>>("files_status", { repo }).catch(() => ({}));
+    }),
+  );
 }
 
 function read(repo: string, path: string) {
@@ -119,8 +161,7 @@ export function activate(tab: Tab) {
   sync(tab);
 }
 
-export async function openFile(path: string, line: number | null = null) {
-  const repo = files.repo;
+export async function openFile(path: string, line: number | null = null, repo = files.repo) {
   const open = files.tabs.find((tab) => tab.repo === repo && tab.path === path);
   if (open) {
     // Before revealing the line: a reload would lose it.
