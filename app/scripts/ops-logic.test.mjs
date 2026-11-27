@@ -38,6 +38,7 @@ import {
   shows,
   streamed,
   sortRows,
+  route,
   target,
   tsv,
   accessLine,
@@ -552,4 +553,17 @@ test("a test that misses a secret names it, for the user to type it there and th
   assert.equal(missingSecret([tool, secret("op read failed: not signed in")]), null, "a reference that failed is not typed over");
   assert.equal(missingSecret([tool, { ...secret(""), ok: true }]), null);
   assert.equal(missingSecret([]), null);
+});
+
+test("a connection's route changes with its host, port, user or tunnel, the tunnel's own included", () => {
+  const ssh = { name: "acme-prod", kind: "ssh", env: "prod", host: "api-1.acme.dev", user: "deploy" };
+  const db = { name: "acme-db", kind: "postgres", env: "prod", host: "127.0.0.1", user: "shop", database: "shop", via: "acme-prod" };
+  const all = [ssh, db];
+  const before = route(db, all);
+  assert.equal(route({ ...db, description: "said otherwise" }, all), before, "a description goes nowhere");
+  for (const change of [{ host: "10.0.0.9" }, { port: 6543 }, { via: "other" }, { user: "root" }])
+    assert.notEqual(route({ ...db, ...change }, all), before, JSON.stringify(change));
+  assert.notEqual(route(db, [{ ...ssh, host: "evil.example" }, db]), before, "its tunnel's server moved");
+  assert.notEqual(route(db, [{ ...ssh, jump: "bastion.evil" }, db]), before, "its tunnel's bastion moved");
+  assert.ok(route(db, [{ ...ssh, via: "acme-db" }, db]).length > 0, "a loop ends");
 });

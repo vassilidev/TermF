@@ -1118,6 +1118,7 @@ mod tests {
                     "researcher",
                     "competitive-analyst",
                     "reverse-engineer",
+                    "termf-expert",
                 ][..],
             ),
             (Kind::Workflow, &["default", "hotfix", "squads", "kickoff"]),
@@ -1202,7 +1203,7 @@ mod tests {
             );
         }
         let roles: Vec<&Item> = items.iter().filter(|i| i.kind == Kind::Role).collect();
-        assert_eq!(roles.len(), 29, "no orchestrator: lead took its place");
+        assert_eq!(roles.len(), 30, "no orchestrator: lead took its place");
         for role in roles {
             let name = role.name.as_str();
             assert_eq!(role.meta["name"], name);
@@ -1221,6 +1222,7 @@ mod tests {
                 "expert",
                 "reviewer",
                 "integrator",
+                "termf-expert",
             ]
             .contains(&name);
             assert_eq!(plannable(role), !planner_only, "{name}");

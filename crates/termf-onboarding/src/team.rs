@@ -1353,10 +1353,10 @@ pub fn team(
         choices,
         splittable: splittable(&units(&repos)),
         roles: role_choices,
-        // The expert answers questions about the project: no workflow runs it.
+        // The experts answer about the project and about TermF: no workflow runs them.
         steps: roles
             .iter()
-            .filter(|r| !r.plannable && r.name != "expert")
+            .filter(|r| !r.plannable && r.name != "expert" && r.name != "termf-expert")
             .map(|r| r.name.clone())
             .collect(),
         proposal,

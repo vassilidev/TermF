@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import { Approved, forAgent, refused, secretMissing, takeWait, vaultBlock, type Args, type Spec } from "$lib/actions-logic";
+import { forAgent, gate, refused, secretMissing, takeWait, vaultBlock, withoutCard, type Args, type Spec } from "$lib/actions-logic";
+import { agents, type AgentSession } from "$lib/agents.svelte";
 import { ask, wide } from "$lib/ask.svelte";
 import { ciActions, ciHere } from "$lib/ci-actions";
 import { conversationActions } from "$lib/conversation-actions";
@@ -14,7 +15,7 @@ import { opsActions, opsHere } from "$lib/ops-actions";
 import { opsMoreActions } from "$lib/ops-more-actions";
 import { projectActions } from "$lib/project-actions";
 import { schedulerActions, schedulerHere } from "$lib/scheduler-actions";
-import { settingsActions } from "$lib/settings-actions";
+import { settingsActions, settingsRead, TERMF_EXPERT } from "$lib/settings-actions";
 import { setupActions } from "$lib/setup-actions";
 import { syncFacts } from "$lib/sync.svelte";
 import { ticketActions, ticketsHere } from "$lib/tickets-actions";
@@ -40,6 +41,8 @@ export type Action = Spec & {
   gives?: (args: Args, project: string) => string;
   /** What it waits for (no vault yet, no connection…), naming the action that settles it; null when ready. */
   needs?: (args: Args, project: string) => Promise<string | null>;
+  /** Whether its card shows even for a read (a connection's route the user has not seen yet). */
+  cardAnyway?: (args: Args, project: string) => Promise<boolean>;
   /** Runs it, updates the screen and says so in a toast; what the agent reads back, never a secret. `session`: the
    * conversation that asked. */
   run: (args: Args, secrets: Record<string, string>, project: string, session: number) => Promise<unknown>;
@@ -62,7 +65,9 @@ const SCREENS: Record<string, Action[]> = {
   claude: pluginActions,
   env: envActions,
 };
-const GLOBAL: Action[] = [...vaultAnywhere, ...conversationActions];
+const GLOBAL: Action[] = [...vaultAnywhere, ...conversationActions, settingsRead];
+/** A role's own actions, whatever the screen: the TermF expert changes TermF's settings from anywhere. */
+const ROLES: Record<string, Action[]> = { [TERMF_EXPERT]: settingsActions };
 
 /** What a screen holds, by name only, for the agent to act on: never a value. */
 const HERE: Record<string, (project: string) => Promise<unknown>> = {
@@ -86,6 +91,8 @@ export type Call = {
   action: string | null;
   args: Args;
   hints: Record<string, string>;
+  /** Asked in a turn the user started alone: what they allowed for the conversation holds only there. */
+  byUser: boolean;
 };
 
 /** How long a card waits for the user. */
@@ -103,6 +110,8 @@ export const agentActions = $state({
   waiting: [] as Call[],
   /** The calls whose run waits for the vault, every conversation. */
   vault: [] as VaultWait[],
+  /** By conversation, the changes the user allowed for the rest of it: lost when it is archived or TermF quits. */
+  granted: {} as Record<number, string[]>,
 });
 let waits = 0;
 
@@ -111,20 +120,24 @@ export function screenOf(session: number): string | null {
   return ask.screens[session] ?? ask.origins[session] ?? null;
 }
 
-/** What a conversation may do: its screen's actions, then those of anywhere. */
+/** What a conversation may do: its screen's actions, its role's, then those of anywhere. */
 export function available(session: number): Action[] {
   const screen = screenOf(session);
-  return [...((screen && SCREENS[screen]) || []), ...GLOBAL];
+  const own = (screen && SCREENS[screen]) || [];
+  const role = agents.sessions.find((s) => s.id === session)?.role ?? "";
+  return [...own, ...(ROLES[role] ?? []).filter((a) => !own.includes(a)), ...GLOBAL];
 }
 
 export const actionOf = (session: number, id: unknown) => available(session).find((a) => a.id === id);
 
-const approved = new Approved<Record<string, string>>();
+/** "Always allow in this conversation", only ever for a change. */
+export function grant(session: number, action: string) {
+  const mine = agentActions.granted[session] ?? [];
+  if (gate(action) === "change" && !mine.includes(action)) agentActions.granted[session] = [...mine, action];
+}
 
-/** The permission card allowed a `do_action`, with what the user typed in it: its call runs at once, no second card. */
-export function approve(session: number, input: unknown, secrets: Record<string, string>) {
-  const i = (input ?? {}) as { action?: unknown; args?: unknown };
-  if (typeof i.action === "string") approved.keep(session, i.action, i.args, { ...secrets });
+export function revoke(session: number, action: string) {
+  agentActions.granted[session] = (agentActions.granted[session] ?? []).filter((a) => a !== action);
 }
 
 async function reply(id: number, result: unknown, error: string | null) {
@@ -217,9 +230,9 @@ async function answer(call: Call) {
   if (!action) return reply(call.id, null, `No action ${call.action} here: actions lists those you may do from the user's screen.`);
   const why = refused(action, call.args, call.hints) ?? (await prerequisite(action, call.args, call.project));
   if (why) return reply(call.id, null, why);
-  const secrets = approved.take(call.session, action.id, call.args);
-  if (secrets) return perform(call, secrets);
-  // Not allowed in a permission card (another agent CLI, an older card): TermF's own card asks.
+  const granted = call.byUser ? (agentActions.granted[call.session] ?? []) : [];
+  const anyway = action.cardAnyway ? await action.cardAnyway(call.args, call.project).catch(() => true) : false;
+  if (!anyway && withoutCard(action, call.args, granted)) return perform(call, {});
   agentActions.waiting = [...agentActions.waiting, call];
   setTimeout(() => {
     if (!agentActions.waiting.some((c) => c.id === call.id)) return;
@@ -234,6 +247,9 @@ export function watchActions(): () => void {
   const stops = Promise.all([
     listen<Call>("agent-action", ({ payload }) => void answer(payload)),
     listen<Call>("agent-action-done", ({ payload }) => drop(payload.id)),
+    listen<AgentSession>("agent-updated", ({ payload }) => {
+      if (payload.archived) delete agentActions.granted[payload.id];
+    }),
   ]);
   return () => void stops.then((list) => list.forEach((stop) => stop()));
 }

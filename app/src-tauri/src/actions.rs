@@ -34,6 +34,8 @@ pub struct ActionCall {
     pub action: Option<String>,
     pub args: serde_json::Map<String, Value>,
     pub hints: BTreeMap<String, String>,
+    /// Asked in a turn the user started alone: what they allowed for the conversation holds only there.
+    pub by_user: bool,
 }
 
 type Answer = Result<Value, String>;
@@ -117,6 +119,7 @@ pub fn call(
         action,
         args,
         hints,
+        by_user: crate::agents::agents(app).turn_by_user(session.id),
     };
     let show = |event: &str, call: &ActionCall| {
         let _ = app.emit(event, call);
@@ -155,6 +158,7 @@ mod tests {
             action: action.map(Into::into),
             args: json!({"name": "acme-prod"}).as_object().unwrap().clone(),
             hints: BTreeMap::new(),
+            by_user: true,
         }
     }
 

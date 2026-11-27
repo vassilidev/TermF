@@ -42,7 +42,7 @@ At the triage:
 - Set the security review's effort by risk, named by its step id like every effort (`security`, not the role `secops`): higher for authentication, payments, personal data, input parsing and dependencies; lower for docs and wording.
 - Name the squads whose paths and domains hold the work: with one, its lead plans within it; with several, you plan their batches.
 - Advise a budget that fits the size and covers every agent step that will run (each task, each review round, the security review), not only the code: advice too low stops the run before its reviews, and TermF never spends more without the user.
-- For any doubt about the project (how a part works, what was decided, where something lives), ask its expert with `ask_expert` and keep the sources it gives.
+- For any doubt about the project (how a part works, what was decided, where something lives), ask its expert with `ask_expert` and keep the sources it gives. For TermF's own settings, send `termf-expert` the request with `send_message`: it reads and changes them, each change through the user's card.
 - Keep the decision journal: each decision you take (the workflow, a step skipped or added, the squads, the efforts, the budget) goes in `rulings`, one a line, as `Ruling: what — why — cost if wrong`. The run's detail shows them and the team reads them, so a choice is made once and seen by all.
 
 When you plan the batches of several squads:

@@ -9,13 +9,14 @@ import {
   clean,
   missingSecret,
   passwordName,
+  route,
   target,
   type Check,
   type Connection,
   type Kind,
   type Query,
 } from "$lib/ops-logic";
-import { loadOps, ops, runSql } from "$lib/ops.svelte";
+import { loadOps, ops, sqlRecipe } from "$lib/ops.svelte";
 import { toast } from "$lib/ui/toast.svelte";
 import type { VaultStatus } from "$lib/vault.svelte";
 
@@ -70,6 +71,16 @@ function queryNamed(name: unknown): Query {
   const found = ops.queries.find((q) => q.name === name);
   if (!found) throw new Error(`No saved query ${String(name)}: ${ops.queries.map((q) => q.name).join(", ") || "none yet"}.`);
   return found;
+}
+
+/** The routes the user saw in a test's card, by project and connection: an agent's test of the same one needs none. */
+const ROUTES = "termf.ops.routes";
+function seenRoutes(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(ROUTES) ?? "{}");
+  } catch {
+    return {};
+  }
 }
 
 function connectionNamed(name: unknown): Connection {
@@ -134,6 +145,12 @@ const testConnection: Action = {
   fields: { name: { type: "string", description: "The connection's name." } },
   required: ["name"],
   label: "actOpsTest",
+  // A test sends the vault's secrets where the connection goes: the user sees a new route in the card first.
+  async cardAnyway(a, project) {
+    await loaded(project);
+    const c = connectionNamed(a.name);
+    return seenRoutes()[`${project}/${c.name}`] !== route(c, ops.connections);
+  },
   describe: (a) => {
     const c = ops.connections.find((x) => x.name === a.name);
     return t("actOpsTestText", { name: String(a.name), target: c ? target(c, ops.connections) : "" });
@@ -141,6 +158,11 @@ const testConnection: Action = {
   async run(a, _secrets, project) {
     await loaded(project);
     const connection = connectionNamed(a.name);
+    try {
+      localStorage.setItem(ROUTES, JSON.stringify({ ...seenRoutes(), [`${project}/${connection.name}`]: route(connection, ops.connections) }));
+    } catch {
+      // Not kept: the next test asks again.
+    }
     const checks = await invoke<Check[]>("ops_test", { project, connection, previous: connection.name });
     const ok = checks.every((c) => c.ok || c.warn);
     toast(t(ok ? "actOpsTested" : "actOpsTestFailed", { name: connection.name }), { kind: ok ? "ok" : "error" });
@@ -176,7 +198,7 @@ const saveQuery: Action = {
 const runQuery: Action = {
   id: "ops.run_query",
   description:
-    "Runs a saved query in the database studio, read-only, and shows its rows to the user there: you get how many rows and the columns, never the rows.",
+    "Runs a saved query read-only, as your ops_run does: refused on a connection closed to agents, approved by the user in Ops' card in prod or when its recipe asks, its output masked as the connection's ai_access says.",
   fields: {
     name: { type: "string", description: "The saved query's name." },
     connection: { type: "string", description: "The database, by default the query's own." },
@@ -188,29 +210,35 @@ const runQuery: Action = {
     const q = ops.queries.find((x) => x.name === a.name);
     return `${t("actOpsRunQueryText", { name: String(a.name), connection: String(a.connection ?? q?.connection ?? "") })}${q ? `\n${q.sql}` : ""}`;
   },
-  async run(a, _secrets, project) {
+  async run(a, _secrets, project, session) {
     await loaded(project);
-    const query = ops.queries.find((q) => q.name === a.name);
-    if (!query) throw new Error(`No saved query ${String(a.name)}: ${ops.queries.map((q) => q.name).join(", ") || "none yet"}.`);
+    const query = queryNamed(a.name);
     const connection = connectionNamed(a.connection ?? query.connection ?? ops.sql.connection);
-    Object.assign(ops.sql, { connection: connection.name, query: query.sql });
-    ops.tab = "sql";
-    const ran = await runSql(project, connection, query.sql);
-    const table = ran.output.table;
-    toast(t("actOpsRan", { name: query.name }));
-    return {
-      query: query.name,
+    if (connection.ai_access === "none")
+      throw new Error(`${connection.name} is closed to agents (ai_access none): the user runs ${query.name} in the database studio, or opens the connection to agents in Ops.`);
+    const recipe = sqlRecipe(connection);
+    if (!recipe) throw new Error(t("actNoSqlRecipe", { name: connection.name }));
+    const param = recipe.params.find((p) => p.type === "sql")?.name ?? "query";
+    // The agent's own path, never the user's: Ops' card in prod, masking, the prod mark, the audit in its name.
+    const ran = await invoke<Record<string, unknown>>("ops_agent_run", {
+      session,
+      project,
+      recipe: recipe.name,
       connection: connection.name,
-      rows: table?.rows.length ?? 0,
-      columns: table?.columns ?? [],
-      truncated: ran.output.truncated,
-      errors: ran.output.errors || undefined,
-      note: "The rows show to the user in the database studio, not to you: ask them what you need from it.",
-    };
+      params: { [param]: query.sql },
+    });
+    toast(t("actOpsRan", { name: query.name }));
+    return { query: query.name, ...ran };
   },
 };
 
 const EDITABLE = ["env", "host", "port", "user", "jump", "via", "database", "sslmode", "description", "ai_access"] as const;
+
+/** A connection as an edit leaves it. */
+function edited(found: Connection, a: Args): Connection {
+  const given = Object.fromEntries(EDITABLE.filter((k) => a[k] !== undefined && a[k] !== null).map((k) => [k, a[k]]));
+  return clean({ ...found, ...given, name: text(a.rename)?.trim() || found.name });
+}
 
 const editConnection: Action = {
   id: "ops.edit_connection",
@@ -232,12 +260,29 @@ const editConnection: Action = {
   },
   required: ["name"],
   label: "actOpsEdit",
-  describe: (a) => `${t("actOpsEditText", { name: String(a.name) })}\n${changes(a, ["name"])}`,
+  describe: (a) => {
+    const found = ops.connections.find((c) => c.name === a.name);
+    const now = (k: string) => (k === "rename" ? found?.name : (found as Record<string, unknown> | undefined)?.[k]);
+    const shown = (v: unknown) => (v === undefined || v === null || v === "" ? t("permUnset") : String(v));
+    const lines = Object.entries(a)
+      .filter(([k, v]) => k !== "name" && v !== null && v !== undefined)
+      .map(([k, v]) => t("permFieldChange", { field: k, before: shown(now(k)), after: shown(v) }));
+    return [t("actOpsEditText", { name: String(a.name) }), ...lines].join("\n");
+  },
+  // Where it goes changes: its vault password follows at the next test.
+  loses: (a) => {
+    const found = ops.connections.find((c) => c.name === a.name);
+    if (!found) return "";
+    const after = edited(found, a);
+    const all = ops.connections.map((c) => (c === found ? after : c));
+    return route(found, ops.connections) === route(after, all)
+      ? ""
+      : t("permRouteChange", { before: target(found, ops.connections), after: target(after, all) });
+  },
   async run(a, _secrets, project) {
     await loaded(project);
     const found = connectionNamed(a.name);
-    const given = Object.fromEntries(EDITABLE.filter((k) => a[k] !== undefined && a[k] !== null).map((k) => [k, a[k]]));
-    const connection = clean({ ...found, ...given, name: text(a.rename)?.trim() || found.name });
+    const connection = edited(found, a);
     ops.connections = await invoke<Connection[]>("ops_connection_save", { project, connection, previous: found.name, password: null, found: null, replace: false });
     toast(t("actOpsEdited", { name: connection.name }));
     return { saved: connection, next: "Test it with ops.test_connection." };

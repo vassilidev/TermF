@@ -23,6 +23,7 @@ export const ROLE_BY_VIEW: Record<string, string> = {
   review: "ux",
   git: "expert",
   files: "expert",
+  settings: "termf-expert",
 };
 
 export function roleFor(view: string, given?: string | null): string {

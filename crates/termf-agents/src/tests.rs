@@ -515,6 +515,36 @@ fn a_message_written_during_a_turn_goes_once_it_ends() {
 }
 
 #[test]
+fn a_turn_is_the_users_only_when_nothing_else_is_in_it() {
+    let env = Env::new("turn-origin");
+    let id = env.agents.create(env.spec()).unwrap().id;
+    assert!(!env.agents.turn_by_user(id), "no turn yet");
+    env.agents.send(id, "hello").unwrap();
+    env.settle(id, 1, State::Idle);
+    assert!(env.agents.turn_by_user(id));
+    env.agents.send_from_agent(id, "the CTO asks").unwrap();
+    env.settle(id, 2, State::Idle);
+    assert!(!env.agents.turn_by_user(id), "another agent's message");
+    env.agents
+        .notify(
+            id,
+            Notice {
+                about: "waiting".into(),
+                text: "Run 3 waits.".into(),
+                ..Notice::default()
+            },
+            false,
+        )
+        .unwrap();
+    env.agents.send(id, "and now?").unwrap();
+    env.settle(id, 3, State::Idle);
+    assert!(!env.agents.turn_by_user(id), "a notice of TermF in it");
+    env.agents.send(id, "thanks").unwrap();
+    env.settle(id, 4, State::Idle);
+    assert!(env.agents.turn_by_user(id));
+}
+
+#[test]
 fn consults_an_agent_for_another_and_waits_for_its_answer() {
     let env = Env::new("consult");
     let ask = |prompt: &str| {
@@ -1133,7 +1163,6 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
     };
     let ask: Vec<String> = termf_core::ipc::MCP_ACTIONS
         .iter()
-        .chain(&["do_action"])
         .map(|t| format!("mcp__termf__{t}"))
         .collect();
     let asked = names("ask");
@@ -1148,6 +1177,10 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
         "read-only without the CLI that refuses its writes: denied whole"
     );
     assert!(names("allow").iter().all(|t| !ask.contains(t)));
+    assert!(
+        names("allow").contains(&"mcp__termf__do_action".to_string()),
+        "a screen's action waits in TermF's own card, never in a permission prompt"
+    );
     for tool in ["Bash", "WebFetch", "WebSearch", "Edit", "Write"] {
         assert!(names("deny").contains(&tool.to_string()), "{tool}");
     }
@@ -1374,14 +1407,12 @@ fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
         json!([
             "mcp__termf__memory_search",
             "mcp__termf__memory_read",
-            "mcp__termf__actions"
-        ])
+            "mcp__termf__actions",
+            "mcp__termf__do_action"
+        ]),
+        "the screens' actions: TermF's own card decides each one"
     );
-    assert_eq!(
-        permissions["ask"],
-        json!(["mcp__termf__do_action"]),
-        "only the screens' actions, each asked"
-    );
+    assert_eq!(permissions["ask"], Value::Null);
     for tool in [
         "Bash",
         "PowerShell",
@@ -1410,8 +1441,8 @@ fn the_expert_searches_the_memory_and_other_roles_only_ask_it() {
     let settings: Value = serde_json::from_str(arg_after(&args, "--settings").unwrap()).unwrap();
     assert_eq!(
         settings["permissions"],
-        json!({"allow": ["mcp__termf__actions"], "ask": ["mcp__termf__do_action"]}),
-        "a panel conversation keeps its own tools, and asks before each action"
+        json!({"allow": ["mcp__termf__actions", "mcp__termf__do_action"]}),
+        "a panel conversation keeps its own tools; TermF's own card decides each action"
     );
     assert!(!args.contains(&"--restricted".into()));
 

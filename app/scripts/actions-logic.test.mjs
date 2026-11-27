@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Approved, canon, forAgent, newMaster, noVault, refused, secretMissing, secretsOf, takeWait, vaultBlock, vaultNeeds } from "../src/lib/actions-logic.ts";
+import { claudeSettingOf, forAgent, newMaster, noVault, refused, secretMissing, secretsOf, takeWait, vaultBlock, vaultNeeds, withoutCard } from "../src/lib/actions-logic.ts";
+
+test("an agent reads Claude Code's settings by name, the value of a few harmless ones only", () => {
+  assert.deepEqual(claudeSettingOf({ key: "model", value: "opus", scope: "user" }), { key: "model", value: "opus", scope: "user" });
+  for (const key of ["env.REDIS_PASS", "env.SENTRY_DSN", "env.K", "apiKeyHelper", "permissions.allow", "hooks.PreToolUse"])
+    assert.deepEqual(claudeSettingOf({ key, value: "s3cret", scope: "user" }), { key, scope: "user" }, key);
+});
 
 const add = {
   id: "ops.add_connection",
@@ -51,16 +57,17 @@ test("the card asks only the secrets these arguments need", () => {
   assert.deepEqual(secretsOf({ ...add, asks: undefined }, {}), ["password"]);
 });
 
-test("what the permission card approved runs once, with what the user typed, whatever the keys' order", () => {
-  assert.equal(canon({ b: 1, a: [{ d: 2, c: null }] }), canon({ a: [{ c: null, d: 2 }], b: 1 }));
-  const approved = new Approved(1000);
-  approved.keep(4, "ops.add_connection", { name: "acme-prod", kind: "mysql" }, { password: "s3cret" }, 0);
-  assert.equal(approved.take(5, "ops.add_connection", { kind: "mysql", name: "acme-prod" }, 10), undefined, "another conversation");
-  assert.equal(approved.take(4, "ops.add_connection", { kind: "mysql", name: "acme-other" }, 10), undefined, "other arguments");
-  assert.deepEqual(approved.take(4, "ops.add_connection", { kind: "mysql", name: "acme-prod" }, 10), { password: "s3cret" });
-  assert.equal(approved.take(4, "ops.add_connection", { kind: "mysql", name: "acme-prod" }, 20), undefined, "taken once");
-  approved.keep(4, "ci.rerun", { run: 1 }, {}, 0);
-  assert.equal(approved.take(4, "ci.rerun", { run: 1 }, 2000), undefined, "too late");
+test("a read runs without a card; a change once allowed in the conversation, unless its card asks something", () => {
+  const spec = (id) => ({ id, description: "", fields: {} });
+  assert.ok(withoutCard(spec("ops.test_connection"), {}, []));
+  assert.equal(forAgent(spec("ops.test_connection")).readOnly, true, "the agent knows it runs at once");
+  assert.equal(forAgent(spec("ops.save_query")).readOnly, undefined);
+  assert.ok(!withoutCard(spec("ops.save_query"), {}, []));
+  assert.ok(withoutCard(spec("ops.save_query"), {}, ["ops.save_query"]));
+  assert.ok(!withoutCard(add, { name: "acme-prod", kind: "mysql" }, ["ops.add_connection"]), "its password is typed in the card");
+  assert.ok(withoutCard(add, { name: "acme-box", kind: "ssh" }, ["ops.add_connection"]));
+  assert.ok(!withoutCard(spec("vault.delete_secret"), {}, ["vault.delete_secret"]), "never allowed for the conversation");
+  assert.ok(!withoutCard(spec("ops.something_new"), {}, ["ops.something_new"]), "an action nobody classified asks every time");
 });
 
 test("a new vault's master password is typed twice in the card, never given by the agent", () => {

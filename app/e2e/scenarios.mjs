@@ -1220,7 +1220,10 @@ export const scenarios = [
       await s.exec(() => [...document.querySelectorAll("[data-ask] header button")].find((b) => b.textContent.trim() === "Expand").click());
       await s.waitGone("[data-ask] aside");
       await s.wait(async () => (await s.text(t.shown("conversations")))?.includes("from CI/CD"), { what: "the conversation from CI/CD" });
-      check((await s.exec(() => document.querySelector('[data-panel="conversations"] .user')?.textContent)) === "Why does the build fail?", "not the panel's conversation");
+      // The list shows the conversation before its messages are loaded.
+      await s.wait(async () => (await s.exec(() => document.querySelector('[data-panel="conversations"] .user')?.textContent)) === "Why does the build fail?", {
+        what: "the panel's conversation",
+      });
       await t.clean();
     },
   },

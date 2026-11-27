@@ -173,6 +173,12 @@ export function runsOn(recipe: Recipe, c: Connection): boolean {
   return recipe.connection ? recipe.connection === c.name : recipe.run.some((v) => v.kind === c.kind);
 }
 
+/** Where a connection goes, its tunnel's server and port included: where a test sends its secrets. */
+export function route(c: Connection, all: Connection[], depth = 0): string {
+  const via = c.via && depth < 5 ? all.find((x) => x.name === c.via) : undefined;
+  return JSON.stringify([c.kind, c.host, c.port, c.user, c.jump, c.database, via ? route(via, all, depth + 1) : (c.via ?? null)]);
+}
+
 /** Where a connection reaches, as TermF's cards say it (`Connection::target`). */
 export function target(c: Connection, all: Connection[]): string {
   const at = (user: string | undefined, host: string) => (user ? `${user}@${host}` : host);
