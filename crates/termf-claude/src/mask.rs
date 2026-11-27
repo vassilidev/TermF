@@ -88,7 +88,17 @@ pub fn secret_key(key: &str) -> bool {
     if NOT_A_SECRET.contains(&last.as_str()) {
         return false;
     }
-    words.iter().any(|w| SECRET_WORDS.contains(&w.as_str()))
+    // `DB_PASS`, `PGPASSWORD`, `?key=`: a word, or the end of one, that names a key or a password.
+    let named = |w: &String| {
+        ["key", "pass"].contains(&w.as_str())
+            || (["password", "passwd", "pass"]
+                .iter()
+                .any(|s| w.ends_with(s))
+                && w != "bypass")
+    };
+    words
+        .iter()
+        .any(|w| SECRET_WORDS.contains(&w.as_str()) || named(w))
         || words.windows(2).any(|pair| {
             SECRET_PAIRS
                 .iter()
@@ -286,6 +296,9 @@ mod tests {
             "DB_PASSWORD",
             "AWS_SECRET_ACCESS_KEY",
             "auth_token",
+            "PGPASSWORD",
+            "DB_PASS",
+            "key",
         ] {
             assert!(secret_key(key), "{key}");
         }
@@ -297,6 +310,8 @@ mod tests {
             "model",
             "NODE_ENV",
             "awsAuthRefresh",
+            "bypassPermissions",
+            "KEY_FILE",
         ] {
             assert!(!secret_key(key), "{key}");
         }

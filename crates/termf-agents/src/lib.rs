@@ -89,6 +89,8 @@ pub struct Launch<'a> {
     pub policy: Option<&'a Path>,
     /// The session's own folder for this process, whose path marks it (`ours`).
     pub dir: &'a Path,
+    /// The settings that keep the project's connectors in their bounds (`termf_library::connectors::session`).
+    pub connectors: &'a Value,
 }
 
 /// What a session runs with. Empty values mean the agent's default.
@@ -150,6 +152,10 @@ pub struct SessionSpec {
     /// `--add-dir`: other folders its tools may reach, such as the other repositories of a team's run.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub add_dirs: Vec<PathBuf>,
+    /// `--strict-mcp-config`: no MCP server but TermF's, no connector: a step of a run that read prod (the trifecta
+    /// rule).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub strict_mcp: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]

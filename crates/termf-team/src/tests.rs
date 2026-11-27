@@ -1758,6 +1758,15 @@ fn a_step_is_told_its_skills_and_reads_without_asking() {
         None,
         "once the run read prod, its next steps ask for each command, its tests included"
     );
+    assert!(
+        env.team.inner.tainted(&run)
+            && env
+                .team
+                .inner
+                .disallowed(&run, 0)
+                .contains(&"WebFetch".to_owned()),
+        "and its next sessions load no MCP server but TermF's, the web denied"
+    );
 }
 
 /// A common word of a skill's name (`from`, `with`, `code`, `page`, `home`) names no skill; its other parts do.

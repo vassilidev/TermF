@@ -112,17 +112,27 @@ pub fn materialize(
         )?;
     }
     // The project's MCP servers come with the plugin: nothing is written in the repositories or in `~/.claude`.
-    let servers = scope
-        .project
-        .as_deref()
-        .map(|p| crate::mcp_servers(config_dir, p))
-        .unwrap_or_default();
+    let project = scope.project.as_deref();
+    let role = scope.role.as_deref();
+    let servers = crate::connectors::plugin_servers(config_dir, project, role);
     if !servers.is_empty() {
-        let config = serde_json::json!({ "mcpServers": servers });
-        write_file(
-            &plugin.join(".mcp.json"),
-            serde_json::to_string_pretty(&config)?.as_bytes(),
-        )?;
+        let file = plugin.join(".mcp.json");
+        // Next to the servers TermF put there before (a tile's browser).
+        let mut config: Value = fs::read_to_string(&file)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .filter(|c: &Value| c["mcpServers"].is_object())
+            .unwrap_or_else(|| json!({ "mcpServers": {} }));
+        if let Some(all) = config["mcpServers"].as_object_mut() {
+            all.extend(servers);
+        }
+        write_file(&file, serde_json::to_string_pretty(&config)?.as_bytes())?;
+    }
+    let connectors = crate::connectors::given(config_dir, project, role, false);
+    let connectors = crate::connectors::frame(&connectors);
+    if !connectors.is_empty() {
+        prompt.push_str(&connectors);
+        prompt.push_str("\n\n");
     }
     let manifest = plugin.join(".claude-plugin/plugin.json");
     if plugin.is_dir() && !manifest.exists() {

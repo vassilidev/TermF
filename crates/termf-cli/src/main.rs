@@ -307,6 +307,24 @@ fn main() -> ExitCode {
     if let ["guard", rest @ ..] = args.as_slice() {
         return tickets::guard(rest);
     }
+    // A hook of a session that gets the project's connectors (`termf_library::connectors::hook`).
+    if let ["connector-guard", rest @ ..] = args.as_slice() {
+        let mut input = String::new();
+        let _ = std::io::stdin().read_to_string(&mut input);
+        return match termf_library::connectors::hook(&input, rest) {
+            Ok(answer) => {
+                if let Some(answer) = answer {
+                    println!("{answer}");
+                }
+                ExitCode::SUCCESS
+            }
+            // Claude Code reads exit code 2 of a `PreToolUse` hook as a refusal, whatever else happens.
+            Err(why) => {
+                eprintln!("{why}");
+                ExitCode::from(2)
+            }
+        };
+    }
     if let Ok(config_dir) = termf_core::default_config_dir() {
         termf_core::agent_env::configure(config_dir, env::current_exe().ok());
     }

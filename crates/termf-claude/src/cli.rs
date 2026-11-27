@@ -89,7 +89,7 @@ pub(crate) fn failure(out: &Output) -> String {
     mask::mask_text(&termf_core::process::excerpt(text))
 }
 
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Serialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum Health {
     Connected,
@@ -196,15 +196,18 @@ pub fn parse_mcp_get(text: &str) -> (Map<String, Value>, Option<String>) {
     (details, scope)
 }
 
+/// `claude mcp list` alone: each server and its health, the account's connectors (`claude.ai …`) included.
+pub fn mcp_list(env: &Env) -> Result<Vec<McpServer>> {
+    let out = claude(env, &["mcp", "list"], SLOW)?;
+    if !out.ok {
+        bail!("{}", failure(&out));
+    }
+    Ok(parse_mcp_list(&out.stdout))
+}
+
 pub fn mcp(env: &Env) -> Mcp {
-    let out = match claude(env, &["mcp", "list"], SLOW) {
-        Ok(out) if out.ok => out,
-        Ok(out) => {
-            return Mcp {
-                servers: Vec::new(),
-                error: Some(failure(&out)),
-            };
-        }
+    let mut servers = match mcp_list(env) {
+        Ok(servers) => servers,
         Err(e) => {
             return Mcp {
                 servers: Vec::new(),
@@ -212,7 +215,6 @@ pub fn mcp(env: &Env) -> Mcp {
             };
         }
     };
-    let mut servers = parse_mcp_list(&out.stdout);
     // `claude mcp get` checks the server again: a few at a time.
     for chunk in servers.chunks_mut(4) {
         std::thread::scope(|s| {

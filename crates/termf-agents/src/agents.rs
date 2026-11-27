@@ -59,6 +59,9 @@ struct Inner {
     /// The `termf` CLI, for the sessions whose Bash commands go through its `guard`, and for `agent-env`.
     guard: OnceLock<PathBuf>,
     secrets: OnceLock<Secrets>,
+    keys: OnceLock<Keys>,
+    /// Whether the `termf` CLI answers as a `connector-guard` (`termf_library::connectors::guard_works`), asked once.
+    guard_ok: OnceLock<bool>,
     /// By session, the vault's values its process got: masked in what it reports.
     hidden: Mutex<HashMap<i64, Vec<String>>>,
     /// By session, the end of the streamed text not sent yet: it may be the start of one of those values.
@@ -67,6 +70,10 @@ struct Inner {
 
 /// What the vault gives a process of a session (its id, its project): `[agents.secrets]`.
 type Secrets = Box<dyn Fn(i64, Option<&str>) -> Given + Send + Sync>;
+
+/// What the vault gives the project's MCP servers a session of a role gets (its id, its project, the keys
+/// `${MCP_<NAME>_…}` they name): put in its plugin's `.mcp.json`, never in its environment.
+type Keys = Box<dyn Fn(i64, &str, &[String]) -> Given + Send + Sync>;
 
 /// The variables a session's process gets from the vault, and what to tell it when some are missing.
 #[derive(Default)]
@@ -153,6 +160,8 @@ impl Agents {
                 mcp: OnceLock::new(),
                 guard: OnceLock::new(),
                 secrets: OnceLock::new(),
+                keys: OnceLock::new(),
+                guard_ok: OnceLock::new(),
                 hidden: Mutex::default(),
                 held: Mutex::default(),
             }),
@@ -197,6 +206,12 @@ impl Agents {
         given: impl Fn(i64, Option<&str>) -> Given + Send + Sync + 'static,
     ) {
         let _ = self.inner.secrets.set(Box::new(given));
+    }
+
+    /// What gives the project's MCP servers of a session's role their keys from the vault. Set once; without it,
+    /// a server that needs one is left out.
+    pub fn serve_keys(&self, keys: impl Fn(i64, &str, &[String]) -> Given + Send + Sync + 'static) {
+        let _ = self.inner.keys.set(Box::new(keys));
     }
 
     /// A new session with no process yet: its first message starts one.
@@ -961,13 +976,34 @@ impl Inner {
             false => session.spec.add_dirs.clone(),
         };
         let tools = crate::mcp_tools(&session.spec);
+        let project = session.spec.project.clone().or_else(|| {
+            termf_core::project_of(&self.config_dir, &session.spec.cwd)
+                .ok()
+                .flatten()
+        });
+        let spec = &session.spec;
+        let guard_cli = self.guard.get().filter(|termf| {
+            *self
+                .guard_ok
+                .get_or_init(|| termf_library::connectors::guard_works(termf))
+        });
+        // After a prod read, a step gets no connector at all.
+        let connectors = termf_library::connectors::session(
+            &self.config_dir,
+            project.as_deref(),
+            spec.role.as_deref().filter(|_| !spec.strict_mcp),
+            spec.mcp || spec.strict_mcp,
+            tools.iter().any(|t| ipc::MCP_OPS.contains(t)),
+            guard_cli.map(PathBuf::as_path),
+        );
+        let keyed = self.fill_keys(id, &plugin, project.as_deref(), &connectors.keyed);
         let mcp = if tools.is_empty() {
             None
         } else if session.spec.mcp {
-            Some(self.mcp_config(id, &dir, &tools)?)
+            Some(self.mcp_config(id, &dir, &tools, &connectors.servers)?)
         } else {
             // A role that may ask the expert still works without it, e.g. with no app to serve the tool.
-            self.mcp_config(id, &dir, &tools).ok()
+            self.mcp_config(id, &dir, &tools, &connectors.servers).ok()
         };
         let args = runtime.headless_args(
             &session.spec,
@@ -983,16 +1019,12 @@ impl Inner {
                 guard,
                 policy: policy.as_deref(),
                 dir: &dir,
+                connectors: &connectors.settings,
             },
         );
         let args: Vec<String> = args.iter().map(|a| shell_quote(a)).collect();
         let mut line = format!("{command} {}", args.join(" "));
         let tool = Tool::of(&command);
-        let project = session.spec.project.clone().or_else(|| {
-            termf_core::project_of(&self.config_dir, &session.spec.cwd)
-                .ok()
-                .flatten()
-        });
         let policy = agent_env::load(&self.config_dir, project.as_deref());
         let given = match (self.secrets.get(), session.spec.mcp) {
             (Some(secrets), false) => secrets(id, project.as_deref()),
@@ -1012,6 +1044,7 @@ impl Inner {
             ));
         }
         set.extend(given.vars.iter().cloned());
+        set.extend(connectors.env.iter().cloned());
         let names: Vec<String> = set.iter().map(|(k, _)| k.clone()).collect();
         let wrapped = policy.wrap(
             &line,
@@ -1040,10 +1073,10 @@ impl Inner {
             cmd.env(agent_env::SPEC, spec);
         }
         policy.apply(&mut cmd, tool);
-        if let Some(note) = given.note {
+        for note in [given.note, keyed.note].into_iter().flatten() {
             self.record(store, id, AgentEvent::Error { message: note });
         }
-        let hidden = given.vars.into_iter().map(|(_, v)| v);
+        let hidden = given.vars.into_iter().chain(keyed.vars).map(|(_, v)| v);
         let hidden = hidden.filter(|v| v.chars().count() >= 4).collect();
         self.hidden.lock().unwrap().insert(id, hidden);
         // Its own process group, so stopping it also stops what it started.
@@ -1247,6 +1280,7 @@ impl Inner {
         id: i64,
         dir: &Path,
         tools: &[&str],
+        connectors: &serde_json::Map<String, Value>,
     ) -> Result<(PathBuf, Value, Option<String>)> {
         let mcp = self
             .mcp
@@ -1274,7 +1308,9 @@ impl Inner {
         options.write(true).create_new(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let config = json!({ "mcpServers": { "termf": server } });
+        let mut servers = connectors.clone();
+        servers.insert("termf".into(), server.clone());
+        let config = json!({ "mcpServers": servers });
         options
             .open(&file)
             .and_then(|mut f| f.write_all(config.to_string().as_bytes()))
@@ -1283,12 +1319,58 @@ impl Inner {
         Ok((file, server, token))
     }
 
-    /// Voids the token of the session's `termf mcp` and removes its config: no process of it runs any more.
+    /// Voids the token of the session's `termf mcp` and removes its configs, the plugin's with the vault's keys
+    /// included: no process of it runs any more.
     fn end_mcp(&self, id: i64, dir: &Path) {
         if let Some(mcp) = self.mcp.get() {
             (mcp.revoke)(id);
         }
         let _ = fs::remove_file(dir.join("mcp.json"));
+        let _ = fs::remove_file(dir.join("plugin/.mcp.json"));
+    }
+
+    /// Puts the vault's keys in the servers `names` of the session's plugin (`.mcp.json`, written again in 0600,
+    /// removed with the process): a server whose key the vault does not give is left out, and the session told.
+    /// Returns the keys given, to mask in what the session reports.
+    fn fill_keys(&self, id: i64, plugin: &Path, project: Option<&str>, names: &[String]) -> Given {
+        let file = plugin.join(".mcp.json");
+        let config: Option<Value> = fs::read_to_string(&file)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok());
+        let (Some(mut config), Some(project), false) = (config, project, names.is_empty()) else {
+            return Given::default();
+        };
+        let Some(servers) = config["mcpServers"].as_object_mut() else {
+            return Given::default();
+        };
+        let wanted = termf_library::connectors::keys_of(servers, names);
+        let given = match self.keys.get() {
+            Some(keys) => keys(id, project, &wanted),
+            None => Given::default(),
+        };
+        let dropped = termf_library::connectors::fill(servers, names, &given.vars);
+        let note = (!dropped.is_empty()).then(|| {
+            format!(
+                "TermF: this session started without {}: their keys are not in the vault, or it is locked.",
+                dropped.join(", ")
+            )
+        });
+        let written = fs::remove_file(&file).and_then(|()| {
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+            options
+                .open(&file)?
+                .write_all(config.to_string().as_bytes())
+        });
+        if written.is_err() {
+            let _ = fs::remove_file(&file);
+        }
+        Given {
+            vars: given.vars,
+            note: note.or(given.note),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

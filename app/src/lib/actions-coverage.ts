@@ -82,6 +82,8 @@ export const READS: string[] = [
   "claude_usage",
   "cli_state",
   "config_import_preview",
+  "connectors_account",
+  "connectors_list",
   "context_settings",
   "conventions_impact",
   "conventions_list",
@@ -260,6 +262,10 @@ export const EXCLUDED: [why: string, commands: string[]][] = [
   [
     "What agents may reach is changed by an agent only through the sensitive settings the user confirms every time (settings.set_sensitive, settings.claude_code, settings.claude_mcp); a repository's raw .mcp.json, a vault key taken back from agents, and Remote Control switched on a tile or cut everywhere stay the user's gestures.",
     ["claude_mcp_json_save", "agentenv_revoke", "remote_set", "remote_cut_all"],
+  ],
+  [
+    "A project's connectors widen what its agents reach (mails, calendars, MCP servers): the user ticks them in the project's Configuration, never an agent.",
+    ["connectors_save", "connectors_remove"],
   ],
   [
     "Files, Claude Code's own included (CLAUDE.md, memory, commands, agents): an agent edits them with its own tools, under Claude Code's permissions.",

@@ -765,6 +765,7 @@ mod tests {
             guard: None,
             policy: None,
             dir: &tmp,
+            connectors: &Value::Null,
         };
         let first = Codex.headless_args(&spec, &launch(false));
         assert_eq!(

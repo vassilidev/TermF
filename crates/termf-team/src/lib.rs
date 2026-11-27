@@ -4457,9 +4457,11 @@ impl Inner {
         let old = self.agents.session(session)?;
         ensure!(old.spec.cwd == path, "its session worked elsewhere");
         let denied = self.disallowed(run, i);
+        let tainted = self.tainted(run);
         self.agents.respec(session, |spec| {
             // A session's budget counts what it spent: what it may spend from now on comes on top.
             spec.budget = budget.map(|b| old.cost + b);
+            spec.strict_mcp |= tainted;
             for tool in denied {
                 if !spec.disallowed_tools.contains(&tool) {
                     spec.disallowed_tools.push(tool);
@@ -4970,6 +4972,7 @@ impl Inner {
             permission_mode: (!has(&["permission_mode", "permissionMode"]))
                 .then(|| "acceptEdits".into()),
             disallowed_tools: self.disallowed(run, i),
+            strict_mcp: self.tainted(run),
             // The ticket is untrusted, as in a ticket run's tile: the same hook refuses what `DENIED` misses.
             guard: true,
             read_freely: self.read_freely(run, i, &cwd)?,
@@ -5078,13 +5081,19 @@ impl Inner {
             } else {
                 &[]
             })
-            .chain(if termf_core::taint::run(&self.data_dir, run.target.run) {
+            .chain(if self.tainted(run) {
                 termf_core::taint::EGRESS_DENY
             } else {
                 &[]
             })
             .map(|d| d.to_string())
             .collect()
+    }
+
+    /// A recipe read prod for the run: its next sessions load no MCP server but TermF's (`strict_mcp`), since
+    /// every other one's calls leave the machine.
+    fn tainted(&self, run: &TeamRun) -> bool {
+        termf_core::taint::run(&self.data_dir, run.target.run)
     }
 
     /// The most turns a step of `size` takes: `[team] max_turns.<size>` of the project's file, else of

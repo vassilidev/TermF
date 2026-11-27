@@ -9,6 +9,7 @@
   import X from "@lucide/svelte/icons/x";
   import ClaudeTrust from "$lib/ClaudeTrust.svelte";
   import MemorySettings from "$lib/MemorySettings.svelte";
+  import ProjectConnectors from "$lib/ProjectConnectors.svelte";
   import OnboardingJournal from "$lib/OnboardingJournal.svelte";
   import RepoCard from "$lib/RepoCard.svelte";
   import RemoteSettings from "$lib/RemoteSettings.svelte";
@@ -456,6 +457,11 @@
             <TeamSquads project={id} />
             <TeamRoles project={id} />
             <TeamDecisions project={id} />
+          </section>
+
+          <section class="sec" hidden={current !== "connectors"} aria-labelledby="config-connectors">
+            <!-- Only once shown: it asks Claude Code to check its servers. -->
+            {#if current === "connectors"}<ProjectConnectors project={id} />{/if}
           </section>
 
           <!-- The Library's own editor, read again when the repositories change. -->

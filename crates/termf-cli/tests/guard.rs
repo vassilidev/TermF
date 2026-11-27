@@ -473,3 +473,52 @@ fn a_session_that_read_prod_runs_nothing_unasked_not_even_its_tests() {
     }
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// `termf connector-guard`, the hook of a session that gets a project's connectors: it answers the probe TermF runs
+/// before trusting it, refuses a write and a call it cannot read, and lets a read run.
+#[test]
+fn the_connector_guard_refuses_what_it_cannot_read() {
+    let termf = Path::new(env!("CARGO_BIN_EXE_termf"));
+    assert!(termf_library::connectors::guard_works(termf));
+    assert!(!termf_library::connectors::guard_works(Path::new(
+        "/usr/bin/true"
+    )));
+    let run = |input: &str| -> (i32, String) {
+        let mut child = Command::new(termf)
+            .args(["connector-guard", "pre", "--account", "claude_ai_Gmail=ro"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+        )
+    };
+    let decision = |out: &str| {
+        serde_json::from_str::<Value>(out.trim()).unwrap_or_default()["hookSpecificOutput"]["permissionDecision"]
+            .as_str()
+            .map(str::to_owned)
+    };
+    assert_eq!(run("not json").0, 2, "a call it cannot read is refused");
+    assert_eq!(run(r#"{"hook_event_name":"PreToolUse"}"#).0, 2);
+    let call = |tool: &str| json!({"hook_event_name": "PreToolUse", "tool_name": tool}).to_string();
+    let (code, out) = run(&call("mcp__claude_ai_Gmail__send_message"));
+    assert_eq!((code, decision(&out).as_deref()), (0, Some("deny")));
+    let (code, out) = run(&call("mcp__claude_ai_Slack__slack_send_message"));
+    assert_eq!(
+        (code, decision(&out).as_deref()),
+        (0, Some("deny")),
+        "not given to this role"
+    );
+    let (code, out) = run(&call("mcp__claude_ai_Gmail__search_threads"));
+    assert_eq!((code, decision(&out).as_deref()), (0, Some("allow")));
+}

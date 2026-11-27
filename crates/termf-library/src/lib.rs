@@ -19,6 +19,7 @@ pub mod archive;
 #[cfg(test)]
 mod catalog;
 mod claude;
+pub mod connectors;
 pub mod conventions;
 mod roles;
 pub mod scout;
