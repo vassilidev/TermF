@@ -3,6 +3,12 @@
 What changed from one release of TermF to the next, by feature. Every feature has its page on the
 [website](https://vassilidev.github.io/TermF/features.html), with its defaults and its limits.
 
+## 0.6.1
+
+- **Every dependency to devops in one go.** The dependency table gets **Hand all N to devops**: every line shown,
+  filter and search included, goes to devops in one conversation, one line attached per package, to update one by
+  one with the tests run after each.
+
 ## 0.6.0
 
 TermF 0.6.0 maps your stack: the project's repositories, how they connect, and every dependency with its latest

@@ -28,6 +28,7 @@ For each direct dependency: the version used, the **Latest**, the kind of update
 
 - **A safe update**, within the same major version, opens a card with the command and the vulnerabilities it fixes. **Run in a terminal** types it in a TermF terminal of the repository, such as `pnpm add vite@5.4.11`, `composer require` or `cargo update --precise`. Run the repository's tests before you commit.
 - **A major update**, a runtime at the end of its support, or a `requirements.txt` goes to devops: **Hand to devops** opens its conversation with the line attached.
+- **Hand all N to devops** gives every line shown (filter and search included) to devops in one conversation, one line attached per package.
 
 > [!NOTE]
 > Not yet tried in the real app or against the real registries: the shape of the answers of the registries, OSV.dev and endoflife.date was checked by hand. Maven, Gradle, .NET, Swift, pub and a binary `bun.lockb` are not read yet. The severity is GitHub's level, with no CVSS score, and a major version of a Go module, which is another module, is never proposed.
