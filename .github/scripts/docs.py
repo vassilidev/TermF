@@ -199,7 +199,7 @@ def figure(name, alt, caption):
     def src(theme):
         return f"../shots/{name}-{theme}-800.webp 800w, ../shots/{name}-{theme}.webp 1600w"
     sizes = "(max-width: 900px) 100vw, 760px"
-    pic = (f'<picture><source media="(prefers-color-scheme: dark)" srcset="{src("dark")}" sizes="{sizes}">'
+    pic = (f'<picture><source media="not all" srcset="{src("dark")}" sizes="{sizes}">'
            f'<img src="../shots/{name}-light.webp" srcset="{src("light")}" sizes="{sizes}" width="1600" height="1000" loading="lazy" decoding="async" alt="{esc(alt)}"></picture>')
     cap = f"<figcaption>{esc(caption)}</figcaption>" if caption else ""
     return f'<figure class="shot">{pic}{cap}</figure>'
@@ -383,9 +383,8 @@ def head(title, desc, url, prefix, ld=""):
 <meta name="twitter:description" content="{esc(desc)}">
 <meta name="twitter:image" content="{BASE}og.png">
 <meta name="twitter:image:alt" content="{OG_ALT}">
-<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#1a1a19" media="(prefers-color-scheme: dark)">
-<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fbfbfd">
+<meta name="color-scheme" content="light">
 <link rel="icon" type="image/svg+xml" href="{prefix}icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="{prefix}favicon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="{prefix}apple-touch-icon.png">
@@ -417,10 +416,10 @@ const setSide = open => { document.body.classList.toggle('side-open', open); sid
 sideBtn.addEventListener('click', () => setSide(!document.body.classList.contains('side-open')));
 document.querySelector('.scrim').addEventListener('click', () => setSide(false));
 const themeBtn = document.querySelector('.theme');
-const dark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+const dark = () => root.dataset.theme === 'dark';
 const syncTheme = () => {
   themeBtn.setAttribute('aria-label', dark() ? 'Switch to light theme' : 'Switch to dark theme');
-  for (const s of document.querySelectorAll('picture source')) s.media = root.dataset.theme ? (dark() ? 'all' : 'not all') : '(prefers-color-scheme: dark)';
+  for (const s of document.querySelectorAll('picture source')) s.media = dark() ? 'all' : 'not all';
 };
 themeBtn.addEventListener('click', () => { root.dataset.theme = dark() ? 'light' : 'dark'; try { localStorage.setItem('theme', root.dataset.theme); } catch {} syncTheme(); });
 syncTheme();

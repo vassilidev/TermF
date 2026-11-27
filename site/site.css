@@ -54,27 +54,6 @@
   --icon-shadow:drop-shadow(0 1px 1px rgb(0 0 0/.4)) drop-shadow(0 12px 20px rgb(0 0 0/.5));
   --shot-shadow:drop-shadow(0 0 .5px rgb(255 255 255/.4)) drop-shadow(0 24px 28px rgb(0 0 0/.5));
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
-  color-scheme:dark;
-  --paper:#1a1a19;--sheet:#222221;--well:#1e1e1d;--ink:#ededeb;--soft:#b6b5b0;--mute:#8f8e89;
-  --line:rgb(255 255 255/.08);--line2:rgb(255 255 255/.15);--hover:rgb(255 255 255/.05);--ring:rgb(255 255 255/.1);
-  --rule:rgb(255 255 255/.06);
-  --accent:#9aa6e6;--accent-ink:#b4bdf0;--accent-soft:rgb(154 166 230/.1);
-  --indigo:#6a76d0;--fill:#4c58c0;--fill-hover:#434fb4;--team-bar:#9aa6e6;
-  --working:#9aa6e6;--working-soft:rgb(154 166 230/.14);--done:#6cc58f;--done-soft:rgb(108 197 143/.13);--waiting-ink:#2e1d00;
-  --title:linear-gradient(var(--ink),var(--ink));
-  --win-bg:#0b0b12;--win-bar:#252524;--win-bar-line:rgb(255 255 255/.07);--win-title:#9c9b96;
-  --ini-bg:#2a2a28;
-  --code:#151514;--code-ink:#e4e4e0;--code-mute:#96958f;--code-line:rgb(255 255 255/.08);
-  --c-cto:#9aa6e6;--c-product:#bea5e8;--c-build:#86b8e2;--c-quality:#6cc58f;--c-creative:#e69ab4;--c-specialists:#dfae5a;
-  --shadow:0 1px 2px rgb(0 0 0/.3),0 12px 32px -16px rgb(0 0 0/.6);
-  --card:inset 0 0 0 1px var(--line),0 1px 2px rgb(0 0 0/.2);
-  --lift:0 1px 2px rgb(0 0 0/.3),0 24px 48px -28px rgb(0 0 0/.7);
-  --agent-on:inset 0 0 0 1px rgb(154 166 230/.6),0 0 0 4px rgb(154 166 230/.1);
-  --icon-shadow:drop-shadow(0 1px 1px rgb(0 0 0/.4)) drop-shadow(0 12px 20px rgb(0 0 0/.5));
-  --shot-shadow:drop-shadow(0 0 .5px rgb(255 255 255/.4)) drop-shadow(0 24px 28px rgb(0 0 0/.5));
-}}
-
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%;scroll-padding-top:calc(var(--nav) + 20px);scrollbar-color:var(--line2) transparent}
 body{margin:0;background:var(--paper);color:var(--ink);font:400 1.0625rem/1.6 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:clip}
@@ -125,14 +104,12 @@ p{margin:0 0 1em;text-wrap:pretty}
 
 /* The dark theme has no glow and no grid behind the hero, the film, the cards and the download */
 :root[data-theme=dark] :is(.hero,.film,.card-vis,.last,.dl-card,.lost)::before,:root[data-theme=dark] .hero::after{display:none}
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]) :is(.hero,.film,.card-vis,.last,.dl-card,.lost)::before,:root:not([data-theme=light]) .hero::after{display:none}}
 
 .theme{display:grid;place-items:center;width:44px;height:44px;border:0;border-radius:10px;background:none;color:var(--soft);cursor:pointer}
 .theme:hover{background:var(--hover);color:var(--ink)}
 .theme .i+.i{display:none}
 :root[data-theme=dark] .theme .i{display:none}
 :root[data-theme=dark] .theme .i+.i{display:block}
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .theme .i{display:none}:root:not([data-theme=light]) .theme .i+.i{display:block}}
 
 /* The top bar of the site and of the docs */
 .nav,.top{position:sticky;top:0;z-index:40;border-bottom:1px solid var(--rule);background:color-mix(in srgb,var(--paper) 86%,transparent);-webkit-backdrop-filter:saturate(1.5) blur(14px);backdrop-filter:saturate(1.5) blur(14px)}
