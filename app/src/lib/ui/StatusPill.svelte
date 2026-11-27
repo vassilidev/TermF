@@ -45,6 +45,7 @@
 
   /** The state's family of color: "working", "waiting", "done", "failed", or "" for a neutral one. */
   export const toneOf = (status: Status): Tone => statuses[status][2];
+  export const labelOf = (status: Status): string => t(statuses[status][0]);
 </script>
 
 <script lang="ts">
