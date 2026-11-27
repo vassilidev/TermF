@@ -5994,6 +5994,12 @@ const fr = {
   obmSyncRepos: "{n} dépôt(s) de tes projets manquent ici : Synchronisation chiffrée propose de les cloner.",
   obmResumeText: "Il reste à préparer cette machine : {steps}.",
   obmResume: "Reprendre",
+  // Multi-repository projects: one choice of repository for every view, and all of them at once.
+  mrAll: "Tous les dépôts",
+  mrOpenPrs: "PR ouvertes : {count}",
+  mrDesignTokens: "Tokens : {count}",
+  mrDesignComponents: "Composants : {count}",
+  mrDesignIssues: "Incohérences : {count}",
 };
 
 type Key = keyof typeof fr;
@@ -11953,6 +11959,12 @@ const en: Record<Key, string> = {
   obmSyncRepos: "{n} repositories of your projects are missing here: Encrypted sync offers to clone them.",
   obmResumeText: "This machine is not fully set up yet: {steps}.",
   obmResume: "Resume",
+  // Multi-repository projects: one choice of repository for every view, and all of them at once.
+  mrAll: "All repositories",
+  mrOpenPrs: "Open PRs: {count}",
+  mrDesignTokens: "Tokens: {count}",
+  mrDesignComponents: "Components: {count}",
+  mrDesignIssues: "Inconsistencies: {count}",
 };
 
 const messages = { fr, en };

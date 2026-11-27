@@ -25,6 +25,7 @@
     isMac,
     openExternal,
     refreshStatus,
+    shownRepos,
     tabKey,
     type Content,
     type Stamp,
@@ -255,7 +256,7 @@
     {/if}
   {/if}
 
-  {#if !tab && !files.repo}
+  {#if !tab && !shownRepos().length}
     {@const project = currentProject()}
     <EmptyState icon={FolderTree} title={t("noRepos")} text={t("t6bFilesNoRepo")}>
       <button class="btn" onclick={() => (project ? editProject(project.id) : newProject())}>

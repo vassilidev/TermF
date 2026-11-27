@@ -62,7 +62,7 @@ import { ask, askAI, askedProject, currentRole, expand, panelShown, screenRole, 
 import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
 import { terminalReady } from "$lib/Terminal.svelte";
 import { t } from "$lib/i18n";
-import { allRepos, files, scopeRepos, showFiles } from "$lib/files.svelte";
+import { allRepos, files, scopeRepos, showFiles, shownRepos } from "$lib/files.svelte";
 import { display, keys, pressed } from "$lib/keymap.svelte";
 import { library, showLibrary } from "$lib/library.svelte";
 import { nextAfter } from "$lib/conversation-logic";
@@ -642,7 +642,7 @@ export function commands(): Command[] {
     icon: FileSearch,
     run: () => {
       showFiles();
-      if (files.repo) files.finder = true;
+      if (shownRepos().length) files.finder = true;
     },
   });
   for (const layout of app.layouts) {

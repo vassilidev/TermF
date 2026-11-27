@@ -11,6 +11,7 @@
   import ContextChips from "$lib/ContextChips.svelte";
   import Conversation from "$lib/Conversation.svelte";
   import GitProposal from "$lib/GitProposal.svelte";
+  import RepoTag from "$lib/RepoTag.svelte";
   import Square from "@lucide/svelte/icons/square";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Banner from "$lib/ui/Banner.svelte";
@@ -356,6 +357,7 @@
               <span class="title">{session.title}</span>
               {#if pinned(session)}<Pin size={12} class="pin" aria-label={t("ctoPinned")} />{/if}
               {#if session.role && !pinned(session)}<span class="role"><UserRound size={11} aria-hidden="true" />{session.role}</span>{/if}
+              <RepoTag path={session.cwd} />
             </span>
             {#if hit}
               <span class="desc">{hit}</span>

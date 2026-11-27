@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import { chooseRepo, shownRepo } from "$lib/files.svelte";
 import { ui } from "$lib/state.svelte";
 import { t } from "$lib/i18n";
 
@@ -90,8 +91,13 @@ export const NO_ADMIN = "admin rights needed";
 export const ci = $state({
   /** Loaded once first shown, then kept mounted, like the Library view. */
   loaded: false,
-  /** The repository's path, one of the current project's. */
-  repo: "",
+  /** The views' common choice: a repository's path, "" for all of the project's. */
+  get repo() {
+    return shownRepo();
+  },
+  set repo(path: string) {
+    chooseRepo(path);
+  },
   /** The branch whose runs are shown: null until picked (the most recent one, once read), "" for runs without a branch. */
   branch: null as string | null,
   tab: "runs" as "runs" | "deploys" | "hooks" | "tools",
