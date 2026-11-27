@@ -383,7 +383,7 @@ def head(title, desc, url, prefix, ld=""):
 <meta name="twitter:description" content="{esc(desc)}">
 <meta name="twitter:image" content="{BASE}og.png">
 <meta name="twitter:image:alt" content="{OG_ALT}">
-<meta name="theme-color" content="#fbfbfd">
+<meta name="theme-color" content="#fbfbfa">
 <meta name="color-scheme" content="light">
 <link rel="icon" type="image/svg+xml" href="{prefix}icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="{prefix}favicon.png">
