@@ -320,6 +320,11 @@ pub enum AgentEvent {
         resets_at: Option<u64>,
         used: Option<f64>,
     },
+    /// What runs in the background (commands, subagents), the whole list each time it changes: empty once all
+    /// ended. Claude Code starts a turn of its own to say what each one found.
+    Background {
+        tasks: Vec<BackgroundTask>,
+    },
     TurnEnd {
         outcome: Outcome,
         /// The agent's last answer.
@@ -348,6 +353,18 @@ pub enum AgentEvent {
     HandedBack,
     /// From TermF, not from the user.
     Notice(Notice),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTask {
+    pub id: String,
+    /// As Claude Code says it: `local_bash`, `local_agent`…
+    pub kind: String,
+    pub description: String,
+    /// What a subagent does at the moment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity: Option<String>,
 }
 
 /// A message from TermF in a conversation: something waits for the user, or what the user wrote to another
@@ -403,6 +420,13 @@ impl AgentEvent {
                 if *allow { "allowed" } else { "denied" }.into()
             }
             AgentEvent::Denied { tool, message } => format!("{tool} refused: {message}"),
+            AgentEvent::Background { tasks } if tasks.is_empty() => {
+                "nothing left in the background".into()
+            }
+            AgentEvent::Background { tasks } => {
+                let all: Vec<&str> = tasks.iter().map(|t| t.description.as_str()).collect();
+                format!("in the background: {}", all.join(", "))
+            }
             AgentEvent::Limit {
                 status,
                 window,

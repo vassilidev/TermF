@@ -77,6 +77,7 @@
     fields,
     imageType,
     mentioned,
+    inBackground,
     merge,
     pending,
     questionAbout,
@@ -195,6 +196,7 @@
   /** An action TermF's own card asks the user about, no permission card having approved it. */
   const calling = $derived(agentActions.waiting.find((c) => c.session === session.id) ?? null);
   const granted = $derived(agentActions.granted[session.id] ?? []);
+  const running = $derived(inBackground(events));
   // While a card waits, what is typed is a question about it: its answer, not a decision.
   const questioning = $derived(!to && (asking !== null || calling !== null));
   // A message to another agent does not wait for the CTO's turn.
@@ -1218,6 +1220,16 @@
         {/each}
       </div>
     {/if}
+    {#if running.length}
+      <!-- Left running by the agent, which says what each found in a turn of its own. -->
+      <div class="sys background" role="status">
+        <LoaderCircle size={14} aria-hidden="true" class="spin" />
+        <span>{t("chatBackground")}</span>
+        {#each running as task (task.id)}
+          <span class="task">{task.description}{#if task.activity}<small>{task.activity}</small>{/if}</span>
+        {/each}
+      </div>
+    {/if}
     {#if thinking}
       <p class="thinking" role="status"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{t("liveThinking")}</p>
     {/if}
@@ -1787,8 +1799,24 @@
     color: var(--danger);
   }
 
-  .sys.granted {
+  .sys.granted,
+  .sys.background {
     flex-wrap: wrap;
+  }
+
+  .task {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 1px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    color: var(--text);
+  }
+
+  .task small {
+    color: var(--muted);
+    font-size: var(--text-xs);
   }
 
   .always {

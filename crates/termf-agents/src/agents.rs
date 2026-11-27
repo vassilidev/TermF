@@ -1218,6 +1218,13 @@ impl Inner {
                 entry.pending.insert(request.clone(), input.clone());
                 state = State::Waiting;
             }
+            // The turn Claude Code starts on its own once a background task ended: not the user's.
+            AgentEvent::Text { parent: None, .. } | AgentEvent::ToolUse { parent: None, .. }
+                if session.state == State::Idle && current && !runtime.per_turn() =>
+            {
+                entry.by_user = false;
+                state = State::Working;
+            }
             AgentEvent::TurnEnd {
                 outcome,
                 cost,

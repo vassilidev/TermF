@@ -18,6 +18,7 @@ export type StoredEvent = { id: number; session: number; at: number } & (
   | { kind: "permission_answer"; request: string; allow: boolean; message: string | null }
   | { kind: "denied"; tool: string; message: string }
   | { kind: "limit"; status: string; window: string | null; resetsAt: number | null; used: number | null }
+  | { kind: "background"; tasks: BackgroundTask[] }
   | {
       kind: "turn_end";
       outcome: Outcome;
@@ -34,6 +35,9 @@ export type StoredEvent = { id: number; session: number; at: number } & (
   | { kind: "handed_back" }
   | ({ kind: "notice" } & NoticeFields)
 );
+
+/** A command or subagent left running; `activity`: what a subagent does at the moment. */
+export type BackgroundTask = { id: string; kind: string; description: string; activity?: string };
 
 /** A message from TermF, not from the user: `waiting` (a gate), `blocked`, `step` or `direct` (sent to another agent), `review` (a round of the code review). */
 export type NoticeFields = {
@@ -132,8 +136,14 @@ export function merge(events: StoredEvent[], incoming: StoredEvent[]): StoredEve
 export function stream(live: string | null, e: StoredEvent): string | null {
   if (e.kind === "delta") return live === null ? null : live + e.text;
   // A usage reading can arrive mid-answer: it is no message.
-  if (e.kind === "limit") return live;
+  if (e.kind === "limit" || e.kind === "background") return live;
   return "parent" in e && e.parent ? (live ?? "") : "";
+}
+
+/** What runs in the background now: the last list Claude Code gave, none once its process ended. */
+export function inBackground(events: StoredEvent[]): BackgroundTask[] {
+  const last = events.findLast((e) => e.kind === "background" || e.kind === "exited" || e.kind === "started");
+  return last?.kind === "background" ? last.tasks : [];
 }
 
 /** The conversation by turns, a subagent's text and tool calls under the call that started it. */

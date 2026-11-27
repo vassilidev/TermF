@@ -73,6 +73,13 @@ while IFS= read -r line; do
     *budget*) result error_max_budget_usd ',"is_error":true,"terminal_reason":"budget_exhausted","errors":["Reached maximum budget ($0.05)"]' ;;
     *crash*) printf '{"type":"assistant","mess'; echo 'boom: connection lost' >&2; exit 3 ;;
     *patience*) sleep 1; answer 'Done.'; result success ;;
+    *background*)
+      say '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b1","task_type":"local_bash","description":"Run the suite"}]}'
+      answer 'Started.'; result success
+      sleep 1
+      say '{"type":"system","subtype":"background_tasks_changed","tasks":[]}'
+      say "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$sid\",\"model\":\"claude-haiku-5-5\",\"permissionMode\":\"default\"}"
+      answer 'The suite passed.'; result success ;;
     *echo-key*) answer "key=${PEXELS_API_KEY-none}"; result success ;;
     *split-key*) delta "key=px-5f"; delta "3a9c, done"; answer "key=px-5f3a9c, done"; result success ;;
     *webhooks*) answer 'Three retries: src/webhooks.rs:12, and conversation 1111 (2026-11-20).'; result success ;;
@@ -512,6 +519,44 @@ fn a_message_written_during_a_turn_goes_once_it_ends() {
         "between two turns: at once"
     );
     env.settle(id, 3, State::Idle);
+}
+
+#[test]
+fn the_turn_claude_code_starts_after_a_background_task_shows_as_work() {
+    let env = Env::new("background");
+    let id = env.agents.create(env.spec()).unwrap().id;
+    env.agents.send(id, "run it in the background").unwrap();
+    env.settle(id, 2, State::Idle);
+    let seen: Vec<String> = env
+        .updates
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|u| match u {
+            Update::Session(s) if s.id == id => Some(format!("{:?}", s.state)),
+            Update::Event(e)
+                if e.session == id && matches!(e.event, AgentEvent::TurnEnd { .. }) =>
+            {
+                Some("end".into())
+            }
+            _ => None,
+        })
+        .collect();
+    let first = seen.iter().position(|s| s == "end").unwrap();
+    assert!(
+        seen[first..].iter().any(|s| s == "Working"),
+        "working again for the second turn: {seen:?}"
+    );
+    assert!(!env.agents.turn_by_user(id), "the user did not start it");
+    let tasks: Vec<usize> = env
+        .events(id)
+        .into_iter()
+        .filter_map(|e| match e {
+            AgentEvent::Background { tasks } => Some(tasks.len()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tasks, [1, 0]);
 }
 
 #[test]
@@ -1155,7 +1200,7 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
     assert_eq!(arg_after(&args, "--permission-mode"), Some("manual"));
     assert!(args.contains(&"--restricted".into()), "{args:?}");
     assert!(args.contains(&"--strict-mcp-config".into()), "{args:?}");
-    assert_eq!(arg_after(&args, "--tools"), Some("Read,Grep,Glob"));
+    assert_eq!(arg_after(&args, "--tools"), Some("Read,Grep,Glob,Agent"));
     assert_eq!(arg_after(&args, "--add-dir"), Some(other.to_str().unwrap()));
     let settings: Value = serde_json::from_str(arg_after(&args, "--settings").unwrap()).unwrap();
     let names = |key: &str| -> Vec<String> {
