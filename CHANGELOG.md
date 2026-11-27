@@ -126,7 +126,7 @@ machine, and a project gives its MCP servers and your Claude connectors to the r
 - **Your stack at a glance** joins the front page and the README.
 - **A sober dark theme** for the site and the docs. The site is light by default, dark only when chosen with the
   switch.
-- **The launch film v7**: 2 min 44 s on the real app, in light and dark.
+- **A new launch film**: 1 min 3 s on the real app, in light and dark.
 - **The docs cover 0.6.0**, with two new pages, *Stack* and *MCP and connectors*.
 
 ## 0.5.0
