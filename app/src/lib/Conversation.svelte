@@ -24,6 +24,7 @@
   import CircleDashed from "@lucide/svelte/icons/circle-dashed";
   import CirclePause from "@lucide/svelte/icons/circle-pause";
   import CircleX from "@lucide/svelte/icons/circle-x";
+  import Copy from "@lucide/svelte/icons/copy";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import Images from "@lucide/svelte/icons/images";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
@@ -197,6 +198,17 @@
   const calling = $derived(agentActions.waiting.find((c) => c.session === session.id) ?? null);
   const granted = $derived(agentActions.granted[session.id] ?? []);
   const running = $derived(inBackground(events));
+  /** What was copied last, shown checked for a moment. */
+  let copied = $state("");
+  async function copy(text: string, what: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = what;
+      setTimeout(() => copied === what && (copied = ""), 1500);
+    } catch (e) {
+      error = String(e);
+    }
+  }
   // While a card waits, what is typed is a question about it: its answer, not a decision.
   const questioning = $derived(!to && (asking !== null || calling !== null));
   // A message to another agent does not wait for the CTO's turn.
@@ -769,7 +781,13 @@
     {#if block.kind === "code" && block.lang && fences && Object.hasOwn(fences, block.lang)}
       {@render fences[block.lang](block.text)}
     {:else if block.kind === "code"}
-      <pre class="mono">{block.text}</pre>
+      {@const what = `code:${block.text}`}
+      <div class="code">
+        <pre class="mono">{block.text}</pre>
+        <button type="button" class="icon-btn sm copy" aria-label={t("chatCopyCode")} title={t("chatCopyCode")} onclick={() => copy(block.text, what)}>
+          {#if copied === what}<Check size={13} aria-hidden="true" />{:else}<Copy size={13} aria-hidden="true" />{/if}
+        </button>
+      </div>
     {:else if block.kind === "heading"}
       <svelte:element this={`h${Math.min(block.level + 2, 6)}`} class="heading">{@render line(block.spans)}</svelte:element>
     {:else if block.kind === "table"}
@@ -991,6 +1009,12 @@
       <span title={costHelp()}>{t("chatTurnCost", { cost: usd(end.cost), total: usd(end.total) })}</span>
     {/if}
     {#if end.context}<ContextGauge gauge={end.context} />{/if}
+    {#if end.result?.trim()}
+      {@const what = `end:${end.id}`}
+      <button type="button" class="btn sm quiet copy-answer" onclick={() => copy(end.result ?? "", what)}>
+        {#if copied === what}<Check size={13} aria-hidden="true" />{t("chatCopied")}{:else}<Copy size={13} aria-hidden="true" />{t("chatCopy")}{/if}
+      </button>
+    {/if}
   </div>
   {#if end.outcome === "error" && end.error}
     <p class="notice error"><CircleAlert size={14} aria-hidden="true" /><span class="pre">{end.error}</span></p>
@@ -1747,6 +1771,28 @@
     background: var(--hover);
     font-family: var(--font-mono);
     font-size: 0.9em;
+  }
+
+  .code {
+    position: relative;
+  }
+
+  .code .copy {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--chrome);
+    opacity: 0;
+    transition: opacity var(--dur-fast) ease;
+  }
+
+  .code:hover .copy,
+  .code .copy:focus-visible {
+    opacity: 1;
+  }
+
+  .copy-answer {
+    margin-left: auto;
   }
 
   .text pre {
