@@ -21,7 +21,7 @@
 <meta name="twitter:description" content="Lead a team of Claude Code agents. Give it a ticket: a CTO plans it, specialists build and test it in parallel, a reviewer checks it, you approve the pull request. Free and open source.">
 <meta name="twitter:image" content="https://vassilidev.github.io/TermF/og.png">
 <meta name="twitter:image:alt" content="TermF. Lead a team of Claude Code agents.">
-<meta name="theme-color" content="#fbfbfd">
+<meta name="theme-color" content="#fbfbfa">
 <meta name="color-scheme" content="light">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
@@ -84,10 +84,11 @@
 
 <header class="nav">
   <div class="nav-in">
-    <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="26" height="26"><span>TermF</span></a>
+    <a class="brand" href="./" aria-label="TermF home"><img src="icon.svg" alt="" width="24" height="24"><span>TermF</span></a>
     <nav class="nav-links" id="menu" aria-label="Main" popover>
       <a href="docs/">Docs</a>
       <a href="#team">The team</a>
+      <a href="benchmarks.html">Benchmarks</a>
       <a class="gh" href="https://github.com/vassilidev/TermF"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg><span class="vh">GitHub</span></a>
     </nav>
     <button class="theme" type="button" aria-label="Switch to dark theme"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.99 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.79 9.8Z"/></svg><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button>
@@ -97,13 +98,15 @@
 </header>
 
 <main id="main">
-<div class="wrap">
   <section class="hero" aria-labelledby="hero-h">
-    <h1 id="hero-h">Lead <span class="hl"><span>a team</span></span> of<br>Claude&nbsp;Code agents.</h1>
-    <p class="sub"><strong>Give it a ticket. A CTO plans it, specialists build and test it in parallel, a reviewer checks it. You approve the pull request.</strong> Live on your machine, across all your repositories, with your own Claude&nbsp;Code.</p>
-    <div class="ctas">
-      <a class="btn" id="get" href="download.html">Download for macOS</a>
-      <a class="btn ghost" href="docs/">Read the docs</a>
+    <div class="hero-copy">
+      <h1 id="hero-h">Lead a team of Claude&nbsp;Code agents.</h1>
+      <p class="promise"><span data-beat="1">Give it a ticket.</span> <span data-beat="2">A CTO plans it,</span> <span data-beat="3">specialists build and test it in parallel,</span> <span data-beat="4">a reviewer checks it.</span> <span data-beat="5">You approve the pull request.</span></p>
+      <div class="ctas">
+        <a class="btn get" href="download.html">Download for macOS</a>
+        <a class="btn ghost" href="docs/">Read the docs</a>
+      </div>
+      <p class="meta">Free and open source, for macOS, Windows and Linux. Runs on your machine, with your own Claude&nbsp;Code.</p>
     </div>
     <script>
       // Name the visitor's system before the first paint; iPads report a Mac platform, touch tells them apart
@@ -112,17 +115,59 @@
         return /android|iphone|ipad|ipod/i.test(ua) || (p.includes('mac') && navigator.maxTouchPoints > 1) ? null
           : p.includes('win') ? 'Windows' : p.includes('linux') || /linux|x11|cros/i.test(ua) ? 'Linux' : 'macOS';
       })();
-      document.getElementById('get').textContent = os ? 'Download for ' + os : 'Download TermF';
+      for (const a of document.querySelectorAll('.get')) a.textContent = os ? 'Download for ' + os : 'Download TermF';
     </script>
+
+    <!-- The run page of the app in miniature. The markup is the still (no script, reduced motion); the script plays the ticket -->
+    <div class="stage">
+      <div class="app wait" id="demo" role="img" aria-label="TermF at work: a ticket goes to the CTO, five agents build, test and review it in parallel, and the pull request waits for your approval.">
+        <div class="app-side">
+          <div class="lights"><i></i><i></i><i></i></div>
+          <div class="search">Search…<kbd>⌘K</kbd></div>
+          <div class="waits">1 waiting<kbd>⌘J</kbd></div>
+          <p class="proj"><span class="ini c-cto">A</span>Acme platform</p>
+          <ul class="app-nav"><li>Home</li><li>Terminals</li><li class="on">Tickets</li><li>Files</li><li>Git</li><li>CI/CD</li><li>Stack</li><li>Ops</li><li>Library</li></ul>
+        </div>
+        <div class="app-main">
+          <div class="run-head"><svg class="i" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg><span class="run-title">Export invoices to CSV</span><code>acme/platform#57</code><span class="state waiting">Waiting for you</span></div>
+          <ol class="run-steps"><li class="ok">Framing</li><li class="ok">Plan</li><li class="ok">Tasks</li><li class="ok">Review</li><li class="wait">Delivery</li></ol>
+          <div class="run-body">
+            <div class="msg in"><span class="ini c-cto">CTO</span><b>CTO</b><p>Four tasks in parallel, then a code review.</p></div>
+            <p class="label in">Live <span>5 agents</span></p>
+            <div class="lanes">
+              <div class="lane done"><span class="ini c-build">BA</span><span class="who"><b>back</b><span>The CSV export endpoint</span></span><code>12 tests passed</code><span class="state done">Done</span><i class="prog" style="--p:1"></i></div>
+              <div class="lane done"><span class="ini c-build">FR</span><span class="who"><b>front</b><span>An Export button on Invoices</span></span><code>8 tests passed</code><span class="state done">Done</span><i class="prog" style="--p:1"></i></div>
+              <div class="lane done"><span class="ini c-quality">QA</span><span class="who"><b>qa</b><span>Separators, totals, empty months</span></span><code>5 edge cases covered</code><span class="state done">Done</span><i class="prog" style="--p:1"></i></div>
+              <div class="lane done"><span class="ini c-specialists">DOC</span><span class="who"><b>docs</b><span>Document the export</span></span><code>1 page updated</code><span class="state done">Done</span><i class="prog" style="--p:1"></i></div>
+              <div class="lane done"><span class="ini c-quality">RE</span><span class="who"><b>reviewer</b><span>Code review</span></span><code>No blocking issue</code><span class="state done">Done</span><i class="prog" style="--p:1"></i></div>
+            </div>
+            <div class="gate open"><div><div class="gate-card">
+              <p class="t"><svg class="i" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></svg><span>Export invoices to CSV</span></p>
+              <p class="m">Ready to deliver · <b>+206</b> <i>−12</i> · 6 files</p>
+              <div class="acts"><span class="mini">See the diff</span><span class="mini go">Approve</span></div>
+            </div></div></div>
+          </div>
+          <div class="composer"><span class="typed"></span><span class="ph">Ask the CTO, or write @role for someone else…</span><kbd>⌘I</kbd></div>
+        </div>
+        <svg class="cursor" viewBox="0 0 20 20"><path d="M4.5 2.5v13.4l3.2-3 2.1 5 2.4-1-2.1-4.9h4.5z" fill="#fff" stroke="#111" stroke-width="1.1" stroke-linejoin="round"/></svg>
+      </div>
+    </div>
+  </section>
+
+<div class="wrap">
+  <section class="row" aria-labelledby="film-h">
+    <div class="head">
+      <h2 id="film-h">The real app, start to finish.</h2>
+      <p>The first launch, a first project, a ticket handed to the team, the review and the pull request, <kbd>⌘I</kbd>, Ops and the DBA, and the sync between machines.</p>
+    </div>
     <div class="film">
       <figure class="win" id="film" data-video>
-        <div class="win-bar"><i></i><i></i><i></i><span aria-hidden="true">TermF</span></div>
-        <div class="screen"><video playsinline preload="none" width="1600" height="900" aria-label="The TermF film, 2 minutes 44 seconds, with sound"></video><button class="play" type="button" aria-label="Play the film, 2 minutes 44 seconds, with sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/></svg></button></div>
+        <div class="screen"><video playsinline preload="none" width="1600" height="900" aria-label="The TermF film, 2 minutes 44 seconds, with sound"></video><button class="play" type="button" aria-label="Play the film, 2 minutes 44 seconds, with sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/></svg>Play the film</button></div>
       </figure>
     </div>
     <script>
       // The film follows the theme, set before the first paint; once started it keeps its source and a theme switch pauses it
-      const dark = () => { const t = document.documentElement.dataset.theme; return t === 'dark'; };
+      const dark = () => document.documentElement.dataset.theme === 'dark';
       const reel = document.getElementById('film'), video = reel.querySelector('video');
       const syncFilm = () => {
         if (reel.classList.contains('playing')) return video.pause();
@@ -132,189 +177,130 @@
       };
       syncFilm();
     </script>
-    <p class="meta">Free and open source, for macOS, Windows and Linux.</p>
   </section>
 
-  <section class="row" aria-labelledby="how-h">
-    <div class="head">
-      <h2 id="how-h">How it works.</h2>
-      <p>Three steps, and you stay in charge of the last one.</p>
-    </div>
-    <ol class="steps">
-      <li>
-        <div class="vis" aria-hidden="true">
-          <div class="repos">
-            <span><svg class="i" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>api</span>
-            <span><svg class="i" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>web-dashboard</span>
-            <span><svg class="i" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>billing</span>
-            <span class="team"><span class="ini c-product">PO</span><span class="ini c-build">BA</span><span class="ini c-build">FR</span><span class="ini c-quality">QA</span>Your team, ready</span>
-          </div>
-        </div>
-        <h3><span class="n">1</span>Open your repos</h3>
-        <p>Pick the repositories you work on. TermF reads them and proposes a team.</p>
-      </li>
-      <li>
-        <div class="vis" aria-hidden="true">
-          <div class="chat">
-            <p class="me">Add a CSV export to the invoices page.</p>
-            <p class="cto"><span class="ini c-cto">CTO</span>On it. Four agents will take it from here.</p>
-          </div>
-        </div>
-        <h3><span class="n">2</span>Tell the CTO what you want</h3>
-        <p>In your own words, or with a ticket from GitHub, GitLab, Jira or Linear.</p>
-      </li>
-      <li>
-        <div class="vis" aria-hidden="true">
-          <div class="pr">
-            <p><svg class="i" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></svg>Export invoices to CSV</p>
-            <small>Closes #57, <b>+42</b> −3</small>
-            <div><span class="state done">Checks passed</span><span class="mini go">Approve</span></div>
-          </div>
-        </div>
-        <h3><span class="n">3</span>Approve the pull request</h3>
-        <p>The team builds, tests and reviews it. You check the result and say yes.</p>
-      </li>
-    </ol>
-  </section>
-
-  <!-- Each screenshot is site/shots/<name>-{light,dark}.webp (1600 x 1000) with its -800 copy: replace the files to update a card -->
-  <section class="row" aria-labelledby="features-h">
-    <div class="head">
-      <h2 id="features-h">From the ticket to the pull request.</h2>
-      <p>Everything the work needs, in one window on your machine.</p>
-    </div>
-    <div class="deck">
-      <article class="card" style="--i:0">
-        <div class="card-text">
-          <h3>Talk to the CTO</h3>
-          <p>Each project has one conversation with the CTO. Ask in your own words or hand it a ticket. It plans the work and asks before anything starts.</p>
-          <a class="more" href="docs/team.html#cto"><span>How the CTO works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-        </div>
-        <div class="card-vis shot">
-          <picture><source media="not all" srcset="shots/home-dark-800.webp 800w, shots/home-dark.webp 1600w" sizes="880px"><img src="shots/home-light.webp" srcset="shots/home-light-800.webp 800w, shots/home-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The Home of a project: what waits for your answer, the agents at work live, and the bar to ask the CTO."></picture>
-        </div>
-      </article>
-      <article class="card" style="--i:1">
-        <div class="card-text">
-          <h3>Agents act for you, with your OK</h3>
-          <p>Press <kbd>⌘I</kbd> on any screen and ask. The agent does the work itself: adds a database, connects Jira, redeploys a site. Each action waits on a card you approve, and a password goes to the vault, never to the agent.</p>
-          <a class="more" href="docs/agent-actions.html"><span>How agents act for you</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-        </div>
-        <div class="card-vis shot">
-          <picture><source media="not all" srcset="shots/act-dark-800.webp 800w, shots/act-dark.webp 1600w" sizes="880px"><img src="shots/act-light.webp" srcset="shots/act-light-800.webp 800w, shots/act-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The Ask panel on Ops: an agent wants to add a production database, and its card asks for the password, which goes to the vault."></picture>
-        </div>
-      </article>
-      <article class="card" style="--i:2" id="live">
-        <div class="card-text">
-          <h3>Watch the team work, live</h3>
-          <p><!-- gen:count -->30<!-- /gen:count --> agents, each a Claude Code session with one job. The CTO brings in only the ones your ticket needs, and you see what each one is doing right now.</p>
-          <a class="more" href="docs/runs.html"><span>How a run works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-        </div>
-        <div class="card-vis" aria-hidden="true">
-          <div class="live">
-            <ol class="track">
-              <li data-run="0">Frame</li>
-              <li data-run="1">Plan</li>
-              <li data-run="2">Build</li>
-              <li data-run="3">Test</li>
-              <li data-run="4">Review</li>
-              <li data-run="5">Deliver</li>
-            </ol>
-            <div class="squad">
-              <div class="agent" data-run="0"><span class="ini c-product">PO</span><b>Product owner</b><span class="state">Queued</span><code>writes the acceptance criteria</code></div>
-              <div class="agent" data-run="2"><span class="ini c-build">BA</span><b>Back-end developer</b><span class="state">Queued</span><code>runs pytest tests/test_export.py</code></div>
-              <div class="agent" data-run="2"><span class="ini c-build">FR</span><b>Front-end developer</b><span class="state">Queued</span><code>runs pnpm test --filter invoices</code></div>
-              <div class="agent" data-run="4"><span class="ini c-quality">RE</span><b>Code reviewer</b><span class="state">Queued</span><code>reads the whole diff</code></div>
-              <div class="deliver" data-run="5"><p>Pull request <code>Closes #57</code></p><span class="state">Queued</span></div>
-            </div>
-          </div>
-        </div>
-      </article>
-      <article class="card" style="--i:3">
-        <div class="card-text">
-          <h3>See the change before you say yes</h3>
-          <p>Every changed screen, before and after, side by side or with a slider. Pin a comment where it matters and send it back to the agent.</p>
-          <a class="more" href="docs/visual-review.html"><span>How the visual review works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-        </div>
-        <div class="card-vis shot">
-          <picture><source media="not all" srcset="shots/review-dark-800.webp 800w, shots/review-dark.webp 1600w" sizes="880px"><img src="shots/review-light.webp" srcset="shots/review-light-800.webp 800w, shots/review-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The visual review of a run: a changed screen of the invoices page, why it changed, and the buttons to refuse, ask for a change or approve."></picture>
-        </div>
-      </article>
-      <article class="card" style="--i:4">
-        <div class="card-text">
-          <h3>Every ticket on one board</h3>
-          <p>Jira with several sites and spaces, GitHub, Linear or Azure DevOps, on a board with their own columns. Drag a card to move the ticket, read it in full, or hand it to the team.</p>
-          <a class="more" href="docs/kanban.html"><span>How the ticket board works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-        </div>
-        <div class="card-vis shot">
-          <picture><source media="not all" srcset="shots/board-dark-800.webp 800w, shots/board-dark.webp 1600w" sizes="880px"><img src="shots/board-light.webp" srcset="shots/board-light-800.webp 800w, shots/board-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The ticket board of a Jira site: To do, In Progress, In Review and Done, each card with its key, title and assignee."></picture>
-        </div>
-      </article>
-      <article class="card" style="--i:5">
-        <div class="card-text">
-          <h3>Your databases and servers</h3>
-          <p>Query a database read-only, chart the result, see the whole schema. Check a server's health, Nginx, Redis and Laravel, and redeploy from Forge. Every change waits for your OK.</p>
-          <a class="more" href="docs/database-studio.html"><span>How the database studio works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-        </div>
-        <div class="card-vis shot">
-          <picture><source media="not all" srcset="shots/chart-dark-800.webp 800w, shots/chart-dark.webp 1600w" sizes="880px"><img src="shots/chart-light.webp" srcset="shots/chart-light-800.webp 800w, shots/chart-light.webp 1600w" sizes="880px" width="1600" height="1000" loading="lazy" decoding="async" alt="The database studio: a read-only query, its result drawn as a bar chart, and the saved queries beside it."></picture>
-        </div>
-      </article>
-      <article class="card" style="--i:6">
-        <div class="card-text">
-          <h3>Code on any machine</h3>
-          <p>Encrypted sync brings your projects, vault, SSH keys and Claude Code setup to every machine. My environment keeps the list of tools you use and installs what a new machine is missing, in one go.</p>
-          <a class="more" href="docs/environment.html"><span>How your environment travels</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-        </div>
-        <div class="card-vis" aria-hidden="true">
-          <div class="sessions">
-            <div class="sess"><svg class="sh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-15.5-6.2L3 8m0-5v5h5M3 12a9 9 0 0 0 15.5 6.2L21 16m0 5v-5h-5"/></svg><b>Projects and vault<small>Encrypted sync</small></b><span class="state done">Synced</span><code>your private repo</code></div>
-            <div class="sess"><svg class="sh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-15.5-6.2L3 8m0-5v5h5M3 12a9 9 0 0 0 15.5 6.2L21 16m0 5v-5h-5"/></svg><b>Claude Code<small>CLAUDE.md, skills, MCP</small></b><span class="state done">Synced</span><code>~/.claude</code></div>
-            <div class="sess"><svg class="sh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-15.5-6.2L3 8m0-5v5h5M3 12a9 9 0 0 0 15.5 6.2L21 16m0 5v-5h-5"/></svg><b>SSH keys<small>~/.ssh/config</small></b><span class="state done">Synced</span><code>~/.ssh</code></div>
-            <div class="sess"><svg class="sh" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"/></svg><b>My environment<small>22 tools</small></b><span class="state waiting">3 missing here</span><code>termf env install</code></div>
-          </div>
-        </div>
-      </article>
-      <article class="card" style="--i:7">
-        <div class="card-text">
-          <h3>Your stack at a glance</h3>
-          <p>A map of the project's repositories and how they connect. Every dependency with its latest version, its end of support and its known vulnerabilities, and safe updates in one click, after your OK.</p>
-          <a class="more" href="docs/stack.html"><span>How the stack map works</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-        </div>
-        <div class="card-vis" aria-hidden="true">
-          <div class="sessions">
-            <div class="sess"><svg class="sh" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"/></svg><b>node<small>api · runtime</small></b><span class="state waiting">End of support</span><code>20 → 24 LTS</code></div>
-            <div class="sess"><svg class="sh" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"/></svg><b>axios<small>web · npm</small></b><span class="state waiting">1 vulnerability</span><code>1.6.0 → 1.7.4</code></div>
-            <div class="sess"><svg class="sh" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"/></svg><b>vite<small>web · npm</small></b><span class="state working">Updating</span><code>pnpm add vite@5.4.11</code></div>
-            <div class="sess"><svg class="sh" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"/></svg><b>laravel/framework<small>api · Composer</small></b><span class="state done">Up to date</span><code>11.31.0</code></div>
-          </div>
-        </div>
-      </article>
-      <article class="card" style="--i:8">
-        <div class="card-text">
-          <h3>Every session in one window</h3>
-          <p>Claude Code, Codex, Gemini or a shell, in tabs and splits. Each one shows what its agent is doing, and when it waits for you.</p>
-          <a class="more" href="docs/terminals.html"><span>How terminals and sessions work</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
-        </div>
-        <div class="card-vis" aria-hidden="true">
-          <div class="sessions">
-            <div class="sess"><svg viewBox="0 0 24 24"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg><b>api<small>Claude Code</small></b><span class="state working">Working</span><code>Update(src/routes/invoices.ts)</code></div>
-            <div class="sess"><svg viewBox="0 0 24 24"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg><b>web-dashboard<small>Codex</small></b><span class="state waiting">Waiting for you</span><code>Do you want to make this edit?</code></div>
-            <div class="sess"><svg viewBox="0 0 24 24"><path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg><b>billing<small>Gemini</small></b><span class="state done">Done</span><code>Tests 12 passed (12)</code></div>
-            <div class="sess"><svg class="sh" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></svg><b>api<small>shell</small></b><span></span><code>pnpm vitest run tests/invoices</code></div>
-          </div>
-        </div>
-      </article>
-    </div>
-  </section>
-
+  <!-- Each screenshot is site/shots/<name>-{light,dark}.webp (1600 x 1000) with its -800 copy: replace the files to update it -->
   <section class="row" id="team" aria-labelledby="team-h">
     <div class="head">
       <h2 id="team-h">A whole team. One job each.</h2>
-      <p>The CTO is your one point of contact. Behind it, every role has its own model and its own permissions, and joins a run only when the ticket needs it.</p>
+      <p>The CTO is your one point of contact. Behind it, every role is a Claude Code session with its own model and its own permissions, and joins a run only when the ticket needs it. You see what each one is doing right now, and answer where it waits for you.</p>
+      <a class="more" href="docs/runs.html">How a run works</a>
+    </div>
+    <div class="tile shot team-shot">
+      <picture class="rise"><source media="not all" srcset="shots/run-dark-800.webp 800w, shots/run-dark.webp 1600w" sizes="(max-width: 560px) 760px, 1120px"><img src="shots/run-light.webp" srcset="shots/run-light-800.webp 800w, shots/run-light.webp 1600w" sizes="(max-width: 560px) 760px, 1120px" width="1600" height="1000" loading="lazy" decoding="async" alt="The page of a run in TermF: its steps from framing to delivery, the orchestrator's questions waiting for an answer, the plan, and the changes, budget and log beside them."></picture>
     </div>
     <div class="roster"><!-- gen:team --><section class="c-cto" aria-labelledby="g-contact"><h3 id="g-contact">The CTO and the expert</h3><ul><li><a href="docs/team.html#role-cto"><span class="ini" aria-hidden="true">CTO</span>CTO</a></li><li><a href="docs/team.html#role-expert"><span class="ini" aria-hidden="true">EX</span>Project expert</a></li><li><a href="docs/team.html#role-termf-expert"><span class="ini" aria-hidden="true">TF</span>TermF expert</a></li></ul></section><section class="c-product" aria-labelledby="g-product"><h3 id="g-product">Product and design</h3><ul><li><a href="docs/team.html#role-pm"><span class="ini" aria-hidden="true">PM</span>Product manager</a></li><li><a href="docs/team.html#role-po"><span class="ini" aria-hidden="true">PO</span>Product owner</a></li><li><a href="docs/team.html#role-ux"><span class="ini" aria-hidden="true">UX</span>UX designer</a></li><li><a href="docs/team.html#role-architect"><span class="ini" aria-hidden="true">AR</span>Architect</a></li><li><a href="docs/team.html#role-researcher"><span class="ini" aria-hidden="true">RES</span>Researcher</a></li><li><a href="docs/team.html#role-competitive-analyst"><span class="ini" aria-hidden="true">CMP</span>Competitive analyst</a></li><li><a href="docs/team.html#role-reverse-engineer"><span class="ini" aria-hidden="true">REV</span>Reverse engineer</a></li></ul></section><section class="c-build" aria-labelledby="g-build"><h3 id="g-build">Plan and build</h3><ul><li><a href="docs/team.html#role-lead"><span class="ini" aria-hidden="true">LE</span>Tech lead</a></li><li><a href="docs/team.html#role-front"><span class="ini" aria-hidden="true">FR</span>Front-end developer</a></li><li><a href="docs/team.html#role-back"><span class="ini" aria-hidden="true">BA</span>Back-end developer</a></li><li><a href="docs/team.html#role-devops"><span class="ini" aria-hidden="true">DE</span>DevOps engineer</a></li><li><a href="docs/team.html#role-seo"><span class="ini" aria-hidden="true">SEO</span>SEO engineer</a></li></ul></section><section class="c-quality" aria-labelledby="g-quality"><h3 id="g-quality">Quality and security</h3><ul><li><a href="docs/team.html#role-qa"><span class="ini" aria-hidden="true">QA</span>QA engineer</a></li><li><a href="docs/team.html#role-reviewer"><span class="ini" aria-hidden="true">RE</span>Code reviewer</a></li><li><a href="docs/team.html#role-secops"><span class="ini" aria-hidden="true">SEC</span>Security reviewer</a></li><li><a href="docs/team.html#role-integrator"><span class="ini" aria-hidden="true">IN</span>Merge integrator</a></li></ul></section><section class="c-creative" aria-labelledby="g-creative"><h3 id="g-creative">Brand, words and video</h3><ul><li><a href="docs/team.html#role-brand"><span class="ini" aria-hidden="true">BR</span>Brand designer</a></li><li><a href="docs/team.html#role-copy"><span class="ini" aria-hidden="true">CO</span>UX writer</a></li><li><a href="docs/team.html#role-motion"><span class="ini" aria-hidden="true">MO</span>Motion designer</a></li></ul></section><section class="c-specialists" aria-labelledby="g-specialists"><h3 id="g-specialists">Specialists</h3><ul><li><a href="docs/team.html#role-dba"><span class="ini" aria-hidden="true">DBA</span>Database engineer</a></li><li><a href="docs/team.html#role-docs"><span class="ini" aria-hidden="true">DOC</span>Technical writer</a></li><li><a href="docs/team.html#role-integrations"><span class="ini" aria-hidden="true">INT</span>Integration engineer</a></li><li><a href="docs/team.html#role-sre"><span class="ini" aria-hidden="true">SRE</span>Site reliability engineer</a></li><li><a href="docs/team.html#role-a11y"><span class="ini" aria-hidden="true">A11Y</span>Accessibility auditor</a></li><li><a href="docs/team.html#role-ai"><span class="ini" aria-hidden="true">AI</span>AI engineer</a></li><li><a href="docs/team.html#role-analytics"><span class="ini" aria-hidden="true">AN</span>Product analyst</a></li><li><a href="docs/team.html#role-legal"><span class="ini" aria-hidden="true">LAW</span>Compliance analyst</a></li></ul></section><!-- /gen:team --></div>
-    <div class="roster-foot"><p>Change a role, add your own, or run a role on Codex or Gemini.</p><a class="more" href="docs/team.html#roles"><span>Meet every role</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div>
+    <div class="roster-foot"><p>Change a role, add your own, or run a role on Codex or Gemini.</p><a class="more" href="docs/team.html#roles">Meet every role</a></div>
+  </section>
+
+  <section class="scene" aria-labelledby="act-h">
+    <div class="text">
+      <h2 id="act-h">Agents act for you, with your OK.</h2>
+      <p>Press <kbd>⌘I</kbd> on any screen and ask. The agent does the work itself: adds a database, connects Jira, redeploys a site. Reads and tests just run; a change waits on a card you approve, and a password goes to the vault, never to the agent.</p>
+      <a class="more" href="docs/agent-actions.html">How agents act for you</a>
+    </div>
+    <div class="tile ask-wrap" id="ask-demo">
+      <picture><source media="not all" srcset="shots/act-dark-800.webp 800w, shots/act-dark.webp 1600w" sizes="1000px"><img src="shots/act-light.webp" srcset="shots/act-light-800.webp 800w, shots/act-light.webp 1600w" sizes="1000px" width="1600" height="1000" loading="lazy" decoding="async" alt=""></picture>
+        <div class="ask" role="img" aria-label="The Ask panel on Ops: you ask to add the production database, devops answers, and its card asks for the password, which goes to the vault, before you allow it.">
+          <div class="ask-head">Ask<span class="who"><span class="ini c-build">DE</span>devops (this screen)</span></div>
+          <div class="ask-body">
+            <p class="bubble in">Add the production database.</p>
+            <p class="reply in">It is a managed MySQL, reached through acme-prod. I am adding it to the connections.</p>
+            <div class="act in">
+              <p class="t"><span class="ini c-build">DE</span>devops wants to act in TermF</p>
+              <h4>Add a connection</h4>
+              <p class="d">MySQL “acme-shop-db” in prod, through acme-prod. Its password goes to the vault.</p>
+              <label>Password</label>
+              <div class="field">••••••••••••</div>
+              <p class="h">What you type here goes to the vault, never to the agent.</p>
+              <div class="acts"><span class="mini">Deny</span><span class="mini go">Allow</span></div>
+            </div>
+            <p class="done-line in hide"><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Connection added: acme-shop-db</p>
+          </div>
+          <svg class="cursor" viewBox="0 0 20 20"><path d="M4.5 2.5v13.4l3.2-3 2.1 5 2.4-1-2.1-4.9h4.5z" fill="#fff" stroke="#111" stroke-width="1.1" stroke-linejoin="round"/></svg>
+        </div>
+    </div>
+  </section>
+
+  <section class="scene" aria-labelledby="review-h">
+    <div class="text">
+      <h2 id="review-h">See the change before you say yes.</h2>
+      <p>Every changed screen, before and after, side by side or with a slider. Pin a comment where it matters and send it back to the agent.</p>
+      <a class="more" href="docs/visual-review.html">How the visual review works</a>
+    </div>
+    <div class="tile" id="review-demo">
+      <div class="pin review">
+        <div class="vr" role="img" aria-label="The invoices page before and after the change, a slider between them: after, it has an Export to CSV button.">
+          <div class="vr-pane"><div class="ttl"><span><b>Invoices</b><small>October 2026 · 248 invoices</small></span></div><div class="flt"></div><div class="rows"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+          <div class="vr-pane after"><div class="ttl"><span><b>Invoices</b><small>October 2026 · 248 invoices</small></span><span class="exp">Export to CSV</span></div><div class="flt"></div><div class="rows"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+          <span class="vr-tag b">Before</span><span class="vr-tag a">After</span><span class="vr-line"></span>
+        </div>
+        <div class="vr-bar" aria-hidden="true"><span class="mini">Refuse</span><span class="mini">Ask for a change</span><span class="mini go">Approve</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="row" aria-labelledby="around-h">
+    <div class="head">
+      <h2 id="around-h">Everything around the code.</h2>
+      <p>Your databases and servers, your dependencies, your machines and what your agents know, in the same window, with the same cards.</p>
+    </div>
+    <div class="tiles">
+      <article class="tile" id="dba-demo">
+        <div class="tile-text">
+          <h3>Ops and the DBA</h3>
+          <p>Ask the DBA in your own words: it writes the query, checked as a read before anything runs, and the result becomes a chart. Server health, Nginx, Redis, Laravel and Forge sit next to it.</p>
+          <a class="more" href="docs/database-studio.html">How the database studio works</a>
+        </div>
+        <div class="tile-vis" aria-hidden="true">
+          <div class="card">
+            <div class="q"><span class="ini c-specialists">DBA</span><code>select month, count(*) from invoices where status = 'late' group by month</code><span class="tag">Read</span><span class="tag prod">prod</span></div>
+            <div class="chart"><i style="--h:46;--n:0"><b>38</b></i><i style="--h:70;--n:1"><b>57</b></i><i style="--h:58;--n:2"><b>47</b></i><i style="--h:30;--n:3"><b>24</b></i></div>
+            <div class="chart-x"><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span></div>
+          </div>
+        </div>
+      </article>
+      <article class="tile" id="stack-demo">
+        <div class="tile-text">
+          <h3>Your stack at a glance</h3>
+          <p>A map of the project's repositories and how they connect. Every dependency with its latest version, its end of support and its known vulnerabilities, and safe updates in one click, after your OK.</p>
+          <a class="more" href="docs/stack.html">How the stack map works</a>
+        </div>
+        <div class="tile-vis" aria-hidden="true">
+          <div class="card rows-ui">
+            <div class="r"><b>node<small>api · runtime</small></b><span class="state bad">End of support</span><code>20 → 24 LTS</code></div>
+            <div class="r"><b>axios<small>web · npm</small></b><span class="state bad">1 vulnerability</span><code>1.6.0 → 1.7.4</code></div>
+            <div class="r" data-cycle><b>vite<small>web · npm</small></b><span class="state done">Up to date</span><code>5.4.11</code></div>
+            <div class="r"><b>laravel/framework<small>api · Composer</small></b><span class="state done">Up to date</span><code>11.31.0</code></div>
+          </div>
+        </div>
+      </article>
+      <article class="tile" id="sync-demo">
+        <div class="tile-text">
+          <h3>Code on any machine</h3>
+          <p>Encrypted sync brings your projects, vault, SSH keys and Claude Code setup to every machine. My environment keeps the list of tools you use and installs what a new machine is missing, in one go.</p>
+          <a class="more" href="docs/environment.html">How your environment travels</a>
+        </div>
+        <div class="tile-vis" aria-hidden="true">
+          <div class="card rows-ui">
+            <div class="r" data-sync><b>Projects and vault<small>Encrypted sync</small></b><span class="state done">Synced</span><code>your private repo</code></div>
+            <div class="r" data-sync><b>Claude Code<small>CLAUDE.md, skills, MCP</small></b><span class="state done">Synced</span><code>~/.claude</code></div>
+            <div class="r" data-sync><b>SSH keys<small>~/.ssh/config</small></b><span class="state done">Synced</span><code>~/.ssh</code></div>
+            <div class="r"><b>My environment<small>22 tools</small></b><span class="state waiting">3 missing here</span><code>termf env install</code></div>
+          </div>
+        </div>
+      </article>
+      <article class="tile shot">
+        <div class="tile-text">
+          <h3>The library</h3>
+          <p>What your agents get, in layers you can see and change: roles, rules, skills, preferences, workflows and commands, matched to the stack of each repository.</p>
+          <a class="more" href="docs/library.html">How the library works</a>
+        </div>
+        <div class="tile-vis">
+          <picture class="rise"><source media="not all" srcset="shots/library-dark-800.webp 800w, shots/library-dark.webp 1600w" sizes="820px"><img src="shots/library-light-800.webp" srcset="shots/library-light-800.webp 800w, shots/library-light.webp 1600w" sizes="820px" width="1600" height="1000" loading="lazy" decoding="async" alt="The Library: what the project's sessions get, filtered by kind, with a skill open on why it is on, layer by layer."></picture>
+        </div>
+      </article>
+    </div>
   </section>
 
   <section class="row" id="proof" aria-labelledby="proof-h">
@@ -322,53 +308,28 @@
       <h2 id="proof-h">Numbers, not promises.</h2>
       <p>How good the work is, how fast the app is, and what stays on your machine. Each figure comes with how it was measured.</p>
     </div>
-    <ul class="steps proof">
-      <li>
-        <div class="vis" aria-hidden="true">
-          <div class="bars">
-            <p class="bar team"><span>The team</span><b>90 %</b><i class="meter" style="--v:90%"></i></p>
-            <p class="bar"><span>One session</span><b>72 %</b><i class="meter" style="--v:72%"></i></p>
-          </div>
-        </div>
-        <h3>Better work on hard tickets</h3>
-        <p>Same tickets, same model, hidden tests and a blind judge. On complex tickets the team got 90 % of what the ticket left unsaid right, one session 72 %, for 4.8 times the cost.</p>
-      </li>
-      <li>
-        <div class="vis" aria-hidden="true">
-          <dl class="stats">
-            <div><dt>Opens in</dt><dd>0.42 s</dd></div>
-            <div><dt>A keystroke on screen</dt><dd>7 ms</dd></div>
-            <div><dt>CPU at rest</dt><dd>0.1 %</dd></div>
-          </dl>
-        </div>
-        <h3>Quick to open, quick to type</h3>
-        <p>TermF opens in under half a second, puts a keystroke on screen in 7 ms and sits at 0.1 % CPU at rest. The release build, measured by our CI.</p>
-      </li>
-      <li>
-        <div class="vis" aria-hidden="true">
-          <ul class="checks">
-            <li><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Runs on your machine</li>
-            <li><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Open source, MIT</li>
-            <li><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>No TermF account</li>
-            <li><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Secrets hidden from agents</li>
-            <li><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Nothing ships without your OK</li>
-          </ul>
-        </div>
-        <h3>Your code stays yours</h3>
-        <p>Everything runs on your computer: no TermF server, account or telemetry. Open source under MIT, agents never read your secrets, and nothing ships without your OK.</p>
-      </li>
+    <ul class="nums">
+      <li><span class="v"><!-- gen:count -->30<!-- /gen:count --></span><h3>Roles, one job each</h3><p>From product owner to security reviewer. The CTO brings in only the ones your ticket needs.</p></li>
+      <li><span class="v">90<small>%</small></span><h3>Better work on hard tickets</h3><p>Of what a complex ticket left unsaid, done right by the team, against 72 % for one session, with hidden tests and a blind judge.</p></li>
+      <li><span class="v">0.42<small>s</small></span><h3>Quick to open</h3><p>From launch to a window you can use, the release build measured by our CI.</p></li>
+      <li><span class="v">7<small>ms</small></span><h3>Quick to type</h3><p>A keystroke on screen in a terminal, and 0.1 % CPU at rest.</p></li>
     </ul>
-    <div class="roster-foot"><p>Every figure, how it was measured, and its limits.</p><a class="more" href="benchmarks.html"><span>See the benchmarks</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a></div>
+    <div class="roster-foot"><p>Everything runs on your computer: no TermF server, account or telemetry. Open source under MIT.</p><a class="more" href="benchmarks.html">See the benchmarks</a></div>
   </section>
 
-  <section class="row last" aria-labelledby="last-h">
-    <h2 id="last-h">Install in <span class="grad">one command.</span></h2>
-    <div class="cmd" id="install"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code><button class="copy" type="button" aria-label="Copy the install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
-    <div class="ctas">
-      <a class="btn" href="download.html">Every download</a>
-      <a class="btn ghost" href="docs/installation.html">Installation guide</a>
+  <section class="last" aria-labelledby="last-h">
+    <div>
+      <h2 id="last-h">Install in one command.</h2>
+      <p class="lead">Free and open source, for macOS, Windows and Linux. You bring Claude Code; TermF brings the team.</p>
+      <div class="ctas">
+        <a class="btn get" href="download.html">Download for macOS</a>
+        <a class="btn ghost" href="docs/installation.html">Installation guide</a>
+      </div>
     </div>
-    <p>Needs Claude Code. Signed and notarized by Apple on macOS. Not signed by Microsoft yet: on Windows, the one-line install avoids the warning.</p>
+    <div>
+      <div class="cmd" id="install"><code>curl -fsSL https://vassilidev.github.io/TermF/install.sh | sh</code><button class="copy" type="button" aria-label="Copy the install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button></div>
+      <p class="note">Needs Claude Code. Signed and notarized by Apple on macOS. Not signed by Microsoft yet: on Windows, the one-line install avoids the warning.</p>
+    </div>
   </section>
 </div>
 </main>
@@ -383,7 +344,7 @@
 </footer>
 
 <script>
-const root = document.documentElement, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const root = document.documentElement;
 
 // The theme switch; the screenshots and the film follow it
 const themeBtn = document.querySelector('.theme');
@@ -423,40 +384,204 @@ if ('video' in reel.dataset) {
   video.addEventListener('ended', () => { reel.classList.remove('playing'); video.controls = false; video.load(); syncFilm(); });
 }
 
-// The deck: a card the next one covers steps back a little, so the cards read as a stack. Only where they stack
-const cards = [...document.querySelectorAll('.deck .card')], stacking = matchMedia('(min-width: 900px) and (min-height: 680px) and (prefers-reduced-motion: no-preference)');
-let queued = false;
-const stack = () => {
-  queued = false;
-  const tops = cards.map(c => c.getBoundingClientRect());
-  // cover[i]: how far card i has slid over card i - 1, from 0 to 1
-  const cover = tops.map((r, i) => i ? Math.min(1, Math.max(0, (tops[i - 1].bottom - r.top) / tops[i - 1].height)) : 0);
-  cards.forEach((c, i) => c.style.setProperty('--p', stacking.matches ? cover.slice(i + 1).reduce((a, b) => a + b, 0).toFixed(3) : 0));
-};
-addEventListener('scroll', () => { if (!queued) { queued = true; requestAnimationFrame(stack); } }, {passive: true});
-stacking.addEventListener('change', stack);
-stack();
-
-// The team at work: each step of the example run goes from queued to working to done, then the pull request waits
-const runs = [...document.querySelectorAll('[data-run]')], last = Math.max(...runs.map(e => +e.dataset.run));
-const label = {done: 'Done', working: 'Working', waiting: 'Waiting for you', '': 'Queued'};
-function frame(step) {
-  for (const el of runs) {
-    const r = +el.dataset.run, s = r < step ? 'done' : r > step ? '' : r === last ? 'waiting' : 'working', pill = el.querySelector('.state');
-    if (pill) { pill.className = 'state ' + s; pill.textContent = label[s]; }
-    el.classList.toggle('on', r === step);
-    el.classList.toggle('idle', r > step);
-  }
-}
-if (reduce) frame(last);
-else {
-  let step = 0, timer = null;
-  frame(0);
-  const tick = () => { step = (step + 1) % (last + 4); frame(Math.min(step, last)); };
+// ---------------------------------------------------------------------------------------------------- the demos
+// Each demo is a loop of steps that plays only while it is on screen: scrolled away or in a hidden tab, it stops at
+// its next step. With reduced motion nothing plays and the markup's still stays.
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function stage(el, loop) {
+  let seen = false, wake = null, started = false;
+  const gate = async ms => { await sleep(ms); while (!seen || document.hidden) await new Promise(r => wake = r); };
+  const resume = () => { if (seen && !document.hidden && wake) { wake(); wake = null; } };
   new IntersectionObserver(([e]) => {
-    clearInterval(timer);
-    if (e.isIntersecting) timer = setInterval(tick, 1500);
-  }, {threshold: .3}).observe(document.getElementById('live'));
+    seen = e.isIntersecting;
+    if (seen && !started) { started = true; (async () => { for (;;) await loop(gate); })(); }
+    resume();
+  }, {threshold: .25}).observe(el);
+  document.addEventListener('visibilitychange', resume);
+}
+// A changed word rolls in on its own span; an unchanged one stays still
+const put = (el, text) => { if (el.textContent === text) return; const s = document.createElement('span'); s.className = 'swap'; s.textContent = text; el.replaceChildren(s); };
+const LABEL = {queued: 'Queued', working: 'Working', done: 'Done', waiting: 'Waiting for you'};
+const pill = (el, s, text = LABEL[s]) => { el.className = 'state ' + (s === 'queued' ? '' : s); put(el, text); };
+// Something a demo adds arrives from just below; snap() puts it back there, unseen, after it left
+const arrive = el => { el.classList.remove('hide', 'gone'); };
+const snap = el => { el.style.transition = 'none'; el.classList.remove('gone'); el.classList.add('hide'); el.offsetWidth; el.style.transition = ''; };
+const leave = (els, gap = 55) => els.forEach((el, i) => setTimeout(() => el.classList.add('gone'), i * gap));
+const type = async (el, text, gate, ms) => { el.textContent = ''; for (const ch of text) { el.textContent += ch; await gate(ms); } };
+// The pointer glides to a target inside its demo and presses it
+async function press(cursor, box, target, gate) {
+  const a = box.getBoundingClientRect(), b = target.getBoundingClientRect();
+  cursor.style.transition = 'none';
+  cursor.style.setProperty('--x', a.width * .82 + 'px'); cursor.style.setProperty('--y', a.height + 'px');
+  cursor.offsetWidth; cursor.style.transition = '';
+  cursor.classList.add('on');
+  cursor.style.setProperty('--x', b.left - a.left + b.width * .84 + 'px'); cursor.style.setProperty('--y', b.top - a.top + b.height * .7 + 'px');
+  await gate(1150);
+  cursor.classList.add('press'); target.classList.add('press');
+  await gate(150);
+  cursor.classList.remove('press'); target.classList.remove('press');
+}
+const away = (cursor, box) => { cursor.style.setProperty('--x', box.getBoundingClientRect().width * .9 + 'px'); cursor.style.setProperty('--y', box.getBoundingClientRect().height + 20 + 'px'); setTimeout(() => cursor.classList.remove('on'), 700); };
+
+if (matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+  // The hero: a ticket typed to the CTO, its plan, four agents at work, the review, then the gate you approve
+  const TICKETS = [
+    {ask: 'Take #57, the CSV export of invoices', title: 'Export invoices to CSV', ref: 'acme/platform#57', plan: 'Four tasks in parallel, then a code review.',
+     lanes: [['BA', 'c-build', 'back', 'The CSV export endpoint', ['Edit api/export.py', 'Run pytest tests/test_export.py'], '12 tests passed', 3.2],
+             ['FR', 'c-build', 'front', 'An Export button on Invoices', ['Edit pages/Invoices.tsx', 'Run pnpm test invoices'], '8 tests passed', 3.9],
+             ['QA', 'c-quality', 'qa', 'Separators, totals, empty months', ['Write tests/test_csv_edge.py', 'Run pytest -k csv'], '5 edge cases covered', 3.5],
+             ['DOC', 'c-specialists', 'docs', 'Document the export', ['Edit docs/invoices.md'], '1 page updated', 2.2]],
+     add: '+206', del: '−12', files: '6 files', pr: '#58', closes: 'Closes #57'},
+    {ask: 'Take #311, the date filter bug', title: 'The date filter does not reset', ref: 'acme/web-dashboard#311', plan: 'Four tasks in parallel, then a code review.',
+     lanes: [['FR', 'c-build', 'front', 'Reset the filter on clear', ['Edit src/filters/DateRange.tsx', 'Run pnpm vitest filters'], '14 tests passed', 3.6],
+             ['BA', 'c-build', 'back', 'Saved filters keep their period', ['Edit api/filters.py', 'Run pytest tests/test_filters.py'], '9 tests passed', 3.1],
+             ['QA', 'c-quality', 'qa', 'A regression test for #311', ['Write e2e/date-filter.spec.ts', 'Run pnpm e2e date-filter'], '1 regression covered', 3.8],
+             ['A11Y', 'c-specialists', 'a11y', 'The filter with a keyboard', ['Check DateRange by keyboard'], 'No issue found', 2.4]],
+     add: '+48', del: '−9', files: '4 files', pr: '#312', closes: 'Closes #311'},
+  ];
+  const REVIEW = ['RE', 'c-quality', 'reviewer', 'Code review', ['Reads the whole diff'], 'No blocking issue', 1.8];
+  const demo = document.getElementById('demo'), $ = s => demo.querySelector(s);
+  const title = $('.run-title'), ref = $('.run-head code'), status = $('.run-head .state'), steps = [...demo.querySelectorAll('.run-steps li')];
+  const msg = $('.msg'), label = $('.label'), plan = $('.msg p'), gateEl = $('.gate'), lanesEl = $('.lanes'), typed = $('.composer .typed'), cursor = $('.cursor');
+  const gTitle = $('.gate-card .t span'), gMeta = $('.gate-card .m'), go = $('.gate .mini.go');
+  const promise = document.querySelector('.promise'), clauses = [...promise.querySelectorAll('[data-beat]')];
+  const beat = (n, ms) => {
+    promise.classList.add('live');
+    if (ms) clauses[n - 1].style.setProperty('--dur', ms + 'ms');
+    for (const c of clauses) { const k = +c.dataset.beat; c.className = k < n ? 'past' : k === n ? 'on' : ''; }
+  };
+  const step = (i, kind = 'now') => steps.forEach((li, j) => li.className = j < i ? 'ok' : j === i ? kind : '');
+  const lane = ([ini, c, role, task]) => {
+    const el = document.createElement('div');
+    el.className = 'lane hide';
+    el.innerHTML = `<span class="ini ${c}">${ini}</span><span class="who"><b>${role}</b><span>${task}</span></span><code></code><span class="state">Queued</span><i class="prog"></i>`;
+    return el;
+  };
+  async function work(el, [, , , , acts, end, dur], gate, delay) {
+    const code = el.querySelector('code'), st = el.querySelector('.state'), prog = el.querySelector('.prog'), part = dur * 1000 / acts.length;
+    await gate(delay);
+    el.classList.remove('idle');
+    pill(st, 'working');
+    for (const [k, a] of acts.entries()) {
+      put(code, a);
+      prog.style.setProperty('--pd', part + 'ms');
+      prog.style.setProperty('--p', ((k + 1) / acts.length * .9).toFixed(2));
+      await gate(part);
+    }
+    prog.style.setProperty('--pd', '300ms'); prog.style.setProperty('--p', 1);
+    el.classList.add('done'); pill(st, 'done'); put(code, end);
+  }
+  const approve = async (t, gate) => {
+    await press(cursor, demo, go, gate);
+    gateEl.classList.add('sent'); put(go, 'Approved'); step(5); pill(status, 'done', 'Delivered'); demo.classList.remove('wait');
+    await gate(600);
+    put(gTitle, `Pull request ${t.pr} opened`); put(gMeta, `${t.closes} · ${t.title}`);
+    away(cursor, demo);
+    await gate(2400);
+  };
+  let n = 0;
+  stage(demo, async gate => {
+    // The page opens on the gate of the first ticket, and the pointer approves it
+    if (!n) { beat(5, 1500); await gate(1500); await approve(TICKETS[n++], gate); }
+    const t = TICKETS[n++ % TICKETS.length], lanes = [...t.lanes, REVIEW].map(lane);
+
+    // The next ticket is typed while the last run is still on screen; once sent, the last run leaves, latest first
+    beat(1, 2700);
+    await type(typed, t.ask, gate, 34);
+    await gate(380);
+    typed.textContent = '';
+    leave([gateEl, ...[...lanesEl.children].reverse(), label, msg]);
+    await gate(560);
+    gateEl.classList.remove('open', 'sent'); lanesEl.replaceChildren();
+    for (const el of [msg, label, gateEl]) snap(el);
+    gateEl.classList.remove('hide');
+    put(title, t.title); put(ref, t.ref); pill(status, 'working', 'Running'); step(0);
+    await gate(700);
+
+    beat(2, 2700); step(1);
+    plan.textContent = ''; arrive(msg);
+    await gate(350);
+    plan.classList.add('typing');
+    for (const w of t.plan.split(/(?<= )/)) { plan.textContent += w; await gate(70); }
+    plan.classList.remove('typing');
+    lanesEl.replaceChildren(...lanes); lanesEl.offsetWidth; arrive(label);
+    lanes.forEach((l, i) => setTimeout(() => { l.classList.remove('hide'); l.classList.add('idle'); }, i * 70));
+    await gate(1000);
+
+    const longest = Math.max(...t.lanes.map((d, i) => d[6] * 1000 + i * 240));
+    beat(3, longest); step(2);
+    await Promise.all(t.lanes.map((d, i) => work(lanes[i], d, gate, i * 240)));
+    await gate(300);
+
+    beat(4, REVIEW[6] * 1000 + 200); step(3);
+    await work(lanes.at(-1), REVIEW, gate, 0);
+    await gate(400);
+
+    beat(5, 2500); step(4, 'wait'); pill(status, 'waiting'); demo.classList.add('wait');
+    gTitle.textContent = t.title; go.textContent = 'Approve';
+    gMeta.innerHTML = `Ready to deliver · <b>${t.add}</b> <i>${t.del}</i> · ${t.files}`;
+    gateEl.classList.add('open');
+    await gate(1200);
+    await approve(t, gate);
+  });
+
+  // ⌘I: the question, devops' answer, its card, the password typed into the vault, then Allow
+  const ask = document.querySelector('.ask'), askParts = [...ask.querySelectorAll('.in')], [bubble, reply, act, result] = askParts;
+  const field = ask.querySelector('.field'), allow = ask.querySelector('.mini.go'), deny = ask.querySelector('.act .mini'), askCursor = ask.querySelector('.cursor');
+  const replyText = reply.textContent;
+  const allowIt = async gate => {
+    await press(askCursor, ask, allow, gate);
+    act.classList.add('ok'); put(allow, 'Allowed'); deny.hidden = true;
+    await gate(500);
+    arrive(result); away(askCursor, ask);
+    await gate(3000);
+  };
+  let first = true;
+  stage(ask, async gate => {
+    if (first) { first = false; await gate(1200); await allowIt(gate); }
+    leave(askParts.filter(p => !p.classList.contains('hide')).reverse());
+    await gate(600);
+    askParts.forEach(snap); act.classList.remove('ok'); allow.textContent = 'Allow'; deny.hidden = false; field.textContent = ''; reply.textContent = '';
+    await gate(300);
+    arrive(bubble);
+    await gate(900);
+    arrive(reply);
+    for (const w of replyText.split(/(?<= )/)) { reply.textContent += w; await gate(60); }
+    await gate(300);
+    arrive(act);
+    await gate(900);
+    for (let i = 0; i < 12; i++) { field.textContent += '•'; await gate(75); }
+    await gate(500);
+    await allowIt(gate);
+  });
+
+  // The review's slider sweeps only while it is in view
+  const review = document.querySelector('.review');
+  new IntersectionObserver(([e]) => review.classList.toggle('sweep', e.isIntersecting)).observe(review);
+
+  // The DBA's chart grows each time it comes into view
+  const chart = document.querySelector('#dba-demo .card');
+  chart.classList.add('play-off');
+  new IntersectionObserver(([e]) => chart.classList.toggle('play-off', !e.isIntersecting), {threshold: .4}).observe(chart);
+
+  // Stack: one dependency goes from an update to its install to up to date
+  const dep = document.querySelector('[data-cycle]'), depState = dep.querySelector('.state'), depCode = dep.querySelector('code');
+  stage(dep, async gate => {
+    pill(depState, 'queued', 'Update available'); put(depCode, '5.4.10 → 5.4.11');
+    await gate(2200);
+    pill(depState, 'working', 'Updating'); put(depCode, 'pnpm add vite@5.4.11');
+    await gate(2200);
+    pill(depState, 'done', 'Up to date'); put(depCode, '5.4.11');
+    await gate(3200);
+  });
+
+  // Sync: each part syncs in turn
+  const parts = [...document.querySelectorAll('[data-sync] .state')];
+  stage(parts[0].closest('.card'), async gate => {
+    for (const p of parts) pill(p, 'working', 'Syncing');
+    for (const p of parts) { await gate(700); pill(p, 'done', 'Synced'); }
+    await gate(4200);
+  });
 }
 </script>
 </body>
