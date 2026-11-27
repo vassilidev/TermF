@@ -4,7 +4,8 @@
   import Banner from "$lib/ui/Banner.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import { t } from "$lib/i18n";
-  import { library, showLibrary, type Item, type Layer } from "$lib/library.svelte";
+  import { library, type Item, type Layer } from "$lib/library.svelte";
+  import { editProject } from "$lib/project.svelte";
   import { access, initials } from "$lib/team-logic";
 
   /** Mounted per project, by its Configuration page. */
@@ -58,8 +59,8 @@
   }
 
   function editRoles() {
-    Object.assign(library, { global: false, tab: "role", panel: null });
-    showLibrary();
+    Object.assign(library, { global: false, tab: "items", kind: "role", panel: null });
+    editProject(project, "library");
   }
 
   const text = (value: unknown) => (typeof value === "string" && value ? value : t("t5None"));

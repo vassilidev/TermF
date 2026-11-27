@@ -1,6 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import type { Component } from "svelte";
+  import { setContext, type Component } from "svelte";
   import Check from "@lucide/svelte/icons/check";
   import CircleSlash from "@lucide/svelte/icons/circle-slash";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
@@ -46,6 +46,15 @@
   type Plugin = { id: string; version: string; scope: string; enabled: boolean; description: string };
   type Picked = { plugin: Plugin } | { entry: Entry };
 
+  /** In the project's Configuration rather than its own view: shown, and its ids, follow the page that holds it. */
+  let { embedded = false }: { embedded?: boolean } = $props();
+  const here = $derived(ui.view === (embedded ? "project" : "library"));
+  // svelte-ignore state_referenced_locally
+  const uid = embedded ? "project-library" : "library";
+  // The Configuration's header already closes its panel.
+  // svelte-ignore state_referenced_locally
+  if (embedded) setContext("panel", undefined);
+
   let entries = $state<Entry[] | null>(null);
   let query = $state("");
   let selected = $state<string | null>(null);
@@ -60,7 +69,7 @@
   });
   // What waits, counted on its tab: read again when the library, the watch's results or the project change.
   $effect(() => {
-    if (ui.view !== "library") return;
+    if (!here) return;
     void app.project;
     void library.version;
     void scout.data;
@@ -107,7 +116,7 @@
   let pluginList = $state<Plugins["plugins"]>([]);
   const askPlugins = latestOnly();
   $effect(() => {
-    if (ui.view !== "library") return;
+    if (!here) return;
     const current = askPlugins();
     invoke<Plugins>("claude_plugins").then(
       (p) => current() && (pluginList = p.plugins),
@@ -195,7 +204,7 @@
   // The ⌘I panel: the item open goes with the question; a role answers for itself.
   $effect(() => {
     const e = picked && "entry" in picked ? picked.entry : null;
-    return provide("library", {
+    return provide(embedded ? "project" : "library", {
       role: e?.kind === "role" ? e.name : undefined,
       chips: e ? [{ id: "library-item", kind: "object", label: `${e.kind} ${e.name}`, text: e.description ?? "" }] : [],
     });
@@ -427,7 +436,7 @@
 
   function onkeydown(e: KeyboardEvent) {
     // The active panel only, and `/` alone: a split's other panel and ⌘/ keep their own.
-    if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || ui.view !== "library" || library.panel || library.tab !== "items") return;
+    if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || !here || library.panel || library.tab !== "items") return;
     const target = e.target as HTMLElement;
     if (target.closest("input, textarea, select, [contenteditable], .xterm")) return;
     e.preventDefault();
@@ -483,7 +492,7 @@
     {/snippet}
   </ViewHeader>
 
-  <Tabs id="library" label={t("viewLibrary")} {tabs} selected={tab} onselect={selectTab}>
+  <Tabs id={uid} label={t("viewLibrary")} {tabs} selected={tab} onselect={selectTab}>
     {#if library.error}
       <div class="banners">
         <Banner kind="error" ondismiss={() => (library.error = "")}>{library.error}</Banner>
@@ -547,8 +556,8 @@
               {@render group("offered", t("lib2GroupOffered"), groups.offered, t("lib2OfferedHint"))}
               {@render group("off", t("lib2GroupOff"), groups.off)}
               {#if pluginRows.length}
-                <section class="group" aria-labelledby="library-group-plugins">
-                  <h2 id="library-group-plugins">{t("lib2GroupPlugins")}<span class="n num">{pluginRows.length}</span></h2>
+                <section class="group" aria-labelledby="{uid}-group-plugins">
+                  <h2 id="{uid}-group-plugins">{t("lib2GroupPlugins")}<span class="n num">{pluginRows.length}</span></h2>
                   <List label={t("lib2GroupPlugins")} items={pluginRows} key={pluginKey} selected={pickedKey} onselect={(p) => pick(pluginKey(p))} row={pluginRow} />
                 </section>
               {/if}
@@ -572,8 +581,8 @@
 
 {#snippet group(id: string, title: string, list: Entry[], hint?: string)}
   {#if list.length}
-    <section class="group" aria-labelledby="library-group-{id}" data-group={id}>
-      <h2 id="library-group-{id}">{title}<span class="n num">{list.length}</span></h2>
+    <section class="group" aria-labelledby="{uid}-group-{id}" data-group={id}>
+      <h2 id="{uid}-group-{id}">{title}<span class="n num">{list.length}</span></h2>
       {#if hint}<p class="hint">{hint}</p>{/if}
       <List label={title} items={list} key={keyOf} selected={pickedKey} onselect={(e) => pick(keyOf(e))} row={entryRow} />
     </section>
