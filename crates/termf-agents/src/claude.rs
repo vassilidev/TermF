@@ -10,7 +10,9 @@ use termf_core::ipc::{
     MCP_ACTIONS, MCP_BROWSER, MCP_EXPERT, MCP_OPS, MCP_READ, MCP_SCREEN, MCP_SECRETS,
 };
 
-use crate::{AgentEvent, AgentRuntime, Image, Launch, Outcome, Parser, SessionSpec, Usage};
+use crate::{
+    AgentEvent, AgentRuntime, BackgroundTask, Image, Launch, Outcome, Parser, SessionSpec, Usage,
+};
 
 /// How many characters of a tool's output an event keeps.
 pub const TOOL_OUTPUT: usize = 4000;
@@ -88,13 +90,14 @@ fn screen_permissions(permissions: &mut Value) {
 
 /// What a session with TermF's tools may do: call its read tools, and each of its actions only once the user
 /// approves it (`ask` wins over any `allow`, the managed settings' included); no command, no edit, no web. The
-/// expert, read-only, has no action but the screens', and its read-only sub-agents search wide. Ops and the screens'
+/// expert, read-only, has no action but the screens'. Both run read-only sub-agents, in the background too, to search
+/// wide. Ops and the screens'
 /// actions are allowed here: TermF asks the user in its own card, with the exact command or action.
 pub fn mcp_settings(spec: &SessionSpec) -> Value {
     let tools = |names: &[&str]| -> Vec<String> {
         names.iter().map(|n| format!("mcp__termf__{n}")).collect()
     };
-    let mut deny = vec![
+    let deny = vec![
         "Bash",
         "PowerShell",
         "Edit",
@@ -106,7 +109,6 @@ pub fn mcp_settings(spec: &SessionSpec) -> Value {
     let mut settings = if expert(spec) {
         json!({ "permissions": { "allow": tools(&MCP_EXPERT), "deny": deny } })
     } else {
-        deny.push("Agent");
         json!({ "permissions": {
             "allow": tools(&MCP_READ).into_iter().chain(tools(&MCP_OPS)).collect::<Vec<_>>(),
             "ask": tools(&MCP_ACTIONS),
@@ -208,13 +210,14 @@ impl AgentRuntime for ClaudeCode {
         if spec.mcp {
             // Trifecta (ARCHITECTURE §12.4): no command, no web, no MCP server but TermF's, none of the
             // user's or the repository's settings files, the file tools kept to the repositories.
-            let built_in = if expert(spec) {
-                "Read,Grep,Glob,Agent"
-            } else {
-                "Read,Grep,Glob"
-            };
             args.extend(
-                ["--restricted", "--tools", built_in, "--strict-mcp-config"].map(Into::into),
+                [
+                    "--restricted",
+                    "--tools",
+                    "Read,Grep,Glob,Agent",
+                    "--strict-mcp-config",
+                ]
+                .map(Into::into),
             );
             settings["permissions"] = mcp_settings(spec)["permissions"].take();
         } else if spec.actions {
@@ -299,6 +302,7 @@ struct Stream {
     model: Option<String>,
     /// `total_cost_usd` adds up the whole process: a turn costs the difference.
     spent: f64,
+    background: Vec<BackgroundTask>,
 }
 
 impl Parser for Stream {
@@ -324,6 +328,37 @@ impl Parser for Stream {
                     tool: text(&msg["tool_name"]),
                     message: text(&msg["message"]),
                 }],
+                Some("background_tasks_changed") => {
+                    let tasks = msg["tasks"].as_array().into_iter().flatten();
+                    self.background = tasks
+                        .map(|t| {
+                            let id = text(&t["task_id"]);
+                            let known = self.background.iter().find(|b| b.id == id);
+                            BackgroundTask {
+                                kind: text(&t["task_type"]),
+                                description: text(&t["description"]),
+                                activity: known.and_then(|b| b.activity.clone()),
+                                id,
+                            }
+                        })
+                        .collect();
+                    vec![AgentEvent::Background {
+                        tasks: self.background.clone(),
+                    }]
+                }
+                Some("task_progress") => {
+                    let activity = msg["description"].as_str().map(str::to_owned);
+                    let task = self.background.iter_mut().find(|b| b.id == msg["task_id"]);
+                    match task {
+                        Some(task) if task.activity != activity => {
+                            task.activity = activity;
+                            vec![AgentEvent::Background {
+                                tasks: self.background.clone(),
+                            }]
+                        }
+                        _ => Vec::new(),
+                    }
+                }
                 _ => Vec::new(),
             },
             "stream_event" if main => {
@@ -654,6 +689,43 @@ mod tests {
         })
         .unwrap();
         assert_eq!(text, json!({"kind": "text", "text": "hi"}));
+    }
+
+    /// Lines as Claude Code 2.1.332 wrote them for a subagent run in the background, shortened.
+    #[test]
+    fn follows_what_runs_in_the_background() {
+        let events = parse_all(&[
+            r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"a7","run_id":"r","task_type":"local_agent","subagent_type":"general-purpose","description":"Count .txt files"}]}"#,
+            r#"{"type":"system","subtype":"task_started","task_id":"a7","tool_use_id":"toolu_1","description":"Count .txt files","is_backgrounded":true,"task_type":"local_agent"}"#,
+            r#"{"type":"system","subtype":"task_progress","task_id":"a7","tool_use_id":"toolu_1","description":"Finding *.txt","usage":{"total_tokens":12012,"tool_uses":1}}"#,
+            r#"{"type":"system","subtype":"task_progress","task_id":"a7","tool_use_id":"toolu_1","description":"Finding *.txt","usage":{"total_tokens":12100,"tool_uses":1}}"#,
+            r#"{"type":"system","subtype":"task_progress","task_id":"other","description":"A subagent in the turn"}"#,
+            r#"{"type":"system","subtype":"task_updated","task_id":"a7","patch":{"status":"completed"}}"#,
+            r#"{"type":"system","subtype":"task_notification","task_id":"a7","tool_use_id":"toolu_1","status":"completed"}"#,
+            r#"{"type":"system","subtype":"background_tasks_changed","tasks":[]}"#,
+        ]);
+        let task = |activity: Option<&str>| BackgroundTask {
+            id: "a7".into(),
+            kind: "local_agent".into(),
+            description: "Count .txt files".into(),
+            activity: activity.map(Into::into),
+        };
+        assert_eq!(
+            events,
+            [
+                AgentEvent::Background {
+                    tasks: vec![task(None)]
+                },
+                AgentEvent::Background {
+                    tasks: vec![task(Some("Finding *.txt"))]
+                },
+                AgentEvent::Background { tasks: vec![] },
+            ]
+        );
+        assert_eq!(
+            serde_json::to_value(&events[1]).unwrap(),
+            json!({"kind": "background", "tasks": [{"id": "a7", "kind": "local_agent", "description": "Count .txt files", "activity": "Finding *.txt"}]})
+        );
     }
 
     #[test]

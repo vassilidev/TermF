@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { IMAGE_MAX, addressed, blocked, fields, imageType, mentioned, merge, nextAfter, pending, pinned, pinnedFirst, questionAbout, questionIn, stream, summary, thread, ticketNamed, unfit, unsaid } from "../src/lib/conversation-logic.ts";
+import { IMAGE_MAX, addressed, blocked, fields, imageType, inBackground, mentioned, merge, nextAfter, pending, pinned, pinnedFirst, questionAbout, questionIn, stream, summary, thread, ticketNamed, unfit, unsaid } from "../src/lib/conversation-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}) => ({ id: ++n, session: 1, at: 0, kind, ...fields });
@@ -273,4 +273,14 @@ test("a question asked while a card waits is the card's answer, shown once in th
     ev("tool_result", { call: "t1", output: message, isError: true, truncated: false }),
   ]);
   assert.deepEqual(termf.items.map((i) => i.type), ["tool", "question"], "TermF's own card: from the call's result");
+});
+
+test("what runs in the background is the last list, none once the process ended, and it never cuts a stream", () => {
+  const task = { id: "a7", kind: "local_agent", description: "Count files", activity: "Finding *.txt" };
+  const bg = (id, tasks) => ({ id, session: 1, at: 0, kind: "background", tasks });
+  assert.deepEqual(inBackground([]), []);
+  assert.deepEqual(inBackground([bg(1, [task]), { id: 2, session: 1, at: 0, kind: "text", text: "Started." }]), [task]);
+  assert.deepEqual(inBackground([bg(1, [task]), bg(2, [])]), []);
+  assert.deepEqual(inBackground([bg(1, [task]), { id: 2, session: 1, at: 0, kind: "exited", code: 0 }]), []);
+  assert.equal(stream("Hel", bg(3, [task])), "Hel");
 });
