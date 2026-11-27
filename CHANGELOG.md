@@ -124,8 +124,9 @@ machine, and a project gives its MCP servers and your Claude connectors to the r
 - **A new tagline**: *Lead a team of Claude Code agents.* On the front page, the README, the film and a new
   share image, in the site's dark theme.
 - **Your stack at a glance** joins the front page and the README.
-- **A sober dark theme** for the site and the docs. The site is light by default, dark only when chosen with the
-  switch.
+- **A redesigned website.** The front page plays a live run of the team: a ticket, the CTO's plan, the agents in
+  parallel, the review and the pull request. Fewer sections, each shown in motion, in one quiet style for every
+  page and the docs. Light by default, a sober graphite dark when chosen with the switch.
 - **A new launch film**: 1 min 3 s on the real app, in light and dark.
 - **The docs cover 0.6.0**, with two new pages, *Stack* and *MCP and connectors*.
 
