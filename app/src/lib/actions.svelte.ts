@@ -17,6 +17,7 @@ import { projectActions } from "$lib/project-actions";
 import { schedulerActions, schedulerHere } from "$lib/scheduler-actions";
 import { settingsActions, settingsRead, TERMF_EXPERT } from "$lib/settings-actions";
 import { setupActions } from "$lib/setup-actions";
+import { stackActions, stackHere } from "$lib/stack-actions";
 import { syncFacts } from "$lib/sync.svelte";
 import { ticketActions, ticketsHere } from "$lib/tickets-actions";
 import { toast } from "$lib/ui/toast.svelte";
@@ -64,8 +65,16 @@ const SCREENS: Record<string, Action[]> = {
   project: [...projectActions, ...ticketActions],
   claude: pluginActions,
   env: envActions,
+  stack: stackActions,
 };
 const GLOBAL: Action[] = [...vaultAnywhere, ...conversationActions, settingsRead];
+/**
+ * Every screen's reads: what TermF knows of the project, from any conversation. Not Ops': they reach servers and
+ * prod data, so only from the Ops screen, as before.
+ */
+const READS = Object.values(SCREENS)
+  .flat()
+  .filter((a, i, all) => gate(a.id) === "read" && !a.id.startsWith("ops.") && all.findIndex((b) => b.id === a.id) === i);
 /** A role's own actions, whatever the screen: the TermF expert changes TermF's settings from anywhere. */
 const ROLES: Record<string, Action[]> = { [TERMF_EXPERT]: settingsActions };
 
@@ -79,6 +88,7 @@ const HERE: Record<string, (project: string) => Promise<unknown>> = {
   vault: vaultHere,
   vaultAll: vaultHere,
   env: envHere,
+  stack: stackHere,
 };
 
 /** A call of `termf mcp`, as the app gives it; `action` null: the list. */
@@ -120,12 +130,13 @@ export function screenOf(session: number): string | null {
   return ask.screens[session] ?? ask.origins[session] ?? null;
 }
 
-/** What a conversation may do: its screen's actions, its role's, then those of anywhere. */
+/** What a conversation may do: its screen's actions, its role's, those of anywhere, then every screen's reads. */
 export function available(session: number): Action[] {
   const screen = screenOf(session);
   const own = (screen && SCREENS[screen]) || [];
   const role = agents.sessions.find((s) => s.id === session)?.role ?? "";
-  return [...own, ...(ROLES[role] ?? []).filter((a) => !own.includes(a)), ...GLOBAL];
+  const here = [...own, ...(ROLES[role] ?? []).filter((a) => !own.includes(a)), ...GLOBAL];
+  return [...here, ...READS.filter((a) => !here.some((h) => h.id === a.id))];
 }
 
 export const actionOf = (session: number, id: unknown) => available(session).find((a) => a.id === id);

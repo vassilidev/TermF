@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Action } from "$lib/actions.svelte";
-import { git, proposeCleanup } from "$lib/git.svelte";
+import { git, proposeCleanup, type GitState, type Pr } from "$lib/git.svelte";
 import { t } from "$lib/i18n";
+import { projectRepos } from "$lib/stack-actions";
 import { toast } from "$lib/ui/toast.svelte";
 
 const list = (v: unknown) => (Array.isArray(v) ? v.map(String).filter((s) => s.trim()) : []);
@@ -12,6 +13,49 @@ function repoShown(): string {
   if (!git.repo) throw new Error("The Git view shows no repository: ask the user to open one.");
   return git.repo;
 }
+
+const day = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 10);
+
+const gitRead: Action = {
+  id: "git.read",
+  description:
+    "Reads a repository's git state, as the Git view shows it: the branch checked out, the default branch, each local branch with its upstream, how far ahead and behind, whether it is merged and its last commit; the worktrees, the latest tags, the stashes and the open pull requests. Reads only.",
+  fields: {
+    repo: { type: "string", description: "The repository, by its folder's name: by default the one the Git view shows, else the project's first." },
+  },
+  label: "actGitRead",
+  describe: () => "",
+  async run(a, _secrets, project) {
+    const named = typeof a.repo === "string" && a.repo.trim();
+    const repo = named ? projectRepos(project, a.repo)[0] : git.repo || projectRepos(project)[0];
+    if (!repo) throw new Error("This project has no repository.");
+    const [state, prs] = await Promise.all([
+      invoke<GitState>("git_state", { repo }),
+      invoke<Pr[]>("git_prs", { repo }).catch((e) => `unread: ${String(e)}`),
+    ]);
+    return {
+      current: state.current,
+      defaultBranch: state.defaultBranch,
+      branches: state.branches
+        .filter((b) => !b.remote)
+        .map((b) => ({
+          name: b.name,
+          current: b.current,
+          upstream: b.upstream,
+          gone: b.gone,
+          ahead: b.ahead,
+          behind: b.behind,
+          merged: b.merged,
+          last: `${b.tip.subject} (${b.tip.author}, ${day(b.tip.date)})`,
+        })),
+      worktrees: state.worktrees.map((w) => ({ path: w.path, branch: w.branch })),
+      tags: state.tags.slice(0, 5).map((tag) => tag.name),
+      stashes: state.stashes.map((s) => s.message),
+      pullRequests:
+        typeof prs === "string" ? prs : prs.filter((p) => p.state === "OPEN").map((p) => ({ number: p.number, title: p.title, branch: p.branch, draft: p.draft, url: p.url })),
+    };
+  },
+};
 
 const createBranch: Action = {
   id: "git.create_branch",
@@ -100,4 +144,4 @@ const renameBranch: Action = {
   },
 };
 
-export const gitActions: Action[] = [createBranch, switchBranch, renameBranch, cleanup];
+export const gitActions: Action[] = [gitRead, createBranch, switchBranch, renameBranch, cleanup];
