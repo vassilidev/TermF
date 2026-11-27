@@ -1758,6 +1758,12 @@ fn a_step_is_told_its_skills_and_reads_without_asking() {
         None,
         "once the run read prod, its next steps ask for each command, its tests included"
     );
+    fs::write(&project, format!("{text}[connectors.\"claude.ai Gmail\"]\nroles = [\"back\"]\n")).unwrap();
+    let denied = env.team.inner.disallowed(&run, 0);
+    assert!(
+        denied.contains(&"mcp__claude_ai_Gmail".to_owned()) && denied.contains(&"WebFetch".to_owned()),
+        "and its next sessions lose the project's connectors: {denied:?}"
+    );
 }
 
 /// A common word of a skill's name (`from`, `with`, `code`, `page`, `home`) names no skill; its other parts do.

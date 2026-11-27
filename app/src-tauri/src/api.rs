@@ -1377,9 +1377,27 @@ fn launch(
                 }
                 // The status line is what measures the context.
                 let settings = claude::write_settings(dir, termf, &cwd, &claude_dir())?;
-                if let Some(more @ Value::Object(_)) = task.and_then(|t| t.settings.as_ref()) {
+                // A tile plays no role: the account's connectors the project gives to roles are denied here.
+                let run_project = run.as_ref().map(|r| r.project);
+                let project = project_for(&state.config_dir, remote.project, run_project, &cwd);
+                let connectors = termf_library::connectors::session(
+                    &state.config_dir,
+                    project.as_deref(),
+                    None,
+                    false,
+                    false,
+                    Some(termf),
+                );
+                let task_settings = task.and_then(|t| t.settings.as_ref()).filter(|s| s.is_object());
+                let more: Vec<&Value> = task_settings
+                    .into_iter()
+                    .chain(Some(&connectors.settings).filter(|s| **s != serde_json::json!({})))
+                    .collect();
+                if !more.is_empty() {
                     let mut all: Value = serde_json::from_str(&fs::read_to_string(&settings)?)?;
-                    claude::merge_settings(&mut all, more);
+                    for more in more {
+                        claude::merge_settings(&mut all, more);
+                    }
                     fs::write(&settings, serde_json::to_string_pretty(&all)?)?;
                 }
                 if remote_tile && locked {

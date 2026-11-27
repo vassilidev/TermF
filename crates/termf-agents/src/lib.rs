@@ -89,6 +89,8 @@ pub struct Launch<'a> {
     pub policy: Option<&'a Path>,
     /// The session's own folder for this process, whose path marks it (`ours`).
     pub dir: &'a Path,
+    /// The settings that keep the project's connectors in their bounds (`termf_library::connectors::session`).
+    pub connectors: &'a Value,
 }
 
 /// What a session runs with. Empty values mean the agent's default.

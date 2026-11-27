@@ -915,13 +915,26 @@ impl Inner {
             false => session.spec.add_dirs.clone(),
         };
         let tools = crate::mcp_tools(&session.spec);
+        let project = session.spec.project.clone().or_else(|| {
+            termf_core::project_of(&self.config_dir, &session.spec.cwd)
+                .ok()
+                .flatten()
+        });
+        let connectors = termf_library::connectors::session(
+            &self.config_dir,
+            project.as_deref(),
+            session.spec.role.as_deref(),
+            session.spec.mcp,
+            tools.iter().any(|t| ipc::MCP_OPS.contains(t)),
+            self.guard.get().map(PathBuf::as_path),
+        );
         let mcp = if tools.is_empty() {
             None
         } else if session.spec.mcp {
-            Some(self.mcp_config(id, &dir, &tools)?)
+            Some(self.mcp_config(id, &dir, &tools, &connectors.servers)?)
         } else {
             // A role that may ask the expert still works without it, e.g. with no app to serve the tool.
-            self.mcp_config(id, &dir, &tools).ok()
+            self.mcp_config(id, &dir, &tools, &connectors.servers).ok()
         };
         let args = runtime.headless_args(
             &session.spec,
@@ -937,16 +950,12 @@ impl Inner {
                 guard,
                 policy: policy.as_deref(),
                 dir: &dir,
+                connectors: &connectors.settings,
             },
         );
         let args: Vec<String> = args.iter().map(|a| shell_quote(a)).collect();
         let mut line = format!("{command} {}", args.join(" "));
         let tool = Tool::of(&command);
-        let project = session.spec.project.clone().or_else(|| {
-            termf_core::project_of(&self.config_dir, &session.spec.cwd)
-                .ok()
-                .flatten()
-        });
         let policy = agent_env::load(&self.config_dir, project.as_deref());
         let given = match (self.secrets.get(), session.spec.mcp) {
             (Some(secrets), false) => secrets(id, project.as_deref()),
@@ -1201,6 +1210,7 @@ impl Inner {
         id: i64,
         dir: &Path,
         tools: &[&str],
+        connectors: &serde_json::Map<String, Value>,
     ) -> Result<(PathBuf, Value, Option<String>)> {
         let mcp = self
             .mcp
@@ -1228,7 +1238,9 @@ impl Inner {
         options.write(true).create_new(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let config = json!({ "mcpServers": { "termf": server } });
+        let mut servers = connectors.clone();
+        servers.insert("termf".into(), server.clone());
+        let config = json!({ "mcpServers": servers });
         options
             .open(&file)
             .and_then(|mut f| f.write_all(config.to_string().as_bytes()))

@@ -221,6 +221,9 @@ impl AgentRuntime for ClaudeCode {
         } else if spec.actions {
             screen_permissions(&mut settings["permissions"]);
         }
+        if launch.connectors.is_object() {
+            termf_core::claude::merge_settings(&mut settings, launch.connectors);
+        }
         for dir in launch.dirs {
             args.extend(["--add-dir".into(), dir.to_string_lossy().into_owned()]);
         }

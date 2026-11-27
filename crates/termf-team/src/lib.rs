@@ -5071,20 +5071,27 @@ impl Inner {
     /// Once a recipe read prod for the run, its next sessions have no way out (the trifecta rule, ARCHITECTURE
     /// §12.4).
     fn disallowed(&self, run: &TeamRun, i: usize) -> Vec<String> {
-        DENIED
+        let tainted = termf_core::taint::run(&self.data_dir, run.target.run);
+        let mut denied: Vec<String> = DENIED
             .iter()
             .chain(if run.steps[i].kind == StepKind::Review {
                 &READ_ONLY[..]
             } else {
                 &[]
             })
-            .chain(if termf_core::taint::run(&self.data_dir, run.target.run) {
+            .chain(if tainted {
                 termf_core::taint::EGRESS_DENY
             } else {
                 &[]
             })
             .map(|d| d.to_string())
-            .collect()
+            .collect();
+        // A connector's calls leave the machine too.
+        if tainted {
+            let project = &run.target.project;
+            denied.extend(termf_library::connectors::denied_after_prod(&self.config_dir, project));
+        }
+        denied
     }
 
     /// The most turns a step of `size` takes: `[team] max_turns.<size>` of the project's file, else of

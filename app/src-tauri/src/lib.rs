@@ -9,6 +9,7 @@ mod claude;
 mod claude_native;
 mod cli_path;
 mod config;
+mod connectors;
 mod context;
 mod cto;
 mod design;
@@ -754,6 +755,10 @@ pub fn run() {
             agentenv::agentenv_allow_set,
             agentenv::agentenv_grants,
             agentenv::agentenv_revoke,
+            connectors::connectors_list,
+            connectors::connectors_overview,
+            connectors::connectors_save,
+            connectors::connectors_remove,
             onboarding::setup_repos,
             onboarding::setup_detect,
             onboarding::setup_draft,

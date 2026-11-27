@@ -427,6 +427,25 @@ fn store(
     value: &Secret,
     password: Option<&Secret>,
 ) -> Result<()> {
+    let SecretRequest {
+        project,
+        variable,
+        purpose,
+        ..
+    } = request;
+    give_key(vault, config_dir, project, variable, purpose, value, password)
+}
+
+/// Keeps `value` in the vault as the project's dev secret named `variable`, and gives it to the project's agents.
+pub(crate) fn give_key(
+    vault: &Vault,
+    config_dir: &Path,
+    project: &str,
+    variable: &str,
+    purpose: &str,
+    value: &Secret,
+    password: Option<&Secret>,
+) -> Result<()> {
     ensure!(!value.is_empty(), "paste the key first");
     ensure!(
         vault.initialized(),
@@ -437,14 +456,9 @@ fn store(
         let password = password.ok_or(termf_vault::Locked)?;
         vault.unlock(&human, Some(password.expose()), None, None)?;
     }
-    let secret = SecretId::new(&request.variable, Scope::Dev, Some(&request.project))?;
-    vault.set(&human, &secret, value.clone(), Some(&request.purpose))?;
-    agent_env::give(
-        config_dir,
-        &request.project,
-        &request.variable,
-        &format!("dev/{}", request.variable),
-    )
+    let secret = SecretId::new(variable, Scope::Dev, Some(project))?;
+    vault.set(&human, &secret, value.clone(), Some(purpose))?;
+    agent_env::give(config_dir, project, variable, &format!("dev/{variable}"))
 }
 
 #[tauri::command]
