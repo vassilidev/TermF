@@ -152,9 +152,9 @@ p{margin:0 0 1em;text-wrap:pretty}
 /* Two lines on a computer; the size also follows the screen's height, so the film's play button stays on the first screen */
 .hero h1{margin:0 auto;font-size:clamp(2.6rem,min(6.2vw,9.2vh),6rem);line-height:1;font-weight:700;letter-spacing:-.04em}
 /* "a team" rises into its line, its box no taller than the line so the title does not move */
-.team{display:inline-block;overflow:hidden;vertical-align:top;padding-bottom:.12em;margin-bottom:-.12em;white-space:nowrap}
-.team span{display:inline-block;padding:0 .05em;margin:0 -.05em;background:var(--title);-webkit-background-clip:text;background-clip:text;color:transparent;animation:rise .75s var(--ease) .5s both}
-:root[data-theme=dark] .team span{background:none;color:var(--accent)}
+.hero .hl{display:inline-block;overflow:hidden;vertical-align:top;padding-bottom:.12em;margin-bottom:-.12em;white-space:nowrap}
+.hero .hl span{display:inline-block;padding:0 .05em;margin:0 -.05em;background:var(--title);-webkit-background-clip:text;background-clip:text;color:transparent;animation:rise .75s var(--ease) .5s both}
+:root[data-theme=dark] .hero .hl span{background:none;color:var(--accent)}
 @keyframes rise{from{transform:translateY(108%)}}
 .hero .sub{max-width:44em;margin:clamp(16px,2.6vh,26px) auto 0;color:var(--soft);font-size:clamp(1.02rem,1.25vw,1.16rem);line-height:1.5;text-wrap:balance}
 .sub strong{display:block;margin-bottom:8px;color:var(--ink);font-size:clamp(1.14rem,1.5vw,1.34rem);font-weight:550;letter-spacing:-.016em;line-height:1.4}
