@@ -68,6 +68,7 @@ new_session = "Cmd+T"
 | `[artifacts] refresh_hours` | `6` | How often your claude.ai artifacts are read again |
 | `[keys.<os>]` | none | Changed shortcuts ([Keyboard shortcuts](shortcuts.md)) |
 | `[vault] auto_lock_minutes` | `10` | Vault lock delay ([Vault](vault.md)) |
+| `[vault] lock_on_leave` | `true` | Lock the vault as soon as you leave it ([Vault](vault.md)) |
 | `[memory] enabled`, `exclude` | on | The project expert's memory ([the expert](team.md#expert)) |
 | `[api] confirm_cli` | `true` | Reserved actions from the command line wait for you in the app ([security](security.md#local-api)) |
 | `[tray] icon`, `badge` | on | The menu bar icon and the dock badge |
@@ -108,5 +109,6 @@ The tables a project's file can hold, each described on its page:
 | `[lsp] enabled` | [Language servers](library.md#language-servers) |
 | `[browser]`: `origins`, `tiles` | [The agents' browser](team.md#agent-browser) |
 | `[agents.secrets]` | [Keys on request](security.md#agent-env) |
+| `[mcp.<name>]`, `[connectors.<name>]` | [MCP and connectors](mcp-connectors.md) |
 
 Library items (roles, rules, skills, preferences, workflows, commands) live in the [library](library.md), in layers, not in these files.

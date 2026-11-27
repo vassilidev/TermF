@@ -3,7 +3,7 @@ title: Redis
 order: 8
 ---
 
-A Redis connection in Ops shows the server's numbers and lets you find a key and read its value. Changes wait for your confirmation.
+The **Redis** tab of Ops browses a Redis like a database: the server's numbers, its keys and their values. It is read-only until you allow changes, and each change waits for your confirmation.
 
 ![A Redis connection in Ops: version, memory, clients, keys and hit rate, the keys found by a pattern, and a hash key's fields](shot:redis "The keys of a Redis server and a hash's fields. Sample data.")
 
@@ -11,12 +11,12 @@ A Redis connection in Ops shows the server's numbers and lets you find a key and
 
 1. In **Ops**, **Add a connection** of kind Redis: its host and port, its database number (0 by default) and its environment.
 2. A Redis server behind a server is reached through an SSH connection of the project, like a database.
-3. The password goes to the [vault](vault.md). TermF hands it to `redis-cli` through its environment, never on the command line.
+3. The password goes to the [vault](vault.md), typed on the card when an agent adds the connection. TermF hands it to `redis-cli` through its environment, never on the command line.
 4. **Test** it.
 
 ## Read {#read}
 
-Pick the connection in **Connections**:
+Open **Ops › Redis** and pick a Redis in the picker at the top, the same as the SQL studio's, which lists the project's databases and Redis servers. The first keys show at once. A Redis connection in **Connections** shows the same, in its panel.
 
 - the top line reads `INFO`: version, memory used, clients, keys and hit rate;
 - **Pattern** and **Search** list the keys that match, such as `user:*`, a page at a time with `SCAN` (never `KEYS`, which blocks the server); **Next page** goes on;
@@ -26,7 +26,7 @@ Reads go through the `redis-read` recipe, an allow list of read commands only. V
 
 ## Change {#change}
 
-**Delete** a key, **Expire** it in some seconds, **Remove the expiry**, or **Empty the database**. A card says what changes, then asks you to type the environment's name.
+**Allow changes** first: the buttons that change something show only then. **Delete** a key, **Expire** it in some seconds, **Remove the expiry**, or **Empty the database**. A card says what changes, then asks you to type the environment's name.
 
 These go through the `redis-write` recipe: `DEL`, `UNLINK`, `EXPIRE`, `PERSIST`, `FLUSHDB` and `FLUSHALL`, nothing else.
 

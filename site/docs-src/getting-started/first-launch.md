@@ -3,7 +3,7 @@ title: First launch and what you need
 order: 2
 ---
 
-On first launch, TermF checks the tools it needs, tells you how to install the missing ones, and opens a short tour of the app.
+On first launch, TermF checks the tools it needs, tells you how to install the missing ones, sets up the machine with you, step by step, and shows you around.
 
 ## What you need
 
@@ -20,9 +20,16 @@ Codex CLI and Gemini CLI are optional: when they are installed, TermF finds them
 
 ## The first launch
 
-1. Open TermF. The Home lists the tools that are missing, each with the official command to copy and its official page.
-2. In **Settings › What you need**, one click puts `termf` on your `PATH` (see [the termf CLI](cli.md)).
-3. A four-step tour opens. It comes back from the help (<kbd>?</kbd>) whenever you want.
+1. Open TermF. **Welcome** asks whether this is your first machine with TermF, or whether you already use it on another one.
+2. **Claude Code**: TermF checks it, and the Home lists any tool that is missing, with the official command to copy and its official page.
+3. **This machine**, on a first machine:
+   - **What you use on this machine**: **Detect what is installed**, then **Keep the selection** for [My environment](environment.md);
+   - **Your vault**: a master password, then its recovery key to **Copy** or **Download**;
+   - **Your settings on all your machines**: the [encrypted sync](sync.md), with a preview before joining one.
+4. On another machine, the sync comes first and brings your settings, projects and vault: **Join your sync**. The vault step is skipped once the vault has arrived.
+5. Then your first project, the CTO, and where to find help.
+
+A step already done is not listed. **Later** skips one: the list on the left marks it **Skipped, to resume**, and the Home offers **Resume** until it is done. The tour comes back from the help (<kbd>?</kbd>) whenever you want, and **Settings › What you need** puts `termf` on your `PATH` in one click (see [the termf CLI](cli.md)).
 
 ## Find your way around
 

@@ -15,7 +15,7 @@ Create it with a master password, in the app or from a terminal:
 termf vault init
 ```
 
-It is encrypted with Argon2id and XChaCha20-Poly1305, and locks after 10 minutes and when the machine sleeps.
+It is encrypted with Argon2id and XChaCha20-Poly1305. It locks as soon as you leave it, when no panel shows it any more, after 10 minutes without use and when the machine sleeps. Open, it says in one line who reads it and until when. **Lock when leaving the vault**, under the automatic lock, turns off the first rule.
 
 ## Add and use items
 
@@ -32,7 +32,7 @@ In **Security**:
 
 - Add a security key (FIDO2) as a second factor, up to 10 keys.
 - Turn on Touch ID or Windows Hello to open the vault for 1 to 30 days.
-- Change the master password, or make a new recovery key at any time. The recovery key opens the vault if you lose the key or the password.
+- Change the master password, or make a new recovery key at any time. The recovery key opens the vault if you lose the key or the password: **Copy** it or **Download** it as a file.
 
 ## Import and export
 
@@ -42,9 +42,12 @@ Import from Bitwarden, 1Password, Chrome or Edge, Firefox, Safari or KeePassXC. 
 
 Agents never read a value. Per item, you choose whether agents may use it through the [Ops connections and recipes](ops.md). Keys you hand to an agent on request are listed in the project's vault, each with **Remove** (see [a minimal environment](security.md#agent-env)).
 
+- An action you approved that needs a locked vault, or a production secret, shows a card in the conversation: it says why, takes your master password, Touch ID, Windows Hello or your security key's PIN, then runs the action. No need to lock and open again.
+- A secret the vault does not have is asked where it is needed: the agent proposes to save it, through a card where you type it. See [Agents that act for you](agent-actions.md#secrets).
+
 ## Settings and commands
 
-`[vault] auto_lock_minutes` sets the lock delay.
+`[vault] auto_lock_minutes` sets the lock delay, and `[vault] lock_on_leave = false` keeps the vault open when you leave it.
 
 ```sh
 # the vault

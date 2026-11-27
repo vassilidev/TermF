@@ -40,11 +40,12 @@ spaces = ["LAB"]
 - A pasted key such as `APP-142` goes to the site that reads `APP`.
 - The older single `[trackers.jira]` table still reads the same, and is written in the new form the next time you save.
 - The manual form shows each site with its spaces, its token, **Test**, and under **Advanced: the To do JQL** a JQL of your own.
+- **On delivery, in APP, move the ticket to**: the status a delivered ticket moves to, picked for each space from its real statuses, `transitions = { APP = "In Review", API = "QA" }` in the site's table. A single `transition` still works for every space.
 
 ## What you get {#what}
 
-- **Tickets › To do**: the open tickets assigned to you, in the spaces of each site.
-- **Tickets › Browse**: every ticket of the spaces read, grouped by space, with filters by space, state, assignee and the current sprint, and a search. See [The ticket board](kanban.md).
+- **Tickets › Browse**, **Mine, to do**: the open tickets assigned to you, in the spaces of each site.
+- **Tickets › Browse**, **All**: every ticket of the spaces read, grouped by space, with filters by space, state, assignee and the current sprint, and a search. See [The ticket board](kanban.md).
 - Each ticket opens in full inside TermF: see [A ticket in full](ticket-details.md).
 
 > [!NOTE]

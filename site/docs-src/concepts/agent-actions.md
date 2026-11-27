@@ -3,7 +3,7 @@ title: Agents that act for you
 order: 3
 ---
 
-The agent you ask with <kbd>⌘I</kbd> can do what its screen does: add a database, connect Jira, move a ticket, redeploy a site. It never acts on its own: each action waits on a card, and you say yes or no.
+The agent you ask with <kbd>⌘I</kbd> can do what its screen does: add a database, connect Jira, move a ticket, redeploy a site. It reads and tests freely, and anything that changes waits on a card where you say yes or no.
 
 ![The Ask panel on Ops: the DevOps engineer wants to add a production database, and its card asks for the password, which goes to the vault](shot:act "An agent adds a database: the card says what it does and asks for the password. Sample data.")
 
@@ -11,10 +11,23 @@ The agent you ask with <kbd>⌘I</kbd> can do what its screen does: add a databa
 
 1. Ask in your own words from any screen, for example "add the production database" on **Ops**, or "connect our Jira" on **Tickets**.
 2. The agent reads what the screen can do and what it already holds, by name only: connections, saved queries, ticket sources, deploy targets, tasks, the names of the vault's secrets.
-3. It proposes one action. A card shows who asks, such as **devops wants to act in TermF**, the action, and in plain words exactly what it will do.
+3. It proposes one action. A read runs at once. Anything else shows a card: who asks, such as **devops wants to act in TermF**, the action, and in plain words exactly what it will do.
 4. **Allow** runs it, **Deny** refuses it, with a reason if you like. The screen shows the result, as if you had done it yourself.
 
-The CTO, the [project expert](team.md#expert) and every conversation of the panel can act this way. Each one gets the actions of the screen it was asked from, plus a few that work anywhere: create, unlock or lock the vault, change topic, delete archived conversations.
+The CTO, the [project expert](team.md#expert) and every conversation of the panel can act this way. Each one gets the actions of the screen it was asked from, plus a few that work anywhere: create, unlock or lock the vault, save a secret to it, read the settings, change topic, delete archived conversations. The TermF expert, who answers on **Settings**, can change settings from any screen.
+
+## When a card shows {#when}
+
+| What the action does | What happens |
+|---|---|
+| Reads, lists or tests: a connection test, a query, a ticket search or a board, a ticket source test, the Forge servers, a scan, the settings | Runs without a card. The agent knows which actions these are |
+| Changes something | A card, with **Always allow in this conversation** |
+| Deletes, writes in production, touches the vault, or changes what agents may do or reach | A card every time |
+
+- A query still follows the rules of [Ops](ops.md): production, or a recipe that asks for it, shows Ops' own card. A connection test shows a card when its route (host, port, user, bastion, tunnel) is one you have not approved yet.
+- What you always allow is listed under the thread, **Allowed in this conversation**, and a click takes one back. It holds for the action, whatever its target, and only in turns you started: a message from another agent or from TermF still shows the card. It ends when the conversation is archived or TermF quits.
+- A card that asks for a secret always shows, even for an action you always allow.
+- An action no list knows yet asks every time.
 
 ## The card {#card}
 
@@ -34,13 +47,14 @@ An agent never sees a password, a token or any secret value.
 - The agent may say where to find it, such as "DB_PASSWORD in the .env of the server". It never gets the value back.
 - An agent that tries to pass a secret itself is refused.
 - A production secret asks for your master password again, on the same card.
+- **A missing secret is asked where it is needed.** The agent proposes to save it to the vault, from any screen, through a card where you type it. In Ops, a connection test that fails for want of a secret shows a field under it to save the secret and test again.
 
 ## Prerequisites {#prerequisites}
 
 Some actions need something first: a vault, an unlocked vault, a database, a ticket source, a deploy tool. When it is missing, the action does not reach you. The agent learns what is missing and proposes the action that sets it up first:
 
 - no vault yet: it proposes to create one, and you pick the master password on the card;
-- a locked vault: it proposes to unlock it;
+- a locked vault: an action you approved that needs it shows a card to open it, with your master password, Touch ID, Windows Hello or your security key's PIN, then goes on;
 - no database for a query: it proposes to add the connection;
 - no deploy tool on CI/CD: it proposes to connect one;
 - no ticket source: it proposes to connect Jira or add a source.
@@ -59,7 +73,7 @@ Two cards, one after the other: the prerequisite, then the action.
 | Git | Create, switch to or rename a branch; clean up branches and worktrees |
 | Scheduler | Create, change, run or delete a task |
 | My environment | Detect what is installed; add, change or remove entries of `env.toml`; save or delete an install script; install what is missing, in a terminal you see |
-| Settings, project and setup | Change a setting, change the project, apply the setup, scan the design system |
+| Settings, project and setup | Read every setting with its value and what it does; change a setting or a shortcut; change a Claude Code setting or MCP server; change the project, apply the setup, scan the design system |
 
 A query an agent runs shows its result on the screen. The agent only learns how many rows came back and their columns.
 
@@ -70,9 +84,9 @@ Some things stay yours only, by design:
 - typing in a terminal, or sending a message for you;
 - answering what an agent asks or proposes, so it never approves itself;
 - reading, copying or revealing a secret, and the vault's own security;
-- SSH keys, and what agents may reach: Claude Code's settings, hooks and MCP servers, Remote Control;
+- SSH keys; the vault's password, keys, recovery and Touch ID; the sync's password and devices; giving a project's [MCP servers and connectors](mcp-connectors.md) to roles; Remote Control of a single tile and **Turn all off**;
 - delivering a run and merging its pull request;
-- installing updates, deleting the project.
+- installing updates or tools, exports and imports, deleting the project.
 
 > [!NOTE]
 > Each new screen command gets an action, or a written reason why not: an automated test checks the whole list.

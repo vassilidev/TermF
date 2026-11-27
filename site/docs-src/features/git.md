@@ -67,7 +67,7 @@ Two tickets at once in one checkout do not mix. Each run gets a git worktree, an
 
 ### Settings
 
-- **Library › Worktrees**: edit the recipe, or **Propose with Claude**, read-only.
+- **Worktree setup**, in the project's **Configuration**, or **Library › Worktrees**: edit the recipe, or **Propose with Claude**, read-only.
 - The preparation agent: a Claude Code in Claude Code's sandbox, writing only in the worktree and caches.
 - `[tickets] worktrees = "data"` keeps the worktrees in TermF's data folder instead.
 

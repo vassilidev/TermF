@@ -14,6 +14,8 @@ Press <kbd>⌘I</kbd> on any screen to ask an agent about what you see: a panel 
 3. Write, then send with <kbd>↵</kbd>. The answer streams in the panel, and the view stays where it was.
 4. <kbd>⌘I</kbd> again, or <kbd>Esc</kbd>, closes the panel and brings you back where you were.
 
+On a screen where the CTO or the expert answers, the same keys open their conversation at full size instead, see below.
+
 ## Who answers {#roles}
 
 Each screen has its own agent. **Who answers** at the top of the panel changes it, and `@role` at the start of a message sends it to someone else.
@@ -27,9 +29,12 @@ Each screen has its own agent. **Who answers** at the top of the panel changes i
 | Vault | The security reviewer |
 | Design system, Visual review | The UX designer |
 | Git, Files | The project expert |
+| Settings | The TermF expert |
 | Library | The role of the item you opened, if it has one |
 
-The CTO and the [project expert](team.md#expert) answer in their own conversation. Any other role gets a direct conversation, kept per project, role and what the screen is about. On a run's page, the role at work on the run gets your message at its step.
+The CTO and the [project expert](team.md#expert) open at full size in **Conversations**, wherever you call them: <kbd>⌘I</kbd> or the bar of their screens, **Talk to the CTO** (<kbd>⌘⇧H</kbd>), the palette, a **Why?** button. What the screen shows goes along once, as chips above the box, with your next message.
+
+The panel stays for a screen's own roles. Any of them gets a direct conversation, kept per project, role and what the screen is about. **Expand**, in the panel's header, or <kbd>⌘⇧I</kbd>, opens it at full size with what you typed. The panel folds away in **Conversations** and comes back when you leave. On a run's page, the role at work on the run gets your message at its step.
 
 ## What the agent sees {#context}
 
@@ -61,7 +66,8 @@ These work in every conversation: the panel, the CTO, the expert, **Conversation
 - **Write while it works.** A message sent during a turn waits in a queue above the box, where you can remove it, and goes as one message when the turn ends.
 - **Images.** Paste them with <kbd>⌘V</kbd>, drop them on the conversation, or use the paperclip: PNG, JPEG, GIF or WebP, 7.5 MB at most each. Each shows as a thumbnail you can remove before sending. Images live only in the message: after a restart, the thread says how many there were. Codex and Gemini read text only.
 - **Ask about a card.** While a card waits, the box stays open: type a question, or click **Ask for help**. The question answers the card; the agent replies, then asks again if it still needs to.
-- **Topic done.** One click in the conversation's header, or **New topic** in the palette (<kbd>⌘K</kbd>), archives the conversation and starts an empty one with the same role and settings. The CTO and the expert keep the project's memory, not the thread. A turn under way asks you first, and **Undo** brings the old one back.
+- **Find one.** In **Conversations**, filter the list by one or more projects, and search titles, roles and projects as you type, then what was said, archives included. <kbd>⌘⇧K</kbd> lists the conversations to pick one from the keyboard, and <kbd>⌘K</kbd> finds them too.
+- **Topic done.** The main button of the header when nothing is running, or **New topic** in the palette (<kbd>⌘K</kbd>), archives the conversation and starts an empty one with the same role and settings. The CTO and the expert keep the project's memory, not the thread. A turn under way asks you first, and **Undo** brings the old one back.
 - **Archives.** **Archived**, folded under the list of **Conversations**, keeps the old topics: read one, **Reopen** it, or **Delete** it, or **Delete all**, each with a card that says what is lost.
 
 ## Where the screens help {#shortcuts}
