@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { IMAGE_MAX, addressed, blocked, fields, imageType, inBackground, mentioned, merge, nextAfter, pending, pinned, pinnedFirst, questionAbout, questionIn, stream, summary, thread, ticketNamed, unfit, unsaid } from "../src/lib/conversation-logic.ts";
+import { IMAGE_MAX, addressed, blocked, fields, imageType, inBackground, mentioned, merge, nextAfter, pending, pinned, pinnedFirst, questionAbout, questionIn, recent, stream, summary, thread, ticketNamed, unfit, unsaid } from "../src/lib/conversation-logic.ts";
 
 let n = 0;
 const ev = (kind, fields = {}) => ({ id: ++n, session: 1, at: 0, kind, ...fields });
@@ -140,6 +140,22 @@ test("the expert's conversation shows under the CTO's, its answers to agents do 
   ];
   assert.deepEqual(pinnedFirst(list).map((s) => s.id), [9, 11, 12, 10]);
   assert.equal(pinned(list[0]), false, "an answer to another agent has a budget");
+});
+
+test("the navigation lists a project's last active conversations, without the standing or archived ones", () => {
+  const list = [
+    { id: 1, updated: 10 },
+    { id: 2, updated: 50, mcp: true, role: "cto", budget: null },
+    { id: 3, updated: 30 },
+    { id: 4, updated: 40, archived: true },
+    { id: 5, updated: 20, mcp: true, role: "expert", budget: 1 },
+    { id: 6, updated: 5 },
+  ];
+  const { shown, more } = recent(list, 2);
+  assert.deepEqual(shown.map((s) => s.id), [3, 5], "an expert's answer to an agent is an ordinary conversation");
+  assert.equal(more, 2);
+  assert.equal(recent(list, 10).more, 0);
+  assert.deepEqual(list.map((s) => s.id), [1, 2, 3, 4, 5, 6], "the list itself is untouched");
 });
 
 test("typing @ offers the project's roles", () => {

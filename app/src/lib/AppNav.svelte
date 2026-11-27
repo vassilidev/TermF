@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import ArrowDownUp from "@lucide/svelte/icons/arrow-down-up";
   import BellRing from "@lucide/svelte/icons/bell-ring";
+  import BrainCircuit from "@lucide/svelte/icons/brain-circuit";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CloudAlert from "@lucide/svelte/icons/cloud-alert";
   import CloudCheck from "@lucide/svelte/icons/cloud-check";
@@ -10,6 +11,7 @@
   import Columns2 from "@lucide/svelte/icons/columns-2";
   import Layers from "@lucide/svelte/icons/layers";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import Monitor from "@lucide/svelte/icons/monitor";
   import Moon from "@lucide/svelte/icons/moon";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
@@ -26,7 +28,9 @@
   import ProjectTally from "$lib/ProjectTally.svelte";
   import RemoteList from "$lib/RemoteList.svelte";
   import { toggleQuickTerminal } from "$lib/QuickTerminal.svelte";
-  import { waitingAgents } from "$lib/agents.svelte";
+  import { agents, ctoOf, expertOf, inScope, showConversation, showConversations, showCto, showExpert, waitingAgents, type AgentSession } from "$lib/agents.svelte";
+  import { recent } from "$lib/conversation-logic";
+  import { labelOf, toneOf } from "$lib/ui/StatusPill.svelte";
   import { waitingRuns } from "$lib/team.svelte";
   import { keys, nextWaiting } from "$lib/commands";
   import { ago, t } from "$lib/i18n";
@@ -151,6 +155,8 @@
   const side = (id: ViewId) => (!panes.other || !onScreen(id) ? null : (ui.view === id) === (panes.active === 0) ? "left" : "right");
   const projects = $derived(app.workspace?.projects ?? []);
   const counts = $derived(tallies());
+  /** Under the project's Conversations: its CTO and expert, then its last active conversations. */
+  const convs = $derived(recent(agents.sessions.filter(inScope), 4));
   /** Sync needs the owner (password, conflicts, recovery key, error): its icon says so, and a dot on Settings. */
   const syncInfo = $derived(summary(app.sync));
   const tone = $derived(syncInfo.tone);
@@ -226,6 +232,40 @@
       {/if}
       {#if count}<span class="count" class:hot={view.hot}>{count}</span>{/if}
       {#if alert}<span class="dot {tone}" aria-hidden="true"></span>{/if}
+    </button>
+    {#if view.id === "conversations" && (app.project !== null || convs.shown.length)}{@render conversations()}{/if}
+  </li>
+{/snippet}
+
+{#snippet conversations()}
+  <ul class="convs" aria-label={t("chatView")}>
+    {#if app.project !== null}
+      {@render conv(ctoOf(app.project), t("ux3t1Cto"), MessageSquareText, showCto)}
+      {@render conv(expertOf(app.project), t("ux3t1Expert"), BrainCircuit, showExpert)}
+    {/if}
+    {#each convs.shown as session (session.id)}
+      {@render conv(session, session.title, null, () => showConversation(session.id))}
+    {/each}
+    {#if convs.more}
+      <li><button class="nav-item conv more" onclick={showConversations}>{t("navConvsMore", { count: convs.more })}</button></li>
+    {/if}
+  </ul>
+{/snippet}
+
+<!-- The CTO and the expert show before they exist: opening one creates it. -->
+{#snippet conv(session: AgentSession | undefined, label: string, Icon: typeof BrainCircuit | null, open: () => void)}
+  {@const kind = session ? toneOf(session.state) : ""}
+  <li>
+    <button
+      class="nav-item conv"
+      aria-current={session && ui.view === "conversations" && agents.selected === session.id ? "true" : undefined}
+      title={label}
+      onclick={open}
+    >
+      <span class="lead" aria-hidden="true">{#if Icon}<Icon size={13} />{:else}<span class="state {kind}"></span>{/if}</span>
+      <span class="label">{label}</span>
+      {#if session && kind}<span class="sr-only">{labelOf(session.state)}</span>{/if}
+      {#if Icon && kind}<span class="state {kind}" aria-hidden="true"></span>{/if}
     </button>
   </li>
 {/snippet}
@@ -614,6 +654,63 @@
     padding-left: 10px;
   }
 
+  /* A project's conversations, smaller and quieter than its views. */
+  .convs {
+    margin: 1px 0 2px;
+    padding-left: 18px;
+  }
+
+  .views .conv {
+    gap: 8px;
+    height: 26px;
+    padding-left: 8px;
+    color: var(--soft);
+    font-size: var(--text-sm);
+    font-weight: 400;
+  }
+
+  .views .conv[aria-current] {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .views .conv.more {
+    padding-left: 29px;
+    color: var(--muted);
+  }
+
+  .lead {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 13px;
+    color: var(--muted);
+  }
+
+  .state {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border-strong);
+  }
+
+  .state.working {
+    background: var(--accent);
+  }
+
+  .state.waiting {
+    background: var(--waiting);
+  }
+
+  .state.failed {
+    background: var(--danger);
+  }
+
+  .state.done {
+    background: var(--done);
+  }
+
   .nav :global(.nav-item > svg) {
     flex-shrink: 0;
     color: var(--muted);
@@ -945,6 +1042,10 @@
 
   .rail .views {
     padding-left: 0;
+  }
+
+  .rail .convs {
+    display: none;
   }
 
   .rail .views::before {

@@ -1463,6 +1463,7 @@ const fr = {
   navWorking: "Au travail : {count}",
   navWaiting: "En attente : {count}",
   navFailed: "En erreur : {count}",
+  navConvsMore: "et {count} de plus",
   // UX pass 2 · T3: terminals.
   terminalsShown: "Sessions affichées",
   // Onboarding assistant (§13.7).
@@ -2429,8 +2430,7 @@ const fr = {
     "Le projet d'un coup d'œil : parle au CTO, qui mène l'équipe, ou à l'expert ; règle ici ce qui t'attend ; vois qui travaille, les runs ouverts et les tickets à traiter.",
   ux3t4HelpConfig:
     "Tout ce qui règle le projet, par section : nom et dépôts, mise en route, tickets, équipe, bibliothèque, worktrees, mémoire, confiance Claude Code. La recherche trouve une section ; Échap revient où tu étais.",
-  ux3t4TipElsewhere:
-    "Les conversations s'ouvrent depuis l'Accueil (« En service »), la bibliothèque depuis la Configuration ; la palette mène partout.",
+  ux3t4TipElsewhere: "La bibliothèque s'ouvre depuis la Configuration ; la palette mène partout.",
   designView: "Design system",
   designShow: "Afficher le design system",
   designHelp:
@@ -7645,6 +7645,7 @@ const en: Record<Key, string> = {
   navWorking: "Working: {count}",
   navWaiting: "Waiting: {count}",
   navFailed: "Failed: {count}",
+  navConvsMore: "and {count} more",
   // UX pass 2 · T3: terminals.
   terminalsShown: "Sessions shown",
   // Onboarding assistant (§13.7).
@@ -8606,7 +8607,7 @@ const en: Record<Key, string> = {
     "The project at a glance: talk to the CTO, who leads the team, or to the expert; settle here what waits for you; see who is working, the open runs and the tickets to handle.",
   ux3t4HelpConfig:
     "Everything that sets up the project, by section: name and repositories, setup, tickets, team, library, worktrees, memory, Claude Code trust. The search finds a section; Escape goes back where you were.",
-  ux3t4TipElsewhere: "Conversations open from the Home (“On duty”), the library from the Configuration; the palette leads everywhere.",
+  ux3t4TipElsewhere: "The library opens from the Configuration; the palette leads everywhere.",
   designView: "Design system",
   designShow: "Show the design system",
   designHelp:

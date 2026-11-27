@@ -328,6 +328,12 @@ export function pinnedFirst<T extends Pinnable>(list: T[]): T[] {
   return [2, 1, 0].flatMap((r) => list.filter((s) => rank(s) === r));
 }
 
+/** The navigation's few conversations under a project: the last active first, without the standing or archived ones. */
+export function recent<T extends Pinnable & { archived?: boolean; updated: number }>(list: T[], count: number): { shown: T[]; more: number } {
+  const others = list.filter((s) => !pinned(s) && !s.archived).sort((a, b) => b.updated - a.updated);
+  return { shown: others.slice(0, count), more: Math.max(0, others.length - count) };
+}
+
 /** While the draft is `@` and the start of a role's name: the roles it may be, in their order. */
 export function mentioned(draft: string, roles: string[]): string[] {
   const m = /^@([\w-]*)$/.exec(draft);

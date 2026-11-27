@@ -94,6 +94,17 @@ export const views: View[] = [
     load: () => import("$lib/SessionGrid.svelte"),
   },
   {
+    id: "conversations",
+    label: "chatView",
+    hint: "uxfT1HintConversations",
+    command: "chatShow",
+    icon: MessagesSquare,
+    group: "project",
+    show: showConversations,
+    loaded: () => agents.loaded,
+    load: () => import("$lib/ConversationsView.svelte"),
+  },
+  {
     id: "tickets",
     label: "viewTickets",
     hint: "uxfT1HintTickets",
@@ -196,17 +207,6 @@ export const views: View[] = [
     // Mounted apart by +page.svelte, once per project and only while shown: it holds a form.
     loaded: () => false,
     load: () => import("$lib/ProjectView.svelte"),
-  },
-  {
-    id: "conversations",
-    label: "chatView",
-    hint: "uxfT1HintConversations",
-    command: "chatShow",
-    icon: MessagesSquare,
-    group: "linked",
-    show: showConversations,
-    loaded: () => agents.loaded,
-    load: () => import("$lib/ConversationsView.svelte"),
   },
   {
     id: "library",
