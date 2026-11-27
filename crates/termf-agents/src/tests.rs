@@ -1046,6 +1046,31 @@ fn arg_after<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
     args.get(i + 1).map(String::as_str)
 }
 
+/// Ticked for the CTO: `docs` may write, `mail` is read-only; `other` goes to the PO only.
+const CONNECTORS: &str = r#"
+[mcp.docs]
+type = "http"
+url = "https://docs.acme.test/mcp"
+
+[mcp.mail]
+type = "http"
+url = "https://mail.acme.test/mcp"
+
+[mcp.other]
+type = "http"
+url = "https://other.acme.test/mcp"
+
+[connectors.docs]
+roles = ["cto"]
+write = true
+
+[connectors.mail]
+roles = ["cto"]
+
+[connectors.other]
+roles = ["po"]
+"#;
+
 #[test]
 fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
     let env = Env::new("mcp");
@@ -1056,7 +1081,7 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
     fs::write(
         config.join("projects/acme.toml"),
         format!(
-            "name = \"Acme\"\n[[repos]]\npath = \"{}\"\n[[repos]]\npath = \"{}\"\n",
+            "name = \"Acme\"\n[[repos]]\npath = \"{}\"\n[[repos]]\npath = \"{}\"\n{CONNECTORS}",
             env.dir.display(),
             other.display()
         ),
@@ -1111,7 +1136,17 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
         .chain(&["do_action"])
         .map(|t| format!("mcp__termf__{t}"))
         .collect();
-    assert_eq!(names("ask"), ask, "every action waits for the user");
+    let asked = names("ask");
+    assert_eq!(asked[..ask.len()], ask, "every action waits for the user");
+    assert_eq!(
+        asked[ask.len()..],
+        ["mcp__docs"],
+        "and, with prod at hand, each call of a connector (the trifecta rule)"
+    );
+    assert!(
+        names("deny").contains(&"mcp__mail".to_string()),
+        "read-only without the CLI that refuses its writes: denied whole"
+    );
     assert!(names("allow").iter().all(|t| !ask.contains(t)));
     for tool in ["Bash", "WebFetch", "WebSearch", "Edit", "Write"] {
         assert!(names("deny").contains(&tool.to_string()), "{tool}");
@@ -1119,6 +1154,12 @@ fn a_session_with_termf_tools_only_reads_and_asks_before_acting() {
     let file = PathBuf::from(arg_after(&args, "--mcp-config").unwrap());
     let text = fs::read_to_string(&file).unwrap();
     let config: Value = serde_json::from_str(&text).unwrap();
+    let servers: Vec<&String> = config["mcpServers"].as_object().unwrap().keys().collect();
+    assert_eq!(
+        servers,
+        ["docs", "termf"],
+        "only what is ticked for the CTO"
+    );
     let server_env = &config["mcpServers"]["termf"]["env"];
     assert_eq!(server_env["TERMF_MCP_SESSION"], id.to_string());
     assert_eq!(

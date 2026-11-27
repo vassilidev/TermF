@@ -756,7 +756,7 @@ pub fn run() {
             agentenv::agentenv_grants,
             agentenv::agentenv_revoke,
             connectors::connectors_list,
-            connectors::connectors_overview,
+            connectors::connectors_account,
             connectors::connectors_save,
             connectors::connectors_remove,
             onboarding::setup_repos,

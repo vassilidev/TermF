@@ -433,7 +433,9 @@ fn store(
         purpose,
         ..
     } = request;
-    give_key(vault, config_dir, project, variable, purpose, value, password)
+    give_key(
+        vault, config_dir, project, variable, purpose, value, password,
+    )
 }
 
 /// Keeps `value` in the vault as the project's dev secret named `variable`, and gives it to the project's agents.

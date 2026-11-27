@@ -80,6 +80,8 @@ export const READS: string[] = [
   "claude_usage",
   "cli_state",
   "config_import_preview",
+  "connectors_account",
+  "connectors_list",
   "context_settings",
   "conventions_impact",
   "conventions_list",
@@ -253,7 +255,7 @@ export const EXCLUDED: [why: string, commands: string[]][] = [
   ],
   [
     "What agents may do or reach (Claude Code's settings, hooks and MCP servers, the vault keys they get, the team's free reads, remote control): an agent changing it would widen its own rights.",
-    ["claude_setting_save", "claude_mcp", "claude_mcp_json_save", "agentenv_allow_set", "agentenv_revoke", "team_read_freely", "remote_set", "remote_cut_all", "remote_policy_save", "memory_settings_save"],
+    ["claude_setting_save", "claude_mcp", "claude_mcp_json_save", "agentenv_allow_set", "agentenv_revoke", "team_read_freely", "remote_set", "remote_cut_all", "remote_policy_save", "memory_settings_save", "connectors_save", "connectors_remove"],
   ],
   [
     "Files, Claude Code's own included (CLAUDE.md, memory, commands, agents): an agent edits them with its own tools, under Claude Code's permissions.",

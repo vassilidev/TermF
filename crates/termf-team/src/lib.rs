@@ -5089,7 +5089,10 @@ impl Inner {
         // A connector's calls leave the machine too.
         if tainted {
             let project = &run.target.project;
-            denied.extend(termf_library::connectors::denied_after_prod(&self.config_dir, project));
+            denied.extend(termf_library::connectors::denied_after_prod(
+                &self.config_dir,
+                project,
+            ));
         }
         denied
     }

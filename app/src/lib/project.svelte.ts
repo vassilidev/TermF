@@ -3,6 +3,7 @@ import BrainCircuit from "@lucide/svelte/icons/brain-circuit";
 import Folder from "@lucide/svelte/icons/folder";
 import GitBranch from "@lucide/svelte/icons/git-branch";
 import LibraryBig from "@lucide/svelte/icons/library-big";
+import Plug from "@lucide/svelte/icons/plug";
 import ShieldCheck from "@lucide/svelte/icons/shield-check";
 import Smartphone from "@lucide/svelte/icons/smartphone";
 import Ticket from "@lucide/svelte/icons/ticket";
@@ -46,7 +47,7 @@ export function launchable(): string[] {
 }
 
 type Key = Parameters<typeof t>[0];
-export type ConfigSection = "project" | "setup" | "tickets" | "team" | "library" | "worktrees" | "memory" | "remote" | "trust";
+export type ConfigSection = "project" | "setup" | "tickets" | "team" | "connectors" | "library" | "worktrees" | "memory" | "remote" | "trust";
 
 /** Each section of a project's Configuration, with the texts its search looks into. */
 export const configSections: { id: ConfigSection; label: Key; icon: Component; words: Key[] }[] = [
@@ -59,6 +60,7 @@ export const configSections: { id: ConfigSection; label: Key; icon: Component; w
     words: ["ticketsHelp", "ticketsGithubIssues", "ticketsGithubProject", "ticketsJira", "ticketsMcp"],
   },
   { id: "team", label: "t5Team", icon: Users, words: ["t6bHelpTeam", "metaRoles", "t5EditRoles", "rsSquads", "rsStaff", "disciplineDecisions"] },
+  { id: "connectors", label: "connSection", icon: Plug, words: ["connTitle", "connIntro", "connAddTitle", "connOriginAccount"] },
   { id: "library", label: "viewLibrary", icon: LibraryBig, words: ["t6bHelpLibrary"] },
   { id: "worktrees", label: "wtTitle", icon: GitBranch, words: ["wtIntro", "t5RecipeEdit"] },
   {

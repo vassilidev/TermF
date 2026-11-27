@@ -1388,7 +1388,9 @@ fn launch(
                     false,
                     Some(termf),
                 );
-                let task_settings = task.and_then(|t| t.settings.as_ref()).filter(|s| s.is_object());
+                let task_settings = task
+                    .and_then(|t| t.settings.as_ref())
+                    .filter(|s| s.is_object());
                 let more: Vec<&Value> = task_settings
                     .into_iter()
                     .chain(Some(&connectors.settings).filter(|s| **s != serde_json::json!({})))

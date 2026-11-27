@@ -78,10 +78,12 @@ pub fn is_account(name: &str) -> bool {
 /// Claude Code's spelling of a server in its tools' names: what is not a letter, a digit, `_` or `-` becomes `_`.
 fn normalize(name: &str) -> String {
     name.chars()
-        .map(|c| match c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-            true => c,
-            false => '_',
-        })
+        .map(
+            |c| match c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                true => c,
+                false => '_',
+            },
+        )
         .collect()
 }
 
@@ -117,7 +119,9 @@ pub fn reads(key: &str, tool: &str) -> bool {
         else {
             return false;
         };
-        rest.is_empty() || rest.starts_with(['_', '-']) || rest.starts_with(|c: char| c.is_ascii_uppercase())
+        rest.is_empty()
+            || rest.starts_with(['_', '-'])
+            || rest.starts_with(|c: char| c.is_ascii_uppercase())
     })
 }
 
@@ -156,7 +160,12 @@ pub fn access(config_dir: &Path, project: &str) -> BTreeMap<String, Access> {
 /// The connectors a session of `role` gets. `strict`: a session in `--strict-mcp-config` (the CTO's and the
 /// expert's conversations), which loads no account connector, no plugin server, and gets no key of the vault:
 /// only the project's servers that need none, through its `--mcp-config`.
-pub fn given(config_dir: &Path, project: Option<&str>, role: Option<&str>, strict: bool) -> Vec<Given> {
+pub fn given(
+    config_dir: &Path,
+    project: Option<&str>,
+    role: Option<&str>,
+    strict: bool,
+) -> Vec<Given> {
     let Some(project) = project else {
         return Vec::new();
     };
@@ -188,7 +197,11 @@ pub fn given(config_dir: &Path, project: Option<&str>, role: Option<&str>, stric
 
 /// The project's servers the library's plugin holds for a session of `role`: those without a `[connectors]` entry,
 /// as always, and those given to the role.
-pub fn plugin_servers(config_dir: &Path, project: Option<&str>, role: Option<&str>) -> Map<String, Value> {
+pub fn plugin_servers(
+    config_dir: &Path,
+    project: Option<&str>,
+    role: Option<&str>,
+) -> Map<String, Value> {
     let Some(project) = project else {
         return Map::new();
     };
@@ -269,9 +282,6 @@ pub fn session(
     }
     let mut args = vec!["connector-guard".to_owned()];
     for g in &given {
-        if strict && let Some(server) = &g.server {
-            out.servers.insert(g.name.clone(), server.clone());
-        }
         let rule = format!("mcp__{}", g.key);
         match (termf, g.write) {
             (None, false) => {
@@ -280,12 +290,20 @@ pub fn session(
             }
             (_, write) => args.push(format!("{}={}", g.key, if write { "rw" } else { "ro" })),
         }
+        if strict && let Some(server) = &g.server {
+            out.servers.insert(g.name.clone(), server.clone());
+        }
         if prod {
             ask.push(rule);
         } else if !g.write {
             allow.extend(READ_PREFIXES.iter().map(|p| format!("{rule}__{p}_*")));
-            let connector = g.key.trim_start_matches("claude_ai_").trim_start_matches("plugin_termf_");
-            let known = KNOWN_READS.iter().filter(|(c, _)| connector.eq_ignore_ascii_case(c));
+            let connector = g
+                .key
+                .trim_start_matches("claude_ai_")
+                .trim_start_matches("plugin_termf_");
+            let known = KNOWN_READS
+                .iter()
+                .filter(|(c, _)| connector.eq_ignore_ascii_case(c));
             allow.extend(known.flat_map(|(_, tools)| tools.iter().map(|t| format!("{rule}__{t}"))));
         }
     }
@@ -298,7 +316,10 @@ pub fn session(
     if let Some(termf) = termf
         && args.len() > 1
     {
-        let keys: Vec<&str> = args[1..].iter().map(|a| a.split('=').next().unwrap_or_default()).collect();
+        let keys: Vec<&str> = args[1..]
+            .iter()
+            .map(|a| a.split('=').next().unwrap_or_default())
+            .collect();
         let matcher = format!("^mcp__({})__", keys.join("|"));
         settings["hooks"] = json!({
             "PreToolUse": hook_entry(&matcher, termf, &args),
@@ -350,7 +371,7 @@ pub fn denied_after_prod(config_dir: &Path, project: &str) -> Vec<String> {
         .collect()
 }
 
-fn check_name(name: &str) -> Result<()> {
+pub fn check_name(name: &str) -> Result<()> {
     let own = name.strip_prefix(ACCOUNT).unwrap_or(name);
     let chars = |extra: &str| {
         own.chars()
@@ -380,11 +401,23 @@ pub fn check_server(server: &Value) -> Result<()> {
         Some(Value::Object(map)) if key != "args" => map.values().all(Value::is_string),
         _ => false,
     };
-    let text = |key: &str| object.get(key).and_then(Value::as_str).unwrap_or_default().trim();
+    let text = |key: &str| {
+        object
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+    };
     let allowed: &[&str] = match object.get("type").and_then(Value::as_str) {
         Some("stdio") => {
-            ensure!(!text("command").is_empty(), "a stdio server needs its command");
-            ensure!(strings("args") && strings("env"), "args and env take text only");
+            ensure!(
+                !text("command").is_empty(),
+                "a stdio server needs its command"
+            );
+            ensure!(
+                strings("args") && strings("env"),
+                "args and env take text only"
+            );
             &["type", "command", "args", "env"]
         }
         Some("http" | "sse") => {
@@ -427,7 +460,9 @@ pub fn take_secrets(name: &str, server: &mut Value) -> Vec<(String, String)> {
         }
     };
     if let Some(url) = server.get_mut("url")
-        && url.as_str().is_some_and(|u| termf_claude::mask::mask_text(u) != u)
+        && url
+            .as_str()
+            .is_some_and(|u| termf_claude::mask::mask_text(u) != u)
     {
         take(url, variable("url"));
     }
@@ -452,7 +487,11 @@ pub fn take_secrets(name: &str, server: &mut Value) -> Vec<(String, String)> {
     out
 }
 
-fn edit(config_dir: &Path, project: &str, change: impl FnOnce(&mut DocumentMut) -> Result<()>) -> Result<()> {
+fn edit(
+    config_dir: &Path,
+    project: &str,
+    change: impl FnOnce(&mut DocumentMut) -> Result<()>,
+) -> Result<()> {
     let file = termf_core::project_file(config_dir, project)?;
     let mut doc: DocumentMut = fs::read_to_string(&file)?
         .parse()
@@ -463,16 +502,27 @@ fn edit(config_dir: &Path, project: &str, change: impl FnOnce(&mut DocumentMut) 
 
 /// Adds or changes a connector: its server for one of the project's own (`server`, none to keep the one it has),
 /// who gets it and whether it may write. The rest of the file stays as it was.
-pub fn save(config_dir: &Path, project: &str, name: &str, server: Option<&Value>, access: &Access) -> Result<()> {
+pub fn save(
+    config_dir: &Path,
+    project: &str,
+    name: &str,
+    server: Option<&Value>,
+    access: &Access,
+) -> Result<()> {
     check_name(name)?;
     for role in &access.roles {
         ensure!(
-            !role.is_empty() && role.chars().all(|c| c.is_ascii_alphanumeric() || "_-".contains(c)),
+            !role.is_empty()
+                && role
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_-".contains(c)),
             "{role:?} is not a role"
         );
     }
     match (is_account(name), server) {
-        (true, Some(_)) => bail!("an account connector comes from Claude Code, with no server of its own"),
+        (true, Some(_)) => {
+            bail!("an account connector comes from Claude Code, with no server of its own")
+        }
         (false, Some(server)) => check_server(server)?,
         (false, None) => ensure!(
             crate::mcp_servers(config_dir, project).contains_key(name),
@@ -487,7 +537,10 @@ pub fn save(config_dir: &Path, project: &str, name: &str, server: Option<&Value>
         let connectors = termf_core::table_in(doc.as_table_mut(), "connectors");
         connectors.set_implicit(true);
         let entry = termf_core::table_in(connectors, name);
-        entry.insert("roles", value(access.roles.iter().collect::<toml_edit::Array>()));
+        entry.insert(
+            "roles",
+            value(access.roles.iter().collect::<toml_edit::Array>()),
+        );
         entry.insert("write", value(access.write));
         Ok(())
     })
