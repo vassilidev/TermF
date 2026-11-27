@@ -43,6 +43,15 @@
 
   let draft = $state("");
 
+  type Key = Parameters<typeof t>[0];
+  /** What one can ask first, by screen: one click sends it. */
+  const SUGGEST: Record<string, Key[]> = {
+    stack: ["aigSuggestStackVulns", "aigSuggestStackSafe", "aigSuggestStackEol"],
+    ci: ["aigSuggestCiFailed", "aigSuggestCiBranch"],
+    git: ["aigSuggestGitMerge", "aigSuggestGitClean"],
+  };
+  const suggestions = $derived((SUGGEST[ui.view] ?? ["aigSuggestStatus", "aigSuggestAttention"]).map((k) => t(k)));
+
   // Asked to focus, or a question to prefill: in the conversation's field once it is there, or the first question's.
   $effect(() => {
     void ask.focus;
@@ -195,6 +204,11 @@
         <Avatar {role} size="lg" />
         <p><b>{t("aigIntroTitle", { role })}</b></p>
         <p class="muted">{t("aigIntroBody", { screen: screenName(ui.view) })}</p>
+        <div class="suggest" role="group" aria-label={t("uxfT2Examples")}>
+          {#each suggestions as text (text)}
+            <button type="button" class="btn sm" disabled={ask.busy} onclick={() => send(text)}>{text}</button>
+          {/each}
+        </div>
       </div>
       <form class="first" onsubmit={first}>
         {@render chipRow()}
@@ -278,6 +292,14 @@
   .muted {
     color: var(--muted);
     font-size: var(--text-sm);
+  }
+
+  .suggest {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 14px;
   }
 
   .first {
