@@ -151,18 +151,19 @@ p{margin:0 0 1em;text-wrap:pretty}
 .appicon{display:block;width:76px;height:76px;margin:0 auto;filter:var(--icon-shadow)}
 /* Two lines on a computer; the size also follows the screen's height, so the film's play button stays on the first screen */
 .hero h1{margin:0 auto;font-size:clamp(2.6rem,min(6.2vw,9.2vh),6rem);line-height:1;font-weight:700;letter-spacing:-.04em}
-.alone{display:block;overflow:hidden;padding:.02em 0 .12em;margin-bottom:-.12em}
-.alone span{display:inline-block;padding:0 .05em;background:var(--title);-webkit-background-clip:text;background-clip:text;color:transparent;animation:rise .75s var(--ease) .5s both}
+/* "a team" rises into its line, its box no taller than the line so the title does not move */
+.team{display:inline-block;overflow:hidden;vertical-align:top;padding-bottom:.12em;margin-bottom:-.12em;white-space:nowrap}
+.team span{display:inline-block;padding:0 .05em;margin:0 -.05em;background:var(--title);-webkit-background-clip:text;background-clip:text;color:transparent;animation:rise .75s var(--ease) .5s both}
+:root[data-theme=dark] .team span{background:none;color:var(--accent)}
 @keyframes rise{from{transform:translateY(108%)}}
 .hero .sub{max-width:44em;margin:clamp(16px,2.6vh,26px) auto 0;color:var(--soft);font-size:clamp(1.02rem,1.25vw,1.16rem);line-height:1.5;text-wrap:balance}
-.sub strong{display:block;margin-bottom:4px;color:var(--ink);font-size:clamp(1.3rem,1.9vw,1.6rem);font-weight:600;letter-spacing:-.022em;line-height:1.25}
-.sub strong span{display:inline-block}
+.sub strong{display:block;margin-bottom:8px;color:var(--ink);font-size:clamp(1.14rem,1.5vw,1.34rem);font-weight:550;letter-spacing:-.016em;line-height:1.4}
 .ctas{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:14px}
 .hero .ctas{margin-top:clamp(20px,3.2vh,32px)}
 .hero .meta{margin:clamp(24px,3vw,36px) 0 0;color:var(--mute);font-size:.86rem}
 
 /* The film's window, up to 1200 px and never so tall that its play button leaves the first screen; edge to edge on a phone */
-.film{position:relative;width:min(1200px,100%,(100svh - 370px) * 2.1);margin:clamp(28px,4.2vh,52px) auto 0;perspective:1800px}
+.film{position:relative;width:min(1200px,100%,(100svh - 420px) * 2.1);margin:clamp(28px,4.2vh,52px) auto 0;perspective:1800px}
 .film::before{content:"";position:absolute;inset:-7% 3% 30%;z-index:-1;border-radius:50%;background:linear-gradient(100deg,#5d5fea 6%,#8b7cf6 38%,#62cf8e 70%,#f2b03d 96%);filter:blur(72px);opacity:var(--glow-win);pointer-events:none}
 .win{position:relative;margin:0;border-radius:14px;background:var(--win-bg);box-shadow:0 0 0 1px var(--ring),var(--lift);text-align:left;transform-origin:50% 60%;scroll-margin-top:calc(var(--nav) + 24px)}
 /* It leans back, then stands up as the page scrolls; where scroll-driven animation is missing it simply stands */
@@ -624,7 +625,8 @@ p{margin:0 0 1em;text-wrap:pretty}
   .steps h3,.steps p{align-self:auto}
   .hero{padding-top:32px}
   .appicon{width:64px;height:64px}
-  .hero h1{font-size:clamp(2.5rem,12.4vw,3.4rem)}
+  .hero h1{font-size:clamp(1.8rem,9vw,3.4rem)}
+  .sub strong{font-size:1.06rem}
   .hero .ctas{display:grid;grid-template-columns:minmax(0,1fr)}
   .hero .ctas .btn{width:100%}
   .film{width:100vw;margin-inline:calc(50% - 50vw)}

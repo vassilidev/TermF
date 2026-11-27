@@ -5,8 +5,8 @@
 <h1 align="center">TermF</h1>
 
 <p align="center">
-  <b>Stop using Claude Code (alone).</b><br>
-  Tickets in, reviewed pull requests out. A CTO and a team of Claude Code agents work on your machine, and you approve.
+  <b>Lead a team of Claude Code agents.</b><br>
+  Give it a ticket: a CTO plans it, specialists build and test it in parallel, a reviewer checks it. You approve the pull request.
 </p>
 
 <p align="center">

@@ -5,8 +5,8 @@
 <h1 align="center">TermF</h1>
 
 <p align="center">
-  <b>Arrête d'utiliser Claude Code (seul).</b><br>
-  Des tickets en entrée, des pull requests relues en sortie. Un CTO et une équipe d'agents Claude Code travaillent sur ta machine, et tu valides.
+  <b>Mène une équipe d'agents Claude Code.</b><br>
+  Donne-lui un ticket : un CTO le planifie, des spécialistes le codent et le testent en parallèle, un relecteur le vérifie. Tu approuves la pull request.
 </p>
 
 <p align="center">
