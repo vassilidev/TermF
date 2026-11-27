@@ -97,7 +97,7 @@ The tables a project's file can hold, each described on its page:
 
 | Table | Page |
 |---|---|
-| `name`, `[[repos]]` (`path`, optional `name`) | [Projects](projects.md) |
+| `name`, `[[repos]]` (`path`, optional `name`), `color` (`#rrggbb`), `icon` (an emoji) | [Projects](projects.md) |
 | `remote_control`, `[remote_control_roles]` | [Remote Control](remote-control.md) |
 | `[trackers.*]` | [Tickets](tickets.md) |
 | `[team]`: `triage`, `approve_route`, `plan_gate`, `review`, `review_rounds`, `review_nits`, `max_turns`, `staff`, `subplan_gate` | [Runs](runs.md#triage), [review](runs.md#code-review), [squads](team.md#squads) |

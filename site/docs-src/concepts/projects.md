@@ -8,7 +8,8 @@ A project groups the repositories you work on together; it has its own Home, its
 ## What a project holds
 
 - **Repositories**: one or several, anywhere on your machine. Add more later from the project's **Configuration**.
-- **Views**: Home, Terminals, Tickets, Files, Git, CI/CD, Design system, Vault, Ops and Configuration unfold under the project in the navigation.
+- **Views**: Home, Terminals, Conversations, Tickets, Files, Git, CI/CD, Design system, Vault, Ops and Configuration unfold under the project in the navigation. Under Conversations, the project's CTO and expert come first, then its latest conversations.
+- **A look**: a color and an emoji for its mark, in **Configuration › Project › Appearance**.
 - **A team**: the roles, their settings and the [squads](team.md#squads).
 - **Ticket sources**, a worktree recipe, [MCP servers and connectors](mcp-connectors.md), workflows and rules.
 
