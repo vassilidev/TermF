@@ -33,16 +33,16 @@
   --max:1440px;
   --nav:64px;
 }
-/* Dark: graphite surfaces, solid titles, one quiet accent; no glow, gradient or grid */
+/* Dark: graphite surfaces, solid titles, one quiet accent */
 :root[data-theme=dark]{
   color-scheme:dark;
   --paper:#1a1a19;--sheet:#222221;--well:#1e1e1d;--ink:#ededeb;--soft:#b6b5b0;--mute:#8f8e89;
   --line:rgb(255 255 255/.08);--line2:rgb(255 255 255/.15);--hover:rgb(255 255 255/.05);--ring:rgb(255 255 255/.1);
-  --rule:rgb(255 255 255/.06);--grid-line:transparent;
+  --rule:rgb(255 255 255/.06);
   --accent:#9aa6e6;--accent-ink:#b4bdf0;--accent-soft:rgb(154 166 230/.1);
   --indigo:#6a76d0;--fill:#4c58c0;--fill-hover:#434fb4;--team-bar:#9aa6e6;
   --working:#9aa6e6;--working-soft:rgb(154 166 230/.14);--done:#6cc58f;--done-soft:rgb(108 197 143/.13);--waiting-ink:#2e1d00;
-  --title:linear-gradient(var(--ink),var(--ink));--grid:none;--glow-i:transparent;--glow-win:0;
+  --title:linear-gradient(var(--ink),var(--ink));
   --win-bg:#0b0b12;--win-bar:#252524;--win-bar-line:rgb(255 255 255/.07);--win-title:#9c9b96;
   --ini-bg:#2a2a28;
   --code:#151514;--code-ink:#e4e4e0;--code-mute:#96958f;--code-line:rgb(255 255 255/.08);
@@ -58,11 +58,11 @@
   color-scheme:dark;
   --paper:#1a1a19;--sheet:#222221;--well:#1e1e1d;--ink:#ededeb;--soft:#b6b5b0;--mute:#8f8e89;
   --line:rgb(255 255 255/.08);--line2:rgb(255 255 255/.15);--hover:rgb(255 255 255/.05);--ring:rgb(255 255 255/.1);
-  --rule:rgb(255 255 255/.06);--grid-line:transparent;
+  --rule:rgb(255 255 255/.06);
   --accent:#9aa6e6;--accent-ink:#b4bdf0;--accent-soft:rgb(154 166 230/.1);
   --indigo:#6a76d0;--fill:#4c58c0;--fill-hover:#434fb4;--team-bar:#9aa6e6;
   --working:#9aa6e6;--working-soft:rgb(154 166 230/.14);--done:#6cc58f;--done-soft:rgb(108 197 143/.13);--waiting-ink:#2e1d00;
-  --title:linear-gradient(var(--ink),var(--ink));--grid:none;--glow-i:transparent;--glow-win:0;
+  --title:linear-gradient(var(--ink),var(--ink));
   --win-bg:#0b0b12;--win-bar:#252524;--win-bar-line:rgb(255 255 255/.07);--win-title:#9c9b96;
   --ini-bg:#2a2a28;
   --code:#151514;--code-ink:#e4e4e0;--code-mute:#96958f;--code-line:rgb(255 255 255/.08);
@@ -122,6 +122,10 @@ p{margin:0 0 1em;text-wrap:pretty}
 .copy:hover{background:var(--accent-soft);color:var(--ink)}
 .copy svg{width:15px;height:15px}
 .copy.ok{color:var(--done);background:var(--done-soft)}
+
+/* The dark theme has no glow and no grid behind the hero, the film, the cards and the download */
+:root[data-theme=dark] :is(.hero,.film,.card-vis,.last,.dl-card,.lost)::before,:root[data-theme=dark] .hero::after{display:none}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) :is(.hero,.film,.card-vis,.last,.dl-card,.lost)::before,:root:not([data-theme=light]) .hero::after{display:none}}
 
 .theme{display:grid;place-items:center;width:44px;height:44px;border:0;border-radius:10px;background:none;color:var(--soft);cursor:pointer}
 .theme:hover{background:var(--hover);color:var(--ink)}
