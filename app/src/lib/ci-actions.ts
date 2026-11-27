@@ -1,8 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Action } from "$lib/actions.svelte";
-import { ci, deployLabel, deploys, loadDeploys, loadHooks, type Hook, type Target, type Tool } from "$lib/ci.svelte";
-import { HOOK_EVENTS as EVENTS } from "$lib/ci-logic";
+import { ci, deployLabel, deploys, loadDeploys, loadHooks, type Hook, type JobLog, type RunDetail, type RunPage, type Target, type Tool, type WorkflowRun } from "$lib/ci.svelte";
+import { HOOK_EVENTS as EVENTS, excerpt } from "$lib/ci-logic";
 import { t } from "$lib/i18n";
+import { projectRepos } from "$lib/stack-actions";
 import { toast } from "$lib/ui/toast.svelte";
 
 const TOOLS: Tool[] = ["forge", "vercel", "netlify", "fly", "railway"];
@@ -57,6 +58,57 @@ const connectDeploy: Action = {
     ci.tab = "deploys";
     void loadDeploys(project, true);
     return { connected: target.name, tool, note: "Its deployments show in the CI/CD view's Deployments tab." };
+  },
+};
+
+const ciRead: Action = {
+  id: "ci.read",
+  description:
+    "Reads a repository's latest GitHub Actions runs, as the CI/CD view lists them: workflow, title, branch, commit, event, status, conclusion, when, link. With `run`, that run's jobs, their failed steps and, for each failed job, the lines of its log around the first error. Reads only.",
+  fields: {
+    repo: { type: "string", description: "The repository, by its folder's name: by default the one the CI/CD view shows, else the project's first." },
+    branch: { type: "string", description: "Only this branch's runs." },
+    run: { type: "integer", description: "A run's id, as the list gives it: its jobs and what failed." },
+  },
+  label: "actCiRead",
+  describe: () => "",
+  async run(a, _secrets, project) {
+    const repo = text(a.repo) ? projectRepos(project, a.repo)[0] : ci.repo || projectRepos(project)[0];
+    if (!repo) throw new Error("This project has no repository.");
+    const brief = (r: WorkflowRun) => ({
+      id: r.id,
+      workflow: r.workflow,
+      title: r.title,
+      branch: r.branch,
+      sha: r.sha.slice(0, 7),
+      event: r.event,
+      status: r.status,
+      conclusion: r.conclusion,
+      created: r.created,
+      url: r.url,
+    });
+    if (typeof a.run !== "number") {
+      const page = await invoke<RunPage>("ci_runs", { repo, branch: text(a.branch) });
+      return { repo: page.repo, runs: page.runs.slice(0, 15).map(brief), total: page.total };
+    }
+    const detail = await invoke<RunDetail>("ci_run", { repo, id: a.run });
+    const failed = detail.jobs.filter((j) => j.conclusion === "failure");
+    const failures = await Promise.all(
+      failed.map((j) =>
+        invoke<JobLog>("ci_log", { repo, job: j.id }).then(
+          (log) => ({ job: j.name, log: excerpt(log)?.lines ?? log.lines.slice(-30) }),
+          (e) => ({ job: j.name, unread: String(e) }),
+        ),
+      ),
+    );
+    const jobs = detail.jobs.map((j) => ({
+      name: j.name,
+      status: j.status,
+      conclusion: j.conclusion,
+      failedSteps: j.steps.filter((s) => s.conclusion === "failure").map((s) => s.name),
+      url: j.url,
+    }));
+    return { run: brief(detail.run), jobs, failures };
   },
 };
 
@@ -336,4 +388,4 @@ export async function ciHere(project: string) {
   };
 }
 
-export const ciActions: Action[] = [connectDeploy, editDeploy, deleteDeploy, rerun, cancel, dispatch, redeploy, addHook, updateHook, deleteHook, redeliver];
+export const ciActions: Action[] = [ciRead, connectDeploy, editDeploy, deleteDeploy, rerun, cancel, dispatch, redeploy, addHook, updateHook, deleteHook, redeliver];

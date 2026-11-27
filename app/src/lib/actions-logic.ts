@@ -162,13 +162,16 @@ export type Gate = "read" | "change" | "ask";
  * test fails when one invokes a command out of its list, or one that is not in `READS`.
  */
 export const READ_ACTIONS: Readonly<Record<string, readonly string[]>> = {
+  "ci.read": ["ci_runs", "ci_run", "ci_log"],
   "design.scan": ["design_scan"],
   "env.scan": ["env_scan"],
+  "git.read": ["git_state", "git_prs"],
   "ops.forge_list": ["forge_account", "forge_sites"],
   // Ops' agent path: refused where agents may not look, Ops' card in prod, masked output.
   "ops.run_query": ["ops_overview", "ops_agent_run"],
   // Its card still shows for a route the user has not seen (`Action.cardAnyway`).
   "ops.test_connection": ["ops_overview", "ops_test"],
+  "stack.read": ["stack_map", "stack_check"],
   "settings.read": [
     "agentenv_settings",
     "artifacts_list",
