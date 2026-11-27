@@ -3,6 +3,112 @@
 What changed from one release of TermF to the next, by feature. Every feature has its page on the
 [website](https://vassilidev.github.io/TermF/features.html), with its defaults and its limits.
 
+## 0.6.0
+
+TermF 0.6.0 comes from real use: agents ask only when it matters, several machines share one sync without
+overwriting each other, the first launch sets up the machine, and a project gives its MCP servers and your Claude
+connectors to the roles you choose.
+
+### Agents ask less, and always for what matters
+- **Reads and tests run without a card**: listing, reading or testing a connection, a ticket source, a query or the
+  settings. The agent knows which actions pass without asking.
+- **A change asks once per conversation.** Its card offers *Always allow in this conversation*. A line under the
+  thread lists what is allowed, and one click takes it back. It ends with the conversation or when TermF quits.
+- **Some always ask**: deletes, writes in production, the vault, and what agents may do or reach. A card that asks
+  for a secret always shows.
+- **Every setting, for agents too.** An agent reads each setting with its value and what it does, shortcuts and
+  Claude Code's settings included, never a secret, and changes it through a card. Sensitive settings, such as the
+  vault's locking, the variables given to agents or the sync's scopes, ask every time.
+- **A new role, the TermF expert**, answers about TermF on the Settings screen and changes settings from any screen.
+  The CTO asks it when needed. The team now has 30 roles.
+
+### MCP servers and connectors for the roles you choose
+- **Per project.** *MCP and connectors* in the project's configuration lists the project's MCP servers and your
+  Claude account's connectors (Gmail, Google Calendar…), each given only to the roles you tick, the CTO and the expert
+  included. A connector of your account is added in one click.
+- **Read-only by default.** A hook refuses any connector tool it cannot tell is a read.
+- **Kept apart.** A role gets no connector it was not given. What a connector returns is framed as untrusted, like a
+  ticket, and a session that can read production asks you before each connector call. A value that looks like a
+  secret goes to the project's vault, and the file keeps only its name.
+
+### Conversations
+- **The CTO and the expert open full size in Conversations**, from wherever you call them, with the context of the
+  screen you came from. The ⌘I panel stays for a screen's own roles, with a visible *Expand* (⌘⇧I), and folds away
+  in Conversations.
+- **Found fast.** Filter the list by one or more projects, and search titles, roles, projects and the messages
+  themselves, archives included. ⌘⇧K picks a conversation from the keyboard, and ⌘K finds them too.
+- *Topic done* is the main button when nothing is running.
+
+### Sync across several machines
+- **Machines combine, nothing is replaced.** TermF's settings key by key, `~/.ssh/config` host by host and option by
+  option, `~/.gitconfig` section by section, Claude Code's settings and MCP servers key by key. Two SSH keys with the
+  same name are both kept, the other machine's as `<name>-2`. `known_hosts` travels with the SSH keys, lines joined
+  and none removed.
+- What belongs to one machine stays there: absolute paths outside your home folder, `UseKeychain`, a credential
+  helper. A real disagreement shows side by side, limited to what differs.
+- **See what will change before you join**, scope by scope, without writing anything.
+- **Undo the last sync.** Each sync first backs up the files it changes (the last 10), and *Undo* puts them back byte
+  for byte. Private keys are never backed up.
+- **Always in sight.** A line above *This machine* in the navigation shows the sync's state and its last run, with
+  *Sync now* one click away. The sync page says whether this machine matches, or what is left to send, receive or
+  settle in each scope.
+- Turning on a scope syncs at once, and turning on SSH keys works again and names the keys sent.
+- **Download the recovery key** as a file, from the Vault and Sync screens.
+- **Keep awake** sits on the same line: its icon shows whether the computer is kept awake, and its menu says why and
+  changes the mode in one click.
+
+### First launch
+- **Set up this machine, step by step**: first or second machine, *My environment*, the vault with its recovery key,
+  then the encrypted sync, with a preview before joining. On a second machine the sync comes first and brings your
+  settings, projects and vault.
+- Skip a step and come back to it: the Home lists what is left, with *Resume*.
+
+### Vault
+- **Locks when you leave it**, as soon as no panel shows it. On by default; *Lock when leaving the vault* turns it off.
+- **A locked vault asks where you are.** An approved action, or a key an agent asked for, that needs the vault shows a
+  card to unlock it (master password, Touch ID, Windows Hello or the key's PIN), then goes on.
+- **A missing secret is asked where it is needed.** The agent proposes to save it from any screen, through a card.
+  In Ops, a connection test that fails for want of a secret offers a field to save it and test again. Redis passwords
+  included.
+
+### Tickets
+- **One *Browse* tab, the board first.** *To do* joins *Browse* as *Mine, to do*, next to *All*. A source with statuses
+  opens on its board, and your choice of list or board is kept.
+- **The source's spaces in sight**: Jira projects or GitHub repositories as buttons at the top.
+- **The done status picked from the real ones**, per Jira space, and from the columns of a GitHub Project or the
+  states of a Linear team. Azure DevOps keeps the free field.
+
+### Ops
+- **Connections in a tree by machine**: a database or a Redis under the SSH server it goes through, a server under its
+  bastion, filtered by environment.
+- **Redis browsed like a database**: its own tab, the same picker as the SQL studio, the first keys listed at once,
+  read-only until *Allow changes*.
+- **A clearer SQL studio**: no database chosen for you, the schema sorted with its keys and what references each
+  table, the diagram one button away, and *Ask the DBA* next to the editor.
+- *Live* logs are now a recipe, not a tab of their own.
+- **Laravel Forge works with today's Forge.** The token is tested before it is saved and with *Test*, the token of
+  Forge's own CLI is offered in one click, and agents can list the servers and sites.
+
+### Projects of several repositories
+- **One repository choice for the whole project**, *All repositories* or one, kept from view to view.
+- **All of them side by side**: with *All*, Git, CI/CD and Design system show one row per repository, and Files
+  searches them all.
+- A small label names the repository on terminal tiles, conversations and launched tickets.
+
+### Settings
+- **Agents' environment, explained.** The variables of your shell that agents do not get, by name only, each with
+  *Give*.
+- **The worktree recipe** is set in the project's configuration.
+
+### Fixes
+- *My environment* works with recent Homebrew and with Composer installed by Laravel Herd, and its tabs scroll.
+- Enter in a form inside a step-by-step wizard submits the form instead of moving to the next step.
+
+### The website
+- **A sober dark theme** for the site and the docs. The site is light by default, dark only when chosen with the
+  switch.
+- **The launch film v7**: 2 min 44 s on the real app, in light and dark.
+
 ## 0.5.0
 
 TermF 0.5.0 lets you code on any machine: the encrypted sync now carries your whole setup, Claude Code's included, and

@@ -1,6 +1,6 @@
 # TermF — état d'avancement et reprise
 
-> Mis à jour le 2026-11-25. La conception de référence est [ARCHITECTURE.md](ARCHITECTURE.md), la feuille de route au §17. Ce document dit **où on en est**, **comment on travaille** et **quoi faire ensuite**, pour qu'une nouvelle session reprenne sans rien perdre.
+> Mis à jour le 2026-11-27. La conception de référence est [ARCHITECTURE.md](ARCHITECTURE.md), la feuille de route au §17. Ce document dit **où on en est**, **comment on travaille** et **quoi faire ensuite**, pour qu'une nouvelle session reprenne sans rien perdre.
 
 ## 1. Ce qui est sur `main`
 
@@ -93,14 +93,16 @@
 | Release 0.4.0 | Version 0.4.0 partout, section 0.4.0 de `CHANGELOG.md`, STATUS (PR « Release 0.4.0: version, changelog and status ») | `CHANGELOG.md` |
 | Synchro de tout | Tout le dossier de config sauf `local.toml` (la veille `scout/` en plus, journal fusionné ligne à ligne), test de garde qui échoue si un fichier du dossier n'a pas de portée ; portée « Config de dev » (`devConfig`, décochée par défaut) : config, skills, agents, commandes, styles, hooks et mémoire auto de Claude Code, serveurs MCP de `~/.claude.json`, `~/.gitconfig` et son fichier d'exclusions ; tout `~/.ssh/config` avec les clés SSH (PR #176) | `crates/termf-sync/src/{dev,ssh,local}.rs`, `app/src/lib/SyncView.svelte` |
 | Mon environnement | Détection en lecture seule de ce que la machine a installé (Homebrew avec `brew bundle dump`, npm, pnpm, bun, cargo, rustup, pipx, uv, gh, composer, versions globales de mise, asdf, fnm, nvm et Volta, programmes et apps installés à la main), manifeste `env.toml` synchronisé avec la portée Config, script POSIX sh idempotent, `termf env`, vue « Mon environnement » et ses actions d'agent (PR « Environment: what you use, installed anywhere in one go ») | `crates/termf-core/src/devenv.rs`, `crates/termf-cli/src/devenv.rs`, `app/src/lib/{EnvView.svelte,devenv*.ts,env-actions.ts}` |
+| Issues du 2026-11-26 (#180 à #208) | Autorisations des agents : lire et tester sans carte, une modification autorisée pour la conversation, le sensible toujours sur carte, tous les réglages ouverts à `termf mcp`, rôle `termf-expert` (30 rôles) (PR #221) ; serveurs MCP et connecteurs du compte Claude par projet et par rôle, en lecture seule par défaut (PR #227) ; le CTO et l'expert en grand dans Conversations, recherche et ⌘⇧K (PR #215) ; synchro de plusieurs machines sans rien remplacer, aperçu avant de rejoindre, annulation de la dernière synchro (PR #214), synchro et veille en vue, clé de récupération en fichier (PR #217), clés SSH (PR #212) ; premier lancement qui prépare la machine (PR #219) ; coffre verrouillé en le quittant, secrets demandés sur place (PR #213) ; tableau des tickets par projet, statut de fin par espace (PR #216) ; Ops en arbre, Redis comme une base, studio SQL plus clair (PR #218), Forge d'aujourd'hui (PR #211) ; projets de plusieurs dépôts côte à côte (PR #222) ; environnement des agents refait, recette des worktrees dans le projet (PR #220) ; Mon environnement (PR #210) ; site : thème sombre sobre, clair par défaut, film v7 de 2 min 44 s (PR #225, #228, #229) | `crates/termf-sync/src/{merge,lines}.rs`, `crates/termf-library/src/connectors.rs`, `app/src/lib/{actions-logic.ts,RepoChoice.svelte}` |
+| Release 0.6.0 | Version 0.6.0 partout, section 0.6.0 de `CHANGELOG.md`, 30 rôles sur le site, STATUS (PR « Release 0.6.0: version, changelog and status ») | `CHANGELOG.md` |
 
-Releases `v0.1.0` (pré-version) et `v0.2.0` publiées le 2026-11-22, `v0.3.0` le 2026-11-25 (non signées), `v0.4.0` et `v0.5.0` le 2026-11-26 (macOS signé Developer ID et notarisé ; Windows non signé).
+Releases `v0.1.0` (pré-version) et `v0.2.0` publiées le 2026-11-22, `v0.3.0` le 2026-11-25 (non signées), `v0.4.0` et `v0.5.0` le 2026-11-26, `v0.6.0` le 2026-11-27 (macOS signé Developer ID et notarisé ; Windows non signé).
 
 ## 2. En cours au moment de la passation
 
 Règles communes des agents et outillage de captures : `.claude/reviews/tools/brief-common.md` et `.claude/reviews/tools/capture/` (durables). Merge : revue (`/code-review high`, `medium` pour du contenu) → corrections par l'agent auteur → CI 3 OS → si `main` a bougé et conflit, l'agent fusionne `origin/main` (pas de rebase) → squash. Le propriétaire a autorisé le merge de toutes les PR après revue + CI (2026-11-22) ; en mode auto, `gh pr merge` reste refusé tant qu'il ne l'a pas dit dans la session : le lui demander dès le début d'une nouvelle session. Passation détaillée : `.claude/reviews/HANDOFF.md`.
 
-- **0.4.0 et 0.5.0 publiées** le 2026-11-26 : macOS signé avec le Developer ID et notarisé (le premier `.dmg` notarisé dans le build, sans attente) ; `latest.json` couvre toutes les plateformes.
+- **0.4.0 et 0.5.0 publiées** le 2026-11-26, **0.6.0** le 2026-11-27 : macOS signé avec le Developer ID et notarisé (le premier `.dmg` notarisé dans le build, sans attente) ; `latest.json` couvre toutes les plateformes.
 - **Agents en cours, file d'attente et retours du propriétaire dans la vraie app** (création de projet refaite, binaire Claude Code) : `.claude/reviews/HANDOFF.md`, à jour.
 - **Le propriétaire a commencé à essayer la vraie fenêtre** le 2026-11-22 (création de projet jugée trop pauvre, analyse de l'assistant cassée par un vieux `claude` npm, corrigées par les PR #81 et #82). Depuis, chaque vue est pilotée dans la vraie app par les tests de bout en bout (macOS et Linux, faux `claude` et `gh`, PR #88 et #110), mais presque rien n'a été essayé à la main sur un vrai projet.
 - Revue groupée du propriétaire : pages avant/après dans `.claude/reviews/work/*-review/index.html` (une par tranche) ; la revue « swipe » (https://claude.ai/artifact/DJWDnJvH7KWSpP64od6veR) n'a pas été republiée depuis la passe UX n° 2.
@@ -111,27 +113,19 @@ Règles communes des agents et outillage de captures : `.claude/reviews/tools/br
 
 **Demandes du propriétaire des 2026-11-21 et 22 : toutes livrées** (voir §1 : Git intégré, skills des outils CLI, navigateur des agents, gestionnaire de mots de passe, rôles créatifs, spécialistes et de recherche, vue Design system, discipline de l'équipe, setup et projet de zéro, Ops, synchro complète, équipe proportionnée, README et site). Le panneau « ponytail » dans Claude Code vient du plugin ponytail de l'utilisateur (pas de TermF) : se désactive par `/plugin`.
 
-**Prochain travail : les issues GitHub ouvertes au 2026-11-26 (#180 à #208), dans cet ordre.** Chaque issue a une section « Liens » avec ses dépendances.
+**Issues ouvertes au 2026-11-26 (#180 à #208) : toutes livrées dans 0.6.0** (voir §1). Reste #224 (carte de la stack d'un projet).
 
-- **Bugs** : #180 (Forge), #181 (Redis), #196 et #197 (Mon environnement), #200 (clés SSH dans la synchro).
-- **Synchro** : #208 (réconcilier plusieurs machines sans rien écraser, aperçu avant raccordement, sauvegarde avant d'appliquer), puis #203, puis #199 et #201, puis #198 (premier lancement).
-- **Écrans**, indépendants entre eux : Conversations (#184, #185, #194, #195 en un seul passage), Tickets (#186, #187), Ops (#188, puis #189 après #181), puis #190, #191, #192, #193, #204, #205.
-- **Autorisations des agents** : #182 et #202 ensemble.
-- **Site** : #207 (thème sombre amélioré, ou retiré en attendant si c'est trop compliqué).
-- **Film** : #206 en dernier (il montre les écrans refaits ; sa version sombre suit #207).
-
-Décisions du propriétaire (2026-11-26) :
+Décisions du propriétaire (2026-11-26), appliquées dans 0.6.0 :
 - #182 et #202 : lire, lister et tester passent sans carte ; une modification demande une carte avec « Toujours autoriser dans cette conversation » (révocable) ; une écriture en prod, une suppression, le coffre et les réglages qui touchent aux droits des agents demandent toujours une carte.
 - #204 : garder la protection et refaire la page.
 - #194 et #184 : le CTO et l'expert s'ouvrent en grand dans Conversations ; le panneau de droite reste pour les rôles d'un écran, avec « Agrandir » visible et un raccourci, et se replie dans la vue Conversations.
 - #207 : refaire le thème sombre du site et de la doc seulement ; le thème clair et l'app ne changent pas.
 - #183 : le coffre se verrouille dès qu'on quitte sa vue, activé par défaut et désactivable.
 - #208 : `~/.ssh/known_hosts` se synchronise avec les clés SSH, en réunion des lignes (rien n'est retiré ni remplacé).
-- Merge : après CI verte sur les 3 OS (plus une relecture si sécurité ou données), sans attendre ; revue groupée des avant/après à la fin. #206 et #207 sont validées par le propriétaire avant merge.
 - Choisi sans lui (évident) : #198, sur une deuxième machine l'accueil propose de récupérer la synchro existante ; #193, le CTO garde `--strict-mcp-config` (§12.4), les connecteurs vont aux rôles choisis, en lecture seule par défaut.
 
 1. **Publier une version** : PR « Release X.Y.Z: version, changelog and status », puis `git tag vX.Y.Z && git push origin vX.Y.Z` ; attendre que chaque `.dmg` soit dans le brouillon (sinon `notarized.yml` le remet dès qu'Apple l'accepte), coller la section de `CHANGELOG.md` avec la section Install de la release précédente, publier avec `--latest`, vérifier `install.sh` / `install.ps1`, `latest.json`, `SHA256SUMS` et la page de téléchargement (§5).
-2. **Signature** : Apple (Developer ID et notarisation : compte Apple Developer payant, certificat et identifiants dans les secrets de la CI, `signingIdentity` à changer) et Windows (certificat de signature de code ou Azure Trusted Signing). Jusque-là, une étape de plus au premier lancement d'un fichier téléchargé par un navigateur (README) ; la signature débloque aussi la passkey du coffre et un vrai lien biométrique pour Touch ID (`SecAccessControl`, keychain-access-group).
+2. **Signature** : macOS est signé Developer ID et notarisé depuis 0.4.0 ; reste Windows (certificat de signature de code ou Azure Trusted Signing). Jusque-là, SmartScreen demande une étape de plus au premier lancement (README). Reste à brancher ce que la signature macOS permet : la passkey du coffre et un vrai lien biométrique pour Touch ID (`SecAccessControl`, keychain-access-group).
 3. **Essayer pour de vrai ce qui ne l'a jamais été** (détail au §4) :
    - l'app à la main sur un vrai projet, sous macOS, puis Windows et Linux (jamais lancés à la main) ; le bout en bout sous Windows (WebDriver de WebView2) ;
    - installer une mise à jour (signature, téléchargement, redémarrage) et les `.deb`, `.rpm` et AppImage d'une vraie release ;
