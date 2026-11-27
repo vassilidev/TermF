@@ -28,6 +28,7 @@ mod quick_terminal;
 mod remote;
 mod schedule;
 mod ssh;
+mod stack;
 mod sync;
 mod team;
 mod tickets;
@@ -700,6 +701,8 @@ pub fn run() {
             design::design_pdf,
             design::design_font_files,
             design::design_web_fonts,
+            stack::stack_map,
+            stack::stack_check,
             onboarding::onboarding_state,
             onboarding::onboarding_analyze,
             onboarding::onboarding_answer,

@@ -337,7 +337,7 @@ def icon(name):
 
 
 # The share image, site/og.png, made from site/og/og.html
-OG_ALT = "TermF. Stop using Claude Code (alone). Tickets in. Reviewed pull requests out."
+OG_ALT = "TermF. Lead a team of Claude Code agents."
 
 THEME_SCRIPT = """<script>try{const t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch{}</script>"""
 

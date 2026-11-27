@@ -20,6 +20,7 @@ export const ROLE_BY_VIEW: Record<string, string> = {
   vault: "secops",
   vaultAll: "secops",
   design: "ux",
+  stack: "devops",
   review: "ux",
   git: "expert",
   files: "expert",

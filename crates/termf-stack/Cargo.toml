@@ -1,0 +1,19 @@
+[package]
+name = "termf-stack"
+description = "A project's stack map: each repository's stack, dependencies, services, databases and links, and what the registries, OSV and endoflife.date say of its versions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+# Today's date, for the end of support; already used by termf-ci.
+jiff = "1.0.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+termf-ci = { path = "../termf-ci" }
+termf-core = { path = "../termf-core" }
+termf-library = { path = "../termf-library" }
+termf-worktree = { path = "../termf-worktree" }
+toml = "1.2.2"
+yaml-rust2 = "0.13.2"
