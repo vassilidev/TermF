@@ -5,9 +5,25 @@ What changed from one release of TermF to the next, by feature. Every feature ha
 
 ## 0.6.0
 
-TermF 0.6.0 comes from real use: agents ask only when it matters, several machines share one sync without
-overwriting each other, the first launch sets up the machine, and a project gives its MCP servers and your Claude
-connectors to the roles you choose.
+TermF 0.6.0 maps your stack: the project's repositories, how they connect, and every dependency with its latest
+version, its support and its known vulnerabilities, updated from the map. It also comes from real use: agents ask
+only when it matters, several machines share one sync without overwriting each other, the first launch sets up the
+machine, and a project gives its MCP servers and your Claude connectors to the roles you choose.
+
+### Your stack at a glance
+- **A map of the project.** The new *Stack* view shows each repository with its languages, frameworks and versions,
+  and the lines between them: one calls another, depends on a package another publishes, or shares its database.
+  Each repository lists its dependencies, Compose services and ports, databases, expected variables and CI workflows.
+  Around them: CI, deployments, Ops connections by environment, and the agents' roles and tools.
+- **Every item leads to its view**: Git, CI/CD, Ops, the SQL studio or Redis, Files.
+- **Every dependency, checked.** The version used, the latest one, the LTS and end of support of runtimes and
+  frameworks, and the known vulnerabilities with their severity and the version that fixes them. Filter what to
+  update, what is vulnerable or what reaches its end of support.
+- **Updated from the map.** A safe update, within the same major version, runs its package manager's command in a
+  TermF terminal after a card. A major update goes to devops, with the line attached.
+- **Nothing runs, little leaves.** TermF reads the manifests and lockfiles of npm, pnpm, yarn, bun, Composer, Cargo,
+  uv, poetry, pip, Go and Bundler. Only package names and versions go to the registries, OSV.dev and
+  endoflife.date, and answers are kept 24 hours.
 
 ### Agents ask less, and always for what matters
 - **Reads and tests run without a card**: listing, reading or testing a connection, a ticket source, a query or the
@@ -104,11 +120,14 @@ connectors to the roles you choose.
 - *My environment* works with recent Homebrew and with Composer installed by Laravel Herd, and its tabs scroll.
 - Enter in a form inside a step-by-step wizard submits the form instead of moving to the next step.
 
-### The website
+### The website and the README
+- **A new tagline**: *Lead a team of Claude Code agents.* On the front page, the README, the film and a new
+  share image, in the site's dark theme.
+- **Your stack at a glance** joins the front page and the README.
 - **A sober dark theme** for the site and the docs. The site is light by default, dark only when chosen with the
   switch.
 - **The launch film v7**: 2 min 44 s on the real app, in light and dark.
-- **The docs cover 0.6.0**, with a new page, *MCP and connectors*.
+- **The docs cover 0.6.0**, with two new pages, *Stack* and *MCP and connectors*.
 
 ## 0.5.0
 

@@ -51,6 +51,7 @@ Il te faut [Claude Code](https://code.claude.com), connecté, et `git`. Tous les
 - **Jira et un kanban.** Plusieurs sites et espaces Jira, un tableau pour chaque source de tickets, et chaque ticket lu en entier dans l'app.
 - **Un studio de bases.** Des requêtes en lecture seule, des graphiques, le schéma complet en diagramme, et un DBA qui écrit la requête pour toi.
 - **Ops.** La santé des serveurs, Nginx, Redis, Laravel et Laravel Forge, chaque changement attend ta confirmation.
+- **Ta stack d'un coup d'œil.** Une carte des dépôts du projet et de leurs liens, chaque dépendance avec sa dernière version, sa fin de support et ses failles connues, et les mises à jour sûres en un clic.
 - **Code sur n'importe quelle machine.** La synchro chiffrée apporte tes projets, ton coffre, tes clés SSH et ta config Claude Code sur chaque machine, et *Mon environnement* installe d'un coup tes outils sur une nouvelle.
 - **Les secrets n'arrivent jamais aux agents.** Mots de passe et jetons vont au coffre, tapés par toi. Tout tourne sur ta machine : pas de serveur TermF, pas de compte.
 
