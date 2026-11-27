@@ -357,13 +357,12 @@
               <span class="title">{session.title}</span>
               {#if pinned(session)}<Pin size={12} class="pin" aria-label={t("ctoPinned")} />{/if}
               {#if session.role && !pinned(session)}<span class="role"><UserRound size={11} aria-hidden="true" />{session.role}</span>{/if}
-              <RepoTag path={session.cwd} />
             </span>
             {#if hit}
               <span class="desc">{hit}</span>
             {:else}
               <span class="desc"
-                >{runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · {ago(session.updated)}{#if ask.origins[session.id] && !pinned(session)}
+                ><RepoTag path={session.cwd} said={session.title} />{runtimes[session.runtime] ? t(runtimes[session.runtime]) : usd(session.cost)} · {ago(session.updated)}{#if ask.origins[session.id] && !pinned(session)}
                   · {t("aigFrom", { screen: screenName(ask.origins[session.id]) })}{/if}</span
               >
             {/if}
@@ -555,6 +554,11 @@
 
   .role :global(svg) {
     color: var(--accent-ink);
+  }
+
+  .desc :global(.repo-tag) {
+    margin-right: 6px;
+    vertical-align: bottom;
   }
 
   .name :global(.pin) {

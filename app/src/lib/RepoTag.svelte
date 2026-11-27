@@ -4,15 +4,15 @@
   import { app } from "$lib/state.svelte";
   import { tickets } from "$lib/tickets.svelte";
 
-  /** The repository a folder is in, by name, only in a project of several. */
-  let { path }: { path: string } = $props();
+  /** The repository a folder is in, by name, only in a project of several; none when `said` (a title) already is it. */
+  let { path, said = "" }: { path: string; said?: string } = $props();
 
   const repo = $derived(
     repoOf(path, (app.workspace?.projects ?? []).filter((p) => app.project === null || p.id === app.project), tickets.runs),
   );
 </script>
 
-{#if repo}
+{#if repo && repo.name !== said}
   <span class="repo-tag" title={repo.path}><FolderGit2 size={11} aria-hidden="true" />{repo.name}</span>
 {/if}
 

@@ -153,7 +153,7 @@
       <StatusPill status={pill} label={failed ? `${t("exitedLabel")} (${session.exitCode})` : undefined} />
     {/if}
     <span class="title" title={session.cwd}
-      ><b>{name}</b><RepoTag path={session.cwd} /><span class="tool">{session.agent ?? t("shell")}</span>{#if session.action && session.running}<span class="last"
+      ><b>{name}</b><RepoTag path={session.cwd} said={name} /><span class="tool">{session.agent ?? t("shell")}</span>{#if session.action && session.running}<span class="last"
           ><Action act={{ kind: "tool", ...session.action }} /></span
         >{/if}</span
     >
