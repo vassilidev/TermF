@@ -6137,6 +6137,9 @@ const fr = {
   stackMajor: "Majeure",
   stackUpdate: "Mettre à jour",
   stackGiveDevops: "Confier à devops",
+  stackGiveAll: "Confier les {count} à devops",
+  stackAllDraft:
+    "Mets à jour ces {count} dépendances de {repo} une par une, en lançant les tests après chacune. Pour une version majeure, lis ses notes de version et adapte le code. Dis-moi ce qui a changé.",
   stackSevCritical: "Critique",
   stackSevHigh: "Haute",
   stackSevModerate: "Moyenne",
@@ -12272,6 +12275,9 @@ const en: Record<Key, string> = {
   stackMajor: "Major",
   stackUpdate: "Update",
   stackGiveDevops: "Hand to devops",
+  stackGiveAll: "Hand all {count} to devops",
+  stackAllDraft:
+    "Update these {count} dependencies of {repo} one by one, running the tests after each. For a major version, read its release notes and adapt the code. Tell me what changed.",
   stackSevCritical: "Critical",
   stackSevHigh: "High",
   stackSevModerate: "Moderate",

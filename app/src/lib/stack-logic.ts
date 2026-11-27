@@ -147,6 +147,14 @@ export function proposal(row: Row): { to: string; major: boolean } | null {
   return c.bump ? { to: c.latest, major: c.bump === "major" } : null;
 }
 
+/** The version a line goes to: its update, or a runtime's move once out of support; null when there is nothing to do. */
+export function target(row: Row, today: string): string | null {
+  const p = proposal(row);
+  if (p) return p.to;
+  const s = row.support;
+  return !row.dep && s && ending(s, today) ? (s.currentLts ?? s.latest ?? "") : null;
+}
+
 export type Box = { x: number; y: number; w: number; h: number };
 export type DbNode = Box & { key: string; db: Database; repos: string[] };
 export type Layout = { repos: Box[]; dbs: DbNode[]; width: number; height: number; top: number };
