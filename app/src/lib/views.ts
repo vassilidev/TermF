@@ -9,6 +9,7 @@ import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 import LockKeyhole from "@lucide/svelte/icons/lock-keyhole";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 import MessagesSquare from "@lucide/svelte/icons/messages-square";
+import Network from "@lucide/svelte/icons/network";
 import PackageCheck from "@lucide/svelte/icons/package-check";
 import Palette from "@lucide/svelte/icons/palette";
 import Server from "@lucide/svelte/icons/server";
@@ -29,6 +30,7 @@ import { library, showLibrary } from "$lib/library.svelte";
 import { ops, showOps } from "$lib/ops.svelte";
 import { showConfig } from "$lib/project.svelte";
 import { schedule, showScheduler } from "$lib/schedule.svelte";
+import { showStack, stack } from "$lib/stack.svelte";
 import { settings, showSettings } from "$lib/settings.svelte";
 import { showSsh, ssh } from "$lib/ssh.svelte";
 import { app, ui, type ViewId } from "$lib/state.svelte";
@@ -137,10 +139,21 @@ export const views: View[] = [
     load: () => import("$lib/CiView.svelte"),
   },
   {
+    id: "stack",
+    label: "stackView",
+    hint: "stackHint",
+    apart: true,
+    command: "stackShow",
+    icon: Network,
+    group: "project",
+    show: showStack,
+    loaded: () => stack.loaded,
+    load: () => import("$lib/StackView.svelte"),
+  },
+  {
     id: "design",
     label: "designView",
     hint: "uxfT1HintDesign",
-    apart: true,
     command: "designShow",
     icon: Palette,
     group: "project",
