@@ -8,12 +8,12 @@
   import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
   import Segments from "$lib/ui/Segments.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
-  import { askAI } from "$lib/ask.svelte";
+  import { askAI, type Chip } from "$lib/ask.svelte";
   import { focusSession } from "$lib/commands";
   import { lang, t } from "$lib/i18n";
   import { app, openSession } from "$lib/state.svelte";
   import { stack } from "$lib/stack.svelte";
-  import { ending, matches, proposal, rows, tally, worst, type Check, type Filter, type RepoMap, type Row, type Severity } from "$lib/stack-logic";
+  import { ending, matches, proposal, rows, tally, target, worst, type Check, type Filter, type RepoMap, type Row, type Severity } from "$lib/stack-logic";
 
   type Key = Parameters<typeof t>[0];
 
@@ -23,6 +23,7 @@
   const list = $derived(rows(repo, check, today));
   const counts = $derived(tally(list, today));
   const shown = $derived(list.filter((r) => matches(r, stack.filter, stack.query, today)));
+  const pending = $derived(shown.filter((r) => target(r, today) !== null));
   let open = $state<string | null>(null);
   let asking = $state<{ row: Row; to: string; command: string } | null>(null);
   let confirming = $state(false);
@@ -56,11 +57,11 @@
     }
     const from = row.version ?? "";
     const draft = p.major ? "stackMajorDraft" : "stackManualDraft";
-    hand(row, p.to, t(draft, { name: row.name, from, to: p.to, repo: repo.name, manager: row.dep?.manager ?? "" }));
+    hand(row, t(draft, { name: row.name, from, to: p.to, repo: repo.name, manager: row.dep?.manager ?? "" }));
   }
 
-  /** To devops, in the screen's conversation, with what the line says as context. */
-  function hand(row: Row, to: string, draft: string) {
+  /** What the line says, as context for devops. */
+  function chip(row: Row): Chip {
     const c = row.check;
     const lines = [
       `repository: ${repo.path}`,
@@ -69,18 +70,23 @@
       row.support && `support: cycle ${row.support.cycle ?? "?"}, end ${row.support.eol ?? "?"}${row.support.ended ? " (ended)" : ""}, current LTS ${row.support.currentLts ?? "?"}`,
       ...(c?.vulns ?? []).map((v) => `${v.id} (${v.severity}) ${v.summary}; fixed in ${v.fixed ?? "none"}`),
     ].filter(Boolean);
-    askAI({
-      role: "devops",
-      chips: [{ id: `stack-${row.key}`, kind: "object", label: t("stackChip", { name: row.name, from: row.version ?? "", to, repo: repo.name }), text: lines.join("\n") }],
-      draft,
-    });
+    const to = target(row, today) ?? "";
+    return { id: `stack-${row.key}`, kind: "object", label: t("stackChip", { name: row.name, from: row.version ?? "", to, repo: repo.name }), text: lines.join("\n") };
+  }
+
+  /** To devops, in the screen's conversation. */
+  function hand(row: Row, draft: string) {
+    askAI({ role: "devops", chips: [chip(row)], draft });
+  }
+
+  function handAll() {
+    askAI({ role: "devops", chips: pending.map(chip), draft: t("stackAllDraft", { count: pending.length, repo: repo.name }) });
   }
 
   function upgradeRuntime(row: Row) {
     const s = row.support;
     if (!s) return;
-    const to = s.currentLts ?? s.latest ?? "";
-    hand(row, to, t("stackRuntimeDraft", { name: row.name, from: s.version, to, repo: repo.name }));
+    hand(row, t("stackRuntimeDraft", { name: row.name, from: s.version, to: target(row, today) ?? "", repo: repo.name }));
   }
 
   async function run() {
@@ -107,10 +113,15 @@
     <Segments label={t("stackFilterLabel")} options={filters} selected={stack.filter} onselect={(id) => {
         stack.filter = id as Filter;
       }} />
-    <label class="search">
-      <Search size={14} aria-hidden="true" />
-      <input class="field" type="search" placeholder={t("stackSearch")} aria-label={t("stackSearch")} bind:value={stack.query} />
-    </label>
+    <div class="tools">
+      {#if pending.length > 1}
+        <button class="btn sm" onclick={handAll}><Sparkles size={13} aria-hidden="true" />{t("stackGiveAll", { count: pending.length })}</button>
+      {/if}
+      <label class="search">
+        <Search size={14} aria-hidden="true" />
+        <input class="field" type="search" placeholder={t("stackSearch")} aria-label={t("stackSearch")} bind:value={stack.query} />
+      </label>
+    </div>
   </div>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 
@@ -237,6 +248,12 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+  }
+
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .search {

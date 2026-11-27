@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ending, layout, matches, proposal, rows, tally, worst } from "../src/lib/stack-logic.ts";
+import { ending, layout, matches, proposal, rows, tally, target, worst } from "../src/lib/stack-logic.ts";
 
 const dep = (name, version, more = {}) => ({ name, ecosystem: "npm", manager: "npm", range: `^${version}`, version, locked: true, dev: false, manifest: "package.json", ...more });
 const repo = (name, more = {}) => ({ name, path: `/code/${name}`, tags: [], deps: [], services: [], databases: [], ports: [], env: [], envFile: null, workflows: [], publishes: [], ...more });
@@ -36,6 +36,7 @@ test("a repository's lines put runtimes first, then the worst, and its filters c
   assert.deepEqual(proposal(list[2]), { to: "5.4.11", major: false });
   assert.deepEqual(proposal(list[3]), { to: "18.3.1", major: true });
   assert.equal(proposal(list[4]), null);
+  assert.deepEqual(list.map((r) => target(r, today)), ["22", "4.17.21", "5.4.11", "18.3.1", null]);
   assert.equal(ending(support("php", { ended: false, eol: "2027-03-01" }), today), "soon");
   assert.equal(ending(support("php", { ended: false, eol: "2028-12-31" }), today), null);
 });
